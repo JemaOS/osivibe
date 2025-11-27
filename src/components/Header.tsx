@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState } from 'react';
 import { 
   Film, 
@@ -56,24 +59,24 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
   };
 
   return (
-    <header className="h-14 bg-[#0f0f0f] border-b border-white/10 flex items-center justify-between px-4 z-50 relative">
+    <header className="h-11 xs:h-12 sm:h-14 bg-[#0f0f0f] border-b border-white/10 flex items-center justify-between px-2 xs:px-3 sm:px-4 z-50 relative flex-shrink-0">
       {/* Left Section */}
-      <div className="flex items-center gap-4 flex-1 min-w-0">
+      <div className="flex items-center gap-2 xs:gap-3 sm:gap-4 flex-1 min-w-0">
         {/* Toggle Sidebar Button */}
         <button
           onClick={onToggleSidebar}
-          className="w-9 h-9 rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"
+          className="w-7 h-7 xs:w-8 xs:h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
           title={isSidebarVisible ? 'Masquer le panneau' : 'Afficher le panneau'}
         >
-          {isSidebarVisible ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeft className="w-5 h-5" />}
+          {isSidebarVisible ? <PanelLeftClose className="w-4 h-4 xs:w-5 xs:h-5" /> : <PanelLeft className="w-4 h-4 xs:w-5 xs:h-5" />}
         </button>
 
         {/* Logo and App Name */}
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary-500 flex items-center justify-center">
-            <Film className="w-4 h-4 text-white" />
+        <div className="flex items-center gap-1 xs:gap-2 flex-shrink-0">
+          <div className="w-6 h-6 xs:w-7 xs:h-7 sm:w-8 sm:h-8 rounded-lg bg-primary-500 flex items-center justify-center">
+            <Film className="w-3 h-3 xs:w-3.5 xs:h-3.5 sm:w-4 sm:h-4 text-white" />
           </div>
-          <span className="text-base font-semibold text-white hidden sm:inline">osivibe</span>
+          <span className="text-sm xs:text-base font-semibold text-white hidden xs:inline">osivibe</span>
         </div>
         
         <div className="hidden md:block w-px h-6 bg-white/20" />
@@ -194,12 +197,12 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         <div className="hidden lg:block w-px h-6 bg-white/20 mx-1" />
 
         {/* Export button */}
-        <button 
+        <button
           onClick={openExportModal}
-          className="bg-primary-500 hover:bg-primary-600 text-white h-9 px-4 rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+          className="bg-primary-500 hover:bg-primary-600 text-white h-7 xs:h-8 sm:h-9 px-2 xs:px-3 sm:px-4 rounded-lg flex items-center gap-1 xs:gap-2 text-xs xs:text-sm font-medium transition-colors flex-shrink-0"
         >
-          <Download className="w-4 h-4" />
-          <span>Exporter</span>
+          <Download className="w-3 h-3 xs:w-4 xs:h-4" />
+          <span className="hidden xs:inline">Exporter</span>
         </button>
       </div>
     </header>

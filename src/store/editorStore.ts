@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -351,12 +354,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   
   detachAudioFromVideo: (videoClipId) => {
     const state = get();
+    get().saveState(); // Save state before action for undo
+    
     const videoClip = state.tracks.flatMap(t => t.clips).find(c => c.id === videoClipId);
     
-    if (!videoClip || videoClip.type !== 'video') return;
+    console.log('🎵 detachAudioFromVideo called:', {
+      videoClipId,
+      videoClip: videoClip ? { id: videoClip.id, type: videoClip.type, name: videoClip.name } : null
+    });
+    
+    if (!videoClip || videoClip.type !== 'video') {
+      console.log('❌ detachAudioFromVideo: Invalid clip or not a video');
+      return;
+    }
     
     const mediaFile = state.mediaFiles.find(m => m.id === videoClip.mediaId);
-    if (!mediaFile) return;
+    if (!mediaFile) {
+      console.log('❌ detachAudioFromVideo: Media file not found');
+      return;
+    }
     
     // Find or create an audio track
     let audioTrack = state.tracks.find(t => t.type === 'audio');
@@ -376,8 +392,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     
     // Create an audio clip at the same position as the video
+    const audioClipId = uuidv4();
     const audioClip: TimelineClip = {
-      id: uuidv4(),
+      id: audioClipId,
       mediaId: videoClip.mediaId,
       trackId: audioTrack.id,
       startTime: videoClip.startTime,
@@ -386,15 +403,59 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       trimEnd: videoClip.trimEnd,
       name: mediaFile.name + ' (audio)',
       type: 'audio',
+      // Link to original video clip so we can track the relationship
+      linkedVideoClipId: videoClipId,
     };
     
+    console.log('🎵 Creating audio clip:', {
+      audioClipId,
+      linkedVideoClipId: videoClipId,
+      audioTrackId: audioTrack.id
+    });
+    
     set((state) => ({
-      tracks: state.tracks.map((track) =>
-        track.id === audioTrack!.id
-          ? { ...track, clips: [...track.clips, audioClip] }
-          : track
-      ),
+      tracks: state.tracks.map((track) => {
+        // Add audio clip to audio track
+        if (track.id === audioTrack!.id) {
+          console.log('🎵 Adding audio clip to track:', audioTrack!.id);
+          return { ...track, clips: [...track.clips, audioClip] };
+        }
+        // Keep the video clip's audio playing (NOT muted yet)
+        // The video will only be muted when the detached audio clip is deleted
+        return {
+          ...track,
+          clips: track.clips.map(clip => {
+            if (clip.id === videoClipId) {
+              console.log('🔊 Video clip keeps audio (detached audio is a copy):', {
+                clipId: clip.id,
+                audioMuted: false,
+                detachedAudioClipId: audioClipId
+              });
+              // Store the link but DON'T mute yet - video keeps its audio
+              return { ...clip, audioMuted: false, detachedAudioClipId: audioClipId };
+            }
+            return clip;
+          }),
+        };
+      }),
     }));
+    
+    // Verify the changes were applied
+    const newState = get();
+    const updatedVideoClip = newState.tracks.flatMap(t => t.clips).find(c => c.id === videoClipId);
+    const createdAudioClip = newState.tracks.flatMap(t => t.clips).find(c => c.id === audioClipId);
+    
+    console.log('✅ detachAudioFromVideo completed:', {
+      videoClip: updatedVideoClip ? {
+        id: updatedVideoClip.id,
+        audioMuted: updatedVideoClip.audioMuted,
+        detachedAudioClipId: updatedVideoClip.detachedAudioClipId
+      } : null,
+      audioClip: createdAudioClip ? {
+        id: createdAudioClip.id,
+        linkedVideoClipId: createdAudioClip.linkedVideoClipId
+      } : null
+    });
     
     get().calculateProjectDuration();
   },
@@ -422,9 +483,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   
   removeTrack: (id) => {
+    const state = get();
+    get().saveState(); // Save state before action
+    
+    // Find the track being removed
+    const trackToRemove = state.tracks.find(t => t.id === id);
+    if (!trackToRemove) return;
+    
+    // Collect all detached audio clip IDs from video clips in this track
+    const detachedAudioClipIds: string[] = [];
+    // Collect all linked video clip IDs from audio clips in this track
+    const linkedVideoClipIds: string[] = [];
+    
+    trackToRemove.clips.forEach(clip => {
+      if (clip.detachedAudioClipId) {
+        detachedAudioClipIds.push(clip.detachedAudioClipId);
+      }
+      if (clip.linkedVideoClipId) {
+        linkedVideoClipIds.push(clip.linkedVideoClipId);
+      }
+    });
+    
+    console.log('🗑️ Removing track:', {
+      trackId: id,
+      trackType: trackToRemove.type,
+      clipsCount: trackToRemove.clips.length,
+      detachedAudioClipIds,
+      linkedVideoClipIds
+    });
+    
     set((state) => ({
-      tracks: state.tracks.filter((t) => t.id !== id),
+      tracks: state.tracks
+        // Remove the track
+        .filter((t) => t.id !== id)
+        // Process remaining tracks
+        .map((track) => ({
+          ...track,
+          clips: track.clips
+            // Remove any detached audio clips that were linked to video clips in the removed track
+            .filter((c) => !detachedAudioClipIds.includes(c.id))
+            // Mute video clips if their detached audio track is being removed
+            .map((c) => {
+              if (linkedVideoClipIds.includes(c.id)) {
+                console.log('🔇 Muting video clip (audio track removed):', c.id);
+                return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+              }
+              return c;
+            }),
+        })),
     }));
+    
+    get().calculateProjectDuration();
   },
   
   toggleTrackMute: (id) => {
@@ -473,16 +582,105 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   removeClip: (clipId) => {
     get().saveState(); // Save state before action
     
-    set((state) => ({
-      tracks: state.tracks.map((track) => ({
+    const state = get();
+    
+    // Find the clip being removed
+    const clipToRemove = state.tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+    
+    if (!clipToRemove) {
+      // Clip not found, just remove it
+      set((state) => ({
+        tracks: state.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.filter((c) => c.id !== clipId),
+        })),
+        ui: {
+          ...state.ui,
+          selectedClipId: state.ui.selectedClipId === clipId ? null : state.ui.selectedClipId,
+        },
+      }));
+      get().calculateProjectDuration();
+      return;
+    }
+    
+    // Check if this is a detached audio clip (has linkedVideoClipId)
+    const linkedVideoClipId = clipToRemove.linkedVideoClipId;
+    
+    // Also check if this is a video clip that has detached audio
+    const detachedAudioClipId = clipToRemove.detachedAudioClipId;
+    
+    console.log('🗑️ Removing clip:', {
+      clipId,
+      clipType: clipToRemove.type,
+      linkedVideoClipId,
+      detachedAudioClipId,
+      audioMuted: clipToRemove.audioMuted
+    });
+    
+    // First pass: Remove the clip and update linked clips
+    set((state) => {
+      const newTracks = state.tracks.map((track) => ({
         ...track,
-        clips: track.clips.filter((c) => c.id !== clipId),
-      })),
-      ui: {
-        ...state.ui,
-        selectedClipId: state.ui.selectedClipId === clipId ? null : state.ui.selectedClipId,
-      },
-    }));
+        clips: track.clips
+          // Remove the clip being deleted
+          .filter((c) => c.id !== clipId)
+          // Update linked clips
+          .map((c) => {
+            // If we're removing a detached audio clip, NOW mute the video
+            // The video was playing audio until now, but since the detached audio is deleted,
+            // the video should become muted
+            if (linkedVideoClipId && c.id === linkedVideoClipId) {
+              console.log('🔇 Muting video clip after audio deletion:', linkedVideoClipId);
+              return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+            }
+            // If we're removing a video clip, check if any audio clip is linked to it
+            // and clear the link (the audio clip will be removed in second pass)
+            if (detachedAudioClipId && c.id === detachedAudioClipId) {
+              // This audio clip will be removed in the second pass
+              return c;
+            }
+            return c;
+          }),
+      }));
+      
+      return {
+        tracks: newTracks,
+        ui: {
+          ...state.ui,
+          selectedClipId: state.ui.selectedClipId === clipId ? null : state.ui.selectedClipId,
+        },
+      };
+    });
+    
+    // Second pass: If we removed a video clip that had detached audio, also remove that audio clip
+    if (detachedAudioClipId) {
+      console.log('🗑️ Also removing detached audio clip:', detachedAudioClipId);
+      set((state) => ({
+        tracks: state.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.filter((c) => c.id !== detachedAudioClipId),
+        })),
+      }));
+    }
+    
+    // Third pass: If we removed an audio clip, find any video clip that references it
+    // and mute it (since the detached audio is now gone)
+    if (clipToRemove.type === 'audio') {
+      set((state) => ({
+        tracks: state.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((c) => {
+            // Check if this video clip's detachedAudioClipId matches the removed audio clip
+            if (c.detachedAudioClipId === clipId) {
+              console.log('🔇 Muting video clip (by detachedAudioClipId):', c.id);
+              return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+            }
+            return c;
+          }),
+        })),
+      }));
+    }
+    
     get().calculateProjectDuration();
   },
   

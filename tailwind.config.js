@@ -16,7 +16,8 @@ module.exports = {
 			},
 		},
 		screens: {
-			'xs': '480px',
+			'xxs': '360px',  // iPhone 12 mini
+			'xs': '375px',   // iPhone SE 2020+, iPhone 6/7/8
 			'sm': '640px',
 			'md': '768px',
 			'lg': '1024px',

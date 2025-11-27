@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 // Media Types
 export type MediaType = 'video' | 'audio' | 'image';
 
@@ -46,6 +49,10 @@ export interface TimelineClip {
   thumbnail?: string;
   crop?: CropSettings; // crop settings for images/videos
   transform?: TransformSettings; // transform settings for images
+  // Audio detachment properties
+  audioMuted?: boolean; // true if audio was detached from this video clip
+  detachedAudioClipId?: string; // ID of the detached audio clip
+  linkedVideoClipId?: string; // For audio clips: ID of the original video clip
 }
 
 export interface TimelineTrack {

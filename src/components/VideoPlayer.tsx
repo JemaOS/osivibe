@@ -1,8 +1,11 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { 
-  Play, 
-  Pause, 
-  SkipBack, 
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import {
+  Play,
+  Pause,
+  SkipBack,
   SkipForward,
   Volume2,
   VolumeX,
@@ -11,11 +14,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  Crop
+  Crop,
+  Gauge
 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { formatTime, getCSSFilter } from '../utils/helpers';
 import type { TimelineClip, MediaFile, TransformSettings } from '../types';
+import {
+  initializePreviewOptimizer,
+  getOptimalSettings,
+  applyVideoOptimizations,
+  FrameRateLimiter,
+  PerformanceMonitor,
+  getHardwareProfile,
+  getCurrentSettings,
+  updateSettings,
+  PreviewSettings,
+  HardwareProfile,
+  PREVIEW_RESOLUTIONS,
+} from '../utils/previewOptimizer';
 
 export const VideoPlayer: React.FC = () => {
   const {
@@ -47,9 +64,12 @@ export const VideoPlayer: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
+  const frameRateLimiterRef = useRef<FrameRateLimiter | null>(null);
+  const performanceMonitorRef = useRef<PerformanceMonitor | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [cropMode, setCropMode] = useState(false);
   const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 100, height: 100, locked: false });
@@ -66,10 +86,99 @@ export const VideoPlayer: React.FC = () => {
   const [resizingTextId, setResizingTextId] = useState<string | null>(null);
   const [textResizeStart, setTextResizeStart] = useState({ x: 0, y: 0, fontSize: 16, textX: 0, textY: 0, scaleX: 1, scaleY: 1 });
   
+  // Preview optimization state
+  const [previewSettings, setPreviewSettings] = useState<PreviewSettings>(() => getCurrentSettings());
+  const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
+  const [currentFps, setCurrentFps] = useState<number>(30);
+  const [isPerformancePoor, setIsPerformancePoor] = useState(false);
+  const [autoQualityApplied, setAutoQualityApplied] = useState(false);
+  
+  // Initialize preview optimizer on mount - AUTO QUALITY FROM START
+  useEffect(() => {
+    const profile = initializePreviewOptimizer();
+    setHardwareProfile(profile);
+    
+    // Get optimal settings based on detected hardware
+    const settings = getOptimalSettings(1920, 1080, profile);
+    
+    // IMPORTANT: Set the quality to the recommended value from hardware detection
+    // This ensures auto-adaptation from the very beginning
+    settings.quality = profile.recommendedQuality;
+    
+    // Apply the auto-detected settings immediately
+    setPreviewSettings(settings);
+    updateSettings(settings);
+    
+    frameRateLimiterRef.current = new FrameRateLimiter(settings.targetFps, settings.frameSkipping);
+    performanceMonitorRef.current = new PerformanceMonitor();
+    
+    setAutoQualityApplied(true);
+    
+    console.log('🎬 VideoPlayer: Preview optimizer initialized with AUTO quality', {
+      profile,
+      settings,
+      recommendedQuality: profile.recommendedQuality,
+      cpuCores: profile.cpuCores,
+      isLowEnd: profile.isLowEnd
+    });
+    
+    return () => {
+      frameRateLimiterRef.current = null;
+      performanceMonitorRef.current = null;
+    };
+  }, []);
+  
   // Debug: Log aspect ratio changes
   useEffect(() => {
     console.log('🖼️ VideoPlayer: aspect ratio changed to', aspectRatio);
   }, [aspectRatio]);
+  
+  // Update preview settings when quality changes
+  const handleQualityChange = useCallback((quality: PreviewSettings['quality']) => {
+    const newSettings = updateSettings({ quality });
+    
+    // Recalculate based on quality
+    switch (quality) {
+      case 'low':
+        newSettings.maxResolution = PREVIEW_RESOLUTIONS.low;
+        newSettings.targetFps = 24;
+        newSettings.frameSkipping = true;
+        break;
+      case 'medium':
+        newSettings.maxResolution = PREVIEW_RESOLUTIONS.medium;
+        newSettings.targetFps = 30;
+        newSettings.frameSkipping = hardwareProfile?.isLowEnd ?? false;
+        break;
+      case 'high':
+        newSettings.maxResolution = PREVIEW_RESOLUTIONS.high;
+        newSettings.targetFps = 30;
+        newSettings.frameSkipping = false;
+        break;
+      case 'original':
+        newSettings.maxResolution = -1;
+        newSettings.targetFps = 60;
+        newSettings.frameSkipping = false;
+        break;
+      case 'auto':
+        // Re-detect optimal settings
+        if (hardwareProfile) {
+          const autoSettings = getOptimalSettings(1920, 1080, hardwareProfile);
+          Object.assign(newSettings, autoSettings);
+        }
+        break;
+    }
+    
+    setPreviewSettings(newSettings);
+    
+    // Update frame rate limiter
+    if (frameRateLimiterRef.current) {
+      frameRateLimiterRef.current.setTargetFps(newSettings.targetFps);
+      frameRateLimiterRef.current.setFrameSkipping(newSettings.frameSkipping);
+    }
+    
+    setShowQualityMenu(false);
+    console.log('🎬 Preview quality changed to:', quality, newSettings);
+  }, [hardwareProfile]);
   
   // Get all active clips at playhead position, sorted by track index (bottom to top)
   const getActiveClips = useCallback(() => {
@@ -222,6 +331,15 @@ export const VideoPlayer: React.FC = () => {
     return style;
   };
 
+  // Create a dependency string for audioMuted states to trigger re-render when they change
+  const audioMutedStates = useMemo(() => {
+    return tracks
+      .flatMap(t => t.clips)
+      .filter(c => c.type === 'video')
+      .map(c => `${c.id}:${c.audioMuted}`)
+      .join(',');
+  }, [tracks]);
+
   // Update video playback
   useEffect(() => {
     const activeClips = getActiveClips();
@@ -257,7 +375,10 @@ export const VideoPlayer: React.FC = () => {
       }
 
       // Only the main video gets volume, others are muted to prevent echo
-      videoEl.volume = isMainVideo ? (player.isMuted ? 0 : player.volume) : 0;
+      // Also check if audio was detached from this video clip (audioMuted flag)
+      const isAudioMuted = item.clip.audioMuted === true;
+      console.log('🔊 Video volume check:', { clipId: item.clip.id, isMainVideo, isAudioMuted, audioMuted: item.clip.audioMuted, willMute: !isMainVideo || isAudioMuted });
+      videoEl.volume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
       videoEl.playbackRate = player.playbackRate;
 
       if (player.isPlaying) {
@@ -266,23 +387,67 @@ export const VideoPlayer: React.FC = () => {
         videoEl.pause();
       }
     });
-  }, [player.currentTime, player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, filters]);
+  }, [player.currentTime, player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, filters, audioMutedStates]);
 
-  // Animation loop for playback
+  // Animation loop for playback with frame rate limiting
   useEffect(() => {
     if (!player.isPlaying) {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = undefined;
       }
+      // Reset performance monitor when paused
+      performanceMonitorRef.current?.reset();
       return;
     }
 
     let lastTime = performance.now();
     let isActive = true;
+    let fpsUpdateCounter = 0;
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
+      
+      // Frame rate limiting for smooth playback on low-end devices
+      const frameLimiter = frameRateLimiterRef.current;
+      if (frameLimiter && !frameLimiter.shouldRenderFrame(currentTime)) {
+        // Skip this frame but keep the loop running
+        if (isActive) {
+          animationRef.current = requestAnimationFrame(animate);
+        }
+        return;
+      }
+      
+      // Record frame for performance monitoring
+      const perfMonitor = performanceMonitorRef.current;
+      if (perfMonitor) {
+        perfMonitor.recordFrame(currentTime);
+        
+        // Update FPS display every 30 frames
+        fpsUpdateCounter++;
+        if (fpsUpdateCounter >= 30) {
+          fpsUpdateCounter = 0;
+          const fps = perfMonitor.getAverageFps();
+          setCurrentFps(fps);
+          
+          // Check for poor performance and auto-adjust
+          const isPoor = perfMonitor.isPerformancePoor();
+          setIsPerformancePoor(isPoor);
+          
+          // Auto-adjust quality if performance is poor
+          if (isPoor && previewSettings.quality !== 'low') {
+            const recommendation = perfMonitor.getQualityRecommendation();
+            if (recommendation === 'decrease') {
+              console.log('⚠️ Poor performance detected, reducing quality');
+              if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
+                handleQualityChange('medium');
+              } else if (previewSettings.quality === 'medium') {
+                handleQualityChange('low');
+              }
+            }
+          }
+        }
+      }
       
       const deltaTime = (currentTime - lastTime) / 1000;
       lastTime = currentTime;
@@ -303,6 +468,8 @@ export const VideoPlayer: React.FC = () => {
       }
     };
 
+    // Reset frame limiter when starting playback
+    frameRateLimiterRef.current?.reset();
     animationRef.current = requestAnimationFrame(animate);
 
     return () => {
@@ -312,7 +479,7 @@ export const VideoPlayer: React.FC = () => {
         animationRef.current = undefined;
       }
     };
-  }, [player.isPlaying]);
+  }, [player.isPlaying, previewSettings.quality, handleQualityChange]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -934,14 +1101,53 @@ export const VideoPlayer: React.FC = () => {
     };
   };
 
-  // Stable ref callback
+  // Stable ref callback with optimizations applied
   const setVideoRef = useCallback((id: string, el: HTMLVideoElement | null) => {
     if (el) {
       videoRefs.current[id] = el;
+      // Apply video optimizations for smooth playback
+      applyVideoOptimizations(el, previewSettings);
     } else {
       delete videoRefs.current[id];
     }
-  }, []);
+  }, [previewSettings]);
+  
+  // Get video style based on preview settings (for resolution limiting)
+  const getVideoStyle = useCallback((media: MediaFile): React.CSSProperties => {
+    const style: React.CSSProperties = {};
+    
+    // Apply resolution limiting via CSS for preview
+    if (previewSettings.maxResolution > 0 && media.height && media.height > previewSettings.maxResolution) {
+      // Scale down the video rendering for performance
+      const scale = previewSettings.maxResolution / media.height;
+      style.imageRendering = previewSettings.quality === 'low' ? 'pixelated' : 'auto';
+      
+      // Use CSS to hint at lower quality rendering
+      if (previewSettings.quality === 'low' || previewSettings.quality === 'medium') {
+        style.filter = 'blur(0.5px)'; // Slight blur to hide artifacts
+      }
+    }
+    
+    return style;
+  }, [previewSettings]);
+  
+  // Quality options for the menu
+  const qualityOptions: { value: PreviewSettings['quality']; label: string; description: string }[] = [
+    { value: 'auto', label: 'Auto', description: hardwareProfile ? `Détecté: ${hardwareProfile.recommendedQuality}` : 'Ajustement automatique' },
+    { value: 'low', label: 'Basse (360p)', description: 'Pour PC anciens (≤2 cœurs)' },
+    { value: 'medium', label: 'Moyenne (480p)', description: 'Équilibré (2-4 cœurs)' },
+    { value: 'high', label: 'Haute (720p)', description: 'Bonne qualité (4-6 cœurs)' },
+    { value: 'original', label: 'Originale', description: 'Qualité maximale (6+ cœurs)' },
+  ];
+  
+  // Get quality label for display
+  const getQualityLabel = () => {
+    if (previewSettings.quality === 'auto' && hardwareProfile) {
+      return `Auto (${hardwareProfile.recommendedQuality})`;
+    }
+    const option = qualityOptions.find(o => o.value === previewSettings.quality);
+    return option?.label || previewSettings.quality;
+  };
 
   return (
     <div 
@@ -951,9 +1157,9 @@ export const VideoPlayer: React.FC = () => {
       onMouseLeave={() => setShowControls(true)}
     >
       {/* Video Container */}
-      <div ref={videoContainerRef} className="flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-4">
+      <div ref={videoContainerRef} className="flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-1 xxs:p-2 sm:p-4 min-h-0">
         {/* Aspect Ratio Indicator */}
-        <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-medium text-white z-50 border border-white/20">
+        <div className="absolute top-1 xxs:top-2 right-1 xxs:right-2 bg-black/70 backdrop-blur-sm px-1.5 xxs:px-2 sm:px-3 py-0.5 xxs:py-1 rounded-full text-[9px] xxs:text-[10px] sm:text-xs font-medium text-white z-50 border border-white/20">
           {aspectRatio}
         </div>
         
@@ -984,10 +1190,13 @@ export const VideoPlayer: React.FC = () => {
                 const transitionStyle = getTransitionStyle(item.clip, player.currentTime);
 
                 if (item.media.type === 'video') {
+                  // Get optimized video style for preview performance
+                  const videoStyle = getVideoStyle(item.media);
+                  
                   if (item.clip.crop) {
                     // Cropped video rendering
                     return (
-                      <div 
+                      <div
                         key={item.clip.id}
                         className="absolute inset-0 overflow-hidden"
                         style={{ zIndex }}
@@ -997,7 +1206,7 @@ export const VideoPlayer: React.FC = () => {
                             ref={(el) => setVideoRef(item.clip.id, el)}
                             src={item.media.url}
                             className="object-cover"
-                            style={getCropStyle(item.clip)}
+                            style={{ ...getCropStyle(item.clip), ...videoStyle }}
                             playsInline
                             muted={false}
                             controls={false}
@@ -1008,9 +1217,9 @@ export const VideoPlayer: React.FC = () => {
                     );
                   }
                   
-                  // Standard video rendering
+                  // Standard video rendering with preview optimizations
                   return (
-                    <div 
+                    <div
                       key={item.clip.id}
                       className="absolute inset-0 w-full h-full"
                       style={{ zIndex }}
@@ -1020,6 +1229,7 @@ export const VideoPlayer: React.FC = () => {
                           ref={(el) => setVideoRef(item.clip.id, el)}
                           src={item.media.url}
                           className="w-full h-full object-contain"
+                          style={videoStyle}
                           playsInline
                           muted={false}
                           controls={false}
@@ -1394,12 +1604,12 @@ export const VideoPlayer: React.FC = () => {
               ))}
             </>
           ) : (
-            <div className="text-center text-neutral-400">
-              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-glass-medium flex items-center justify-center">
-                <Play className="w-10 h-10" />
+            <div className="text-center text-neutral-400 p-2 xxs:p-4">
+              <div className="w-12 h-12 xxs:w-16 xxs:h-16 sm:w-20 sm:h-20 mx-auto mb-2 xxs:mb-4 rounded-xl xxs:rounded-2xl bg-glass-medium flex items-center justify-center">
+                <Play className="w-6 h-6 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10" />
               </div>
-              <p className="text-body-lg text-white">Aucune video a afficher</p>
-              <p className="text-small mt-1 text-neutral-400">Ajoutez des medias a la timeline</p>
+              <p className="text-xs xxs:text-sm sm:text-body-lg text-white">Aucune vidéo</p>
+              <p className="text-[10px] xxs:text-xs sm:text-small mt-0.5 xxs:mt-1 text-neutral-400">Ajoutez des médias</p>
             </div>
           )}
         </div>
@@ -1410,48 +1620,48 @@ export const VideoPlayer: React.FC = () => {
             onClick={togglePlayPause}
             className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors z-[60]"
           >
-            <div className="w-20 h-20 rounded-full bg-glass-light backdrop-blur-md flex items-center justify-center shadow-glass-lg">
-              <Play className="w-10 h-10 text-primary-500 ml-1" fill="currentColor" />
+            <div className="w-12 h-12 xxs:w-16 xxs:h-16 sm:w-20 sm:h-20 rounded-full bg-glass-light backdrop-blur-md flex items-center justify-center shadow-glass-lg">
+              <Play className="w-6 h-6 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10 text-primary-500 ml-0.5 xxs:ml-1" fill="currentColor" />
             </div>
           </button>
         )}
       </div>
 
       {/* Progress Bar */}
-      <div 
-        className="h-1.5 bg-neutral-200/50 cursor-pointer relative group"
+      <div
+        className="h-1 xxs:h-1.5 bg-neutral-200/50 cursor-pointer relative group flex-shrink-0"
         onClick={handleProgressClick}
       >
-        <div 
+        <div
           className="absolute inset-y-0 left-0 bg-primary-500 transition-all"
           style={{ width: `${progressPercentage}%` }}
         />
-        <div 
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ left: `calc(${progressPercentage}% - 6px)` }}
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 xxs:w-3 xxs:h-3 bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ left: `calc(${progressPercentage}% - 4px)` }}
         />
       </div>
 
       {/* Controls */}
-      <div className={`px-4 py-3 flex items-center justify-between gap-4 transition-opacity ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`px-1.5 xxs:px-2 sm:px-4 py-1.5 xxs:py-2 sm:py-3 flex items-center justify-between gap-1 xxs:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         {/* Left Controls */}
-        <div className="flex items-center gap-2">
-          <button onClick={() => seek(0)} className="btn-icon w-9 h-9" title="Debut">
-            <SkipBack className="w-4 h-4" />
+        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
+          <button onClick={() => seek(0)} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title="Debut">
+            <SkipBack className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
           </button>
-          <button 
-            onClick={() => !cropMode && !editingTextId && togglePlayPause()} 
-            className={`btn-icon w-10 h-10 bg-primary-500 text-white hover:bg-primary-600 border-primary-500 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
+          <button
+            onClick={() => !cropMode && !editingTextId && togglePlayPause()}
+            className={`btn-icon w-7 h-7 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10 bg-primary-500 text-white hover:bg-primary-600 border-primary-500 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
             title={player.isPlaying ? 'Pause' : 'Lecture'}
             disabled={cropMode || !!editingTextId}
           >
-            {player.isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+            {player.isPlaying ? <Pause className="w-3.5 h-3.5 xxs:w-4 xxs:h-4 sm:w-5 sm:h-5" /> : <Play className="w-3.5 h-3.5 xxs:w-4 xxs:h-4 sm:w-5 sm:h-5 ml-0.5" />}
           </button>
-          <button onClick={() => seek(projectDuration)} className="btn-icon w-9 h-9" title="Fin">
-            <SkipForward className="w-4 h-4" />
+          <button onClick={() => seek(projectDuration)} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title="Fin">
+            <SkipForward className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
           </button>
 
-          {/* Frame by frame */}
+          {/* Frame by frame - Hidden on small screens */}
           <div className="hidden sm:flex items-center gap-1 ml-2">
             <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8" title="Image precedente">
               <ChevronLeft className="w-4 h-4" />
@@ -1463,27 +1673,27 @@ export const VideoPlayer: React.FC = () => {
         </div>
 
         {/* Time Display */}
-        <div className="font-mono text-small text-neutral-400">
+        <div className="font-mono text-[9px] xxs:text-[10px] sm:text-small text-neutral-400 flex-shrink-0">
           <span className="text-white">{formatTime(player.currentTime)}</span>
-          <span className="mx-1 text-neutral-500">/</span>
+          <span className="mx-0.5 xxs:mx-1 text-neutral-500">/</span>
           <span>{formatTime(projectDuration)}</span>
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-2">
-          {/* Volume */}
-          <div className="relative flex items-center gap-2">
+        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
+          {/* Volume - Hidden on very small screens */}
+          <div className="relative hidden xxs:flex items-center gap-1 sm:gap-2">
             <button
               onClick={() => setShowVolumeSlider(!showVolumeSlider)}
-              className="btn-icon w-9 h-9"
+              className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9"
               title="Volume"
             >
-              {player.isMuted || player.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {player.isMuted || player.volume === 0 ? <VolumeX className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" /> : <Volume2 className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />}
             </button>
             <div
               className={`hidden sm:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
             >
-              <div className="flex-1 h-6 flex items-center px-1"> {/* Added container with height and padding */}
+              <div className="flex-1 h-6 flex items-center px-1">
                 <input
                   type="range"
                   min="0"
@@ -1498,17 +1708,110 @@ export const VideoPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Playback Speed */}
-          <div className="relative">
-            <button 
-              onClick={() => setShowSpeedMenu(!showSpeedMenu)} 
-              className="btn-icon w-9 h-9 text-caption font-mono"
-              title="Vitesse de lecture"
+          {/* Preview Quality - Hidden on very small screens */}
+          <div className="relative hidden xs:block">
+            <button
+              onClick={() => setShowQualityMenu(!showQualityMenu)}
+              className={`btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9 ${isPerformancePoor ? 'text-warning' : ''}`}
+              title="Qualité"
+            >
+              <Gauge className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+            </button>
+            {showQualityMenu && (
+              <div
+                className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
+                style={{
+                  width: '280px',
+                  maxWidth: 'calc(100vw - 2rem)',
+                  maxHeight: '70vh',
+                  overflowY: 'auto',
+                  zIndex: 9999,
+                  right: '1rem',
+                  bottom: '5rem',
+                }}
+              >
+                <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
+                  <span>Qualité Preview • {currentFps} FPS</span>
+                  {isPerformancePoor && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
+                  )}
+                </div>
+                
+                {/* Auto-detection banner */}
+                {autoQualityApplied && hardwareProfile && (
+                  <div className="mb-3 px-2 py-2 rounded text-small" style={{ background: 'rgba(117, 122, 237, 0.1)', border: '1px solid rgba(117, 122, 237, 0.3)' }}>
+                    <div className="flex items-center gap-1.5" style={{ color: '#757AED' }}>
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
+                    </div>
+                    <div className="mt-1" style={{ color: '#808080' }}>
+                      {hardwareProfile.cpuCores} cœurs CPU • {hardwareProfile.isLowEnd ? 'Mode économie' : 'Performance normale'}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-1">
+                  {qualityOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleQualityChange(option.value)}
+                      className={`w-full px-3 py-2.5 text-left rounded-sm transition-all ${
+                        previewSettings.quality === option.value
+                          ? 'text-white'
+                          : 'hover:bg-[var(--bg-hover)]'
+                      }`}
+                      style={{
+                        background: previewSettings.quality === option.value ? 'var(--primary)' : 'transparent',
+                        border: previewSettings.quality === option.value ? '1px solid var(--primary)' : '1px solid transparent',
+                      }}
+                    >
+                      <div className="text-body font-medium flex items-center gap-2">
+                        {option.label}
+                        {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
+                        )}
+                      </div>
+                      <div className="text-small mt-0.5" style={{
+                        color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
+                      }}>{option.description}</div>
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Performance stats */}
+                <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
+                  <div className="flex justify-between">
+                    <span>Résolution max:</span>
+                    <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span>FPS cible:</span>
+                    <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
+                  </div>
+                  {previewSettings.frameSkipping && (
+                    <div className="flex justify-between mt-1">
+                      <span>Frame skip:</span>
+                      <span style={{ color: '#F59E0B' }}>Activé</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Playback Speed - Hidden on very small screens */}
+          <div className="relative hidden xs:block">
+            <button
+              onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+              className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9 text-[9px] xxs:text-[10px] sm:text-caption font-mono"
+              title="Vitesse"
             >
               {player.playbackRate}x
             </button>
             {showSpeedMenu && (
-              <div className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg">
+              <div className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50">
                 {playbackSpeeds.map((speed) => (
                   <button
                     key={speed}
@@ -1517,8 +1820,8 @@ export const VideoPlayer: React.FC = () => {
                       setShowSpeedMenu(false);
                     }}
                     className={`w-full px-3 py-1.5 text-small text-left rounded-md transition-colors font-mono ${
-                      player.playbackRate === speed 
-                        ? 'bg-[var(--primary)] text-white' 
+                      player.playbackRate === speed
+                        ? 'bg-[var(--primary)] text-white'
                         : 'hover:bg-[var(--bg-tertiary)] text-white'
                     }`}
                   >
@@ -1530,8 +1833,8 @@ export const VideoPlayer: React.FC = () => {
           </div>
 
           {/* Fullscreen */}
-          <button onClick={toggleFullscreen} className="btn-icon w-9 h-9" title={player.isFullscreen ? 'Quitter le plein ecran' : 'Plein ecran'}>
-            {player.isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          <button onClick={toggleFullscreen} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title={player.isFullscreen ? 'Quitter' : 'Plein écran'}>
+            {player.isFullscreen ? <Minimize className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" /> : <Maximize className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />}
           </button>
         </div>
       </div>

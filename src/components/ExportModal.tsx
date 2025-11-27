@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState } from 'react';
 import { X, Download, Loader2 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
@@ -128,21 +131,21 @@ export const ExportModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="glass-panel w-full max-w-md mx-4 p-0 overflow-hidden relative z-[101]">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6">
+      <div className="glass-panel w-full max-w-md p-0 overflow-hidden relative z-[101] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/20 flex items-center justify-between">
-          <h2 className="text-h2 font-semibold text-neutral-800">Exporter la video</h2>
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/20 flex items-center justify-between flex-shrink-0">
+          <h2 className="text-lg sm:text-h2 font-semibold text-neutral-800">Exporter la video</h2>
           <button
             onClick={handleCancel}
-            className="btn-icon w-9 h-9"
+            className="btn-icon w-8 h-8 sm:w-9 sm:h-9"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="px-6 py-6 space-y-6">
+        {/* Content - Scrollable */}
+        <div className="px-4 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6 overflow-y-auto flex-1 min-h-0">
           {!isExporting ? (
             <>
               {/* Filename */}
@@ -161,15 +164,15 @@ export const ExportModal: React.FC = () => {
 
               {/* Resolution */}
               <div>
-                <label className="block text-body font-medium text-neutral-700 mb-2">
+                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Resolution
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {(['720p', '1080p', '4K'] as ExportResolution[]).map((res) => (
                     <button
                       key={res}
                       onClick={() => setExportSettings({ resolution: res })}
-                      className={`py-3 px-4 rounded-xl text-small font-medium transition-all ${
+                      className={`py-2 sm:py-3 px-2 sm:px-4 rounded-lg sm:rounded-xl text-xs sm:text-small font-medium transition-all ${
                         exportSettings.resolution === res
                           ? 'bg-primary-500 text-white'
                           : 'glass-panel-medium hover:border-primary-500/50'
@@ -181,61 +184,64 @@ export const ExportModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Format */}
-              <div>
-                <label className="block text-body font-medium text-neutral-700 mb-2">
-                  Format
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['mp4', 'webm'] as ExportFormat[]).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => setExportSettings({ format: fmt })}
-                      className={`py-3 px-4 rounded-xl text-small font-medium uppercase transition-all ${
-                        exportSettings.format === fmt
-                          ? 'bg-primary-500 text-white'
-                          : 'glass-panel-medium hover:border-primary-500/50'
-                      }`}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
+              {/* Format & FPS - Combined row on mobile */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                {/* Format */}
+                <div>
+                  <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                    Format
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                    {(['mp4', 'webm'] as ExportFormat[]).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => setExportSettings({ format: fmt })}
+                        className={`py-2 sm:py-3 px-2 sm:px-4 rounded-lg sm:rounded-xl text-xs sm:text-small font-medium uppercase transition-all ${
+                          exportSettings.format === fmt
+                            ? 'bg-primary-500 text-white'
+                            : 'glass-panel-medium hover:border-primary-500/50'
+                        }`}
+                      >
+                        {fmt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              {/* FPS */}
-              <div>
-                <label className="block text-body font-medium text-neutral-700 mb-2">
-                  Images par seconde (FPS)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['30', '60', '120'] as const).map((fps) => (
-                    <button
-                      key={fps}
-                      onClick={() => setExportSettings({ fps })}
-                      className={`py-3 px-4 rounded-xl text-small font-medium transition-all ${
-                        exportSettings.fps === fps
-                          ? 'bg-primary-500 text-white'
-                          : 'glass-panel-medium hover:border-primary-500/50'
-                      }`}
-                    >
-                      {fps}
-                    </button>
-                  ))}
+                {/* FPS */}
+                <div>
+                  <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                    FPS
+                  </label>
+                  <div className="grid grid-cols-3 gap-1 sm:gap-2">
+                    {(['30', '60', '120'] as const).map((fps) => (
+                      <button
+                        key={fps}
+                        onClick={() => setExportSettings({ fps })}
+                        className={`py-2 sm:py-3 px-1 sm:px-4 rounded-lg sm:rounded-xl text-xs sm:text-small font-medium transition-all ${
+                          exportSettings.fps === fps
+                            ? 'bg-primary-500 text-white'
+                            : 'glass-panel-medium hover:border-primary-500/50'
+                        }`}
+                      >
+                        {fps}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
               {/* Quality */}
               <div>
-                <label className="block text-body font-medium text-neutral-700 mb-2">
+                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Qualite
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {(['low', 'medium', 'high'] as ExportQuality[]).map((qual) => (
                     <button
                       key={qual}
                       onClick={() => setExportSettings({ quality: qual })}
-                      className={`py-3 px-4 rounded-xl text-small font-medium capitalize transition-all ${
+                      className={`py-2 sm:py-3 px-2 sm:px-4 rounded-lg sm:rounded-xl text-xs sm:text-small font-medium capitalize transition-all ${
                         exportSettings.quality === qual
                           ? 'bg-primary-500 text-white'
                           : 'glass-panel-medium hover:border-primary-500/50'
@@ -247,18 +253,18 @@ export const ExportModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Info */}
-              <div className="glass-panel-medium p-4 rounded-xl">
-                <p className="text-small text-neutral-600">
+              {/* Info - Hidden on very small screens */}
+              <div className="glass-panel-medium p-3 sm:p-4 rounded-lg sm:rounded-xl hidden xs:block">
+                <p className="text-xs sm:text-small text-neutral-600">
                   <strong className="text-neutral-800">Note:</strong> L'export peut prendre plusieurs minutes selon la longueur et la qualite choisie.
                 </p>
               </div>
             </>
           ) : (
-            <div className="py-8">
+            <div className="py-4 sm:py-8">
               {/* Progress */}
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 mx-auto mb-4 relative">
+              <div className="text-center mb-4 sm:mb-6">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 relative">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
                     {/* Background Circle */}
                     <path
@@ -284,31 +290,31 @@ export const ExportModal: React.FC = () => {
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-small font-bold text-primary-700">
+                    <span className="text-xs sm:text-small font-bold text-primary-700">
                       {exportProgress}%
                     </span>
                   </div>
                 </div>
-                <p className="text-body-lg font-medium text-neutral-800 mb-2">
+                <p className="text-sm sm:text-body-lg font-medium text-neutral-800 mb-1 sm:mb-2">
                   {exportMessage}
                 </p>
-                <p className="text-small text-neutral-500">
+                <p className="text-xs sm:text-small text-neutral-500">
                   Veuillez patienter...
                 </p>
               </div>
 
               {/* Progress Bar */}
-              <div className="w-full h-2 bg-neutral-200 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 sm:h-2 bg-neutral-200 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary-500 transition-all duration-300"
                   style={{ width: `${exportProgress}%` }}
                 />
               </div>
 
-              <div className="mt-6 flex justify-center">
-                <button 
+              <div className="mt-4 sm:mt-6 flex justify-center">
+                <button
                   onClick={handleCancel}
-                  className="btn-secondary px-4 py-2 text-sm"
+                  className="btn-secondary px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
                 >
                   Annuler l'export
                 </button>
@@ -317,20 +323,20 @@ export const ExportModal: React.FC = () => {
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer - Fixed at bottom */}
         {!isExporting && (
-          <div className="px-6 py-4 border-t border-white/20 flex items-center justify-end gap-3">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-white/20 flex items-center justify-end gap-2 sm:gap-3 flex-shrink-0">
             <button
               onClick={closeExportModal}
-              className="btn-secondary h-10 px-4"
+              className="btn-secondary h-8 sm:h-10 px-3 sm:px-4 text-sm"
             >
               Annuler
             </button>
             <button
               onClick={handleExport}
-              className="btn-primary h-10 px-4"
+              className="btn-primary h-8 sm:h-10 px-3 sm:px-4 text-sm"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               Exporter
             </button>
           </div>

@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
@@ -579,6 +582,31 @@ export const Timeline: React.FC = () => {
     return Math.max(0, bestPosition);
   };
 
+  // Check if a clip type is compatible with a track type
+  const isClipCompatibleWithTrack = (clipType: string, trackType: string, trackName: string): boolean => {
+    // Audio clips can only go to audio tracks
+    if (clipType === 'audio') {
+      return trackType === 'audio';
+    }
+    
+    // Video clips can only go to video tracks (not image tracks)
+    if (clipType === 'video') {
+      // Video clips should go to tracks named "Video" or generic video tracks, not "Images"
+      const isImageTrack = trackName.toLowerCase().includes('image');
+      return trackType === 'video' && !isImageTrack;
+    }
+    
+    // Image clips can only go to image tracks or generic video tracks
+    if (clipType === 'image') {
+      // Images should go to tracks named "Images" or generic video tracks, not "Video" named tracks
+      const isVideoNamedTrack = trackName.toLowerCase().includes('video');
+      // Allow images on video-type tracks that are either named "Images" or are generic
+      return trackType === 'video' && !isVideoNamedTrack;
+    }
+    
+    return false;
+  };
+
   useEffect(() => {
     if (!isDraggingClip || !draggedClipId) return;
 
@@ -596,6 +624,17 @@ export const Timeline: React.FC = () => {
       if (targetTrack && !targetTrack.locked) {
         const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
         if (!draggedClip) return;
+
+        // Check if clip type is compatible with target track
+        if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
+          // Find the original track of the clip and only allow horizontal movement
+          const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
+          if (originalTrack) {
+            targetTrack = originalTrack;
+          } else {
+            return; // Can't move to incompatible track
+          }
+        }
 
         const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
 
@@ -1007,18 +1046,9 @@ export const Timeline: React.FC = () => {
     const media = mediaFiles.find(m => m.id === clip.mediaId);
     if (!media || media.type !== 'video') return;
 
-    // Find or create audio track
-    let audioTrack = tracks.find(t => t.type === 'audio');
-    if (!audioTrack) {
-      const { addTrack: addNewTrack } = useEditorStore.getState();
-      addNewTrack('audio');
-      audioTrack = useEditorStore.getState().tracks.find(t => t.type === 'audio');
-    }
-
-    if (audioTrack) {
-      const { addClipToTrack } = useEditorStore.getState();
-      addClipToTrack(audioTrack.id, media, clip.startTime);
-    }
+    // Use the proper detachAudioFromVideo function that establishes bidirectional links
+    const { detachAudioFromVideo } = useEditorStore.getState();
+    detachAudioFromVideo(clipId);
 
     setContextMenu(null);
   };
@@ -1066,107 +1096,106 @@ export const Timeline: React.FC = () => {
   return (
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
       {/* Timeline Header */}
-      <div className="px-2 sm:px-4 py-2 flex items-center justify-between border-b border-white/10">
-        <h3 className="text-sm sm:text-body font-semibold text-white">Timeline</h3>
-        <div className="flex items-center gap-1 sm:gap-2">
+      <div className="px-1 xxs:px-2 sm:px-4 py-1 xxs:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0">
+        <h3 className="text-[10px] xxs:text-xs sm:text-body font-semibold text-white">Timeline</h3>
+        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
           {/* Cut Tool */}
-          <button 
+          <button
             onClick={handleCutClick}
-            className="btn-icon w-7 h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white"
-            title="Couper tous les clips à la position du curseur"
+            className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white"
+            title="Couper"
           >
-            <Scissors className="w-3 h-3 sm:w-4 sm:h-4" />
+            <Scissors className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4" />
           </button>
           
-          {/* Crop Tool */}
-          <button 
+          {/* Crop Tool - Hidden on very small screens */}
+          <button
             onClick={() => {
-              // This will be handled in VideoPlayer
               const event = new CustomEvent('toggleCropMode');
               window.dispatchEvent(event);
             }}
-            className="btn-icon w-7 h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white"
-            title="Rogner la vidéo"
+            className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white hidden xxs:flex"
+            title="Rogner"
             disabled={!ui.selectedClipId}
           >
-            <Crop className="w-3 h-3 sm:w-4 sm:h-4" />
+            <Crop className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4" />
           </button>
           
-          <div className="w-px h-5 bg-white/20 mx-1" />
+          <div className="w-px h-4 xxs:h-5 bg-white/20 mx-0.5 xxs:mx-1 hidden xs:block" />
           
-          <span className="text-xs sm:text-caption text-neutral-400 hidden sm:inline">Zoom:</span>
-          <button onClick={() => handleZoom(-0.2)} className="btn-icon w-7 h-7 sm:w-8 sm:h-8" disabled={ui.timelineZoom <= 0.2}>
-            <ZoomOut className="w-3 h-3 sm:w-4 sm:h-4" />
+          <span className="text-[9px] xxs:text-xs sm:text-caption text-neutral-400 hidden sm:inline">Zoom:</span>
+          <button onClick={() => handleZoom(-0.2)} className="btn-icon w-5 h-5 xxs:w-6 xxs:h-6 sm:w-8 sm:h-8" disabled={ui.timelineZoom <= 0.2}>
+            <ZoomOut className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-4 sm:h-4" />
           </button>
-          <span className="text-xs sm:text-caption text-neutral-300 min-w-[2.5rem] sm:min-w-[3rem] text-center">
+          <span className="text-[9px] xxs:text-xs sm:text-caption text-neutral-300 min-w-[1.5rem] xxs:min-w-[2rem] sm:min-w-[3rem] text-center">
             {Math.round(ui.timelineZoom * 100)}%
           </span>
-          <button onClick={() => handleZoom(0.2)} className="btn-icon w-7 h-7 sm:w-8 sm:h-8" disabled={ui.timelineZoom >= 5}>
-            <ZoomIn className="w-3 h-3 sm:w-4 sm:h-4" />
+          <button onClick={() => handleZoom(0.2)} className="btn-icon w-5 h-5 xxs:w-6 xxs:h-6 sm:w-8 sm:h-8" disabled={ui.timelineZoom >= 5}>
+            <ZoomIn className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-4 sm:h-4" />
           </button>
 
-          <div className="w-px h-5 bg-white/20 mx-1" />
+          <div className="w-px h-4 xxs:h-5 bg-white/20 mx-0.5 xxs:mx-1 hidden xs:block" />
 
           {/* Aspect Ratio Button */}
           <button
             onClick={handleAspectRatioClick}
-            className="btn-secondary h-7 sm:h-8 text-xs sm:text-caption flex items-center gap-1"
-            title="Changer le rapport hauteur/largeur"
+            className="btn-secondary h-5 xxs:h-6 sm:h-8 text-[9px] xxs:text-xs sm:text-caption flex items-center gap-0.5 xxs:gap-1 px-1 xxs:px-2"
+            title="Ratio"
           >
-            <Monitor className="w-4 h-4" />
-            <span className="hidden sm:inline">{aspectRatio}</span>
+            <Monitor className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden xs:inline">{aspectRatio}</span>
           </button>
         </div>
       </div>
 
       {/* Timeline Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Track Labels */}
-        <div className="w-20 sm:w-32 flex-shrink-0 bg-white/5 border-r border-white/10 flex flex-col">
+        <div className="w-14 xxs:w-16 xs:w-20 sm:w-32 flex-shrink-0 bg-white/5 border-r border-white/10 flex flex-col">
           {/* Ruler space */}
-          <div className="h-6 sm:h-8 border-b border-white/10 flex-shrink-0" />
+          <div className="h-5 xxs:h-6 sm:h-8 border-b border-white/10 flex-shrink-0" />
           
           {/* Track labels */}
-          <div ref={labelsContainerRef} className="flex-1 overflow-hidden relative">
+          <div ref={labelsContainerRef} className="flex-1 overflow-hidden relative min-h-0">
             {tracks.map((track) => (
               <div
                 key={track.id}
-                className="h-12 sm:h-16 border-b border-white/10 px-1 sm:px-2 flex flex-col justify-center gap-1"
+                className="h-10 xxs:h-12 sm:h-16 border-b border-white/10 px-0.5 xxs:px-1 sm:px-2 flex flex-col justify-center gap-0.5 xxs:gap-1"
               >
-                <p className="text-xs sm:text-caption font-medium text-neutral-300 truncate">{track.name}</p>
-                <div className="flex items-center gap-0.5 sm:gap-1">
+                <p className="text-[9px] xxs:text-[10px] xs:text-xs sm:text-caption font-medium text-neutral-300 truncate">{track.name}</p>
+                <div className="flex items-center gap-0 xxs:gap-0.5 sm:gap-1">
                   <button
                     onClick={() => toggleTrackMute(track.id)}
-                    className={`btn-icon w-5 h-5 sm:w-6 sm:h-6 ${track.muted ? 'text-error' : ''}`}
+                    className={`btn-icon w-4 h-4 xxs:w-5 xxs:h-5 sm:w-6 sm:h-6 ${track.muted ? 'text-error' : ''}`}
                     title={track.muted ? 'Unmute' : 'Mute'}
                   >
-                    {track.muted ? <VolumeX className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <Volume2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
+                    {track.muted ? <VolumeX className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" /> : <Volume2 className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />}
                   </button>
                   <button
                     onClick={() => toggleTrackLock(track.id)}
-                    className={`btn-icon w-5 h-5 sm:w-6 sm:h-6 ${track.locked ? 'text-warning' : ''}`}
+                    className={`btn-icon w-4 h-4 xxs:w-5 xxs:h-5 sm:w-6 sm:h-6 ${track.locked ? 'text-warning' : ''}`}
                     title={track.locked ? 'Unlock' : 'Lock'}
                   >
-                    {track.locked ? <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <Unlock className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
+                    {track.locked ? <Lock className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" /> : <Unlock className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />}
                   </button>
                 </div>
               </div>
             ))}
 
             {/* Text Track Label */}
-            <div className="h-12 sm:h-16 border-b border-white/10 px-1 sm:px-2 flex flex-col justify-center gap-1">
-              <p className="text-xs sm:text-caption font-medium text-neutral-300 truncate">Textes</p>
-              <div className="flex items-center gap-0.5 sm:gap-1">
-                <Type className="w-3 h-3 sm:w-4 sm:h-4 text-neutral-400" />
+            <div className="h-10 xxs:h-12 sm:h-16 border-b border-white/10 px-0.5 xxs:px-1 sm:px-2 flex flex-col justify-center gap-0.5 xxs:gap-1">
+              <p className="text-[9px] xxs:text-[10px] xs:text-xs sm:text-caption font-medium text-neutral-300 truncate">Textes</p>
+              <div className="flex items-center gap-0 xxs:gap-0.5 sm:gap-1">
+                <Type className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4 text-neutral-400" />
               </div>
             </div>
           </div>
 
           {/* Add Track Button */}
-          <div className="p-1 sm:p-2 flex-shrink-0">
-            <button onClick={() => addTrack('video')} className="btn-secondary w-full h-7 sm:h-8 text-xs sm:text-caption">
-              <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              <span className="hidden sm:inline">Track</span>
+          <div className="p-0.5 xxs:p-1 sm:p-2 flex-shrink-0">
+            <button onClick={() => addTrack('video')} className="btn-secondary w-full h-5 xxs:h-6 sm:h-8 text-[9px] xxs:text-xs sm:text-caption">
+              <Plus className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />
+              <span className="hidden xs:inline">Track</span>
             </button>
           </div>
         </div>
@@ -1185,7 +1214,7 @@ export const Timeline: React.FC = () => {
         >
           <div style={{ width: timelineWidth }}>
             {/* Time Ruler */}
-            <div className="h-6 sm:h-8 bg-white/5 border-b border-white/10 sticky top-0 z-20" style={{ width: timelineWidth }}>
+            <div className="h-5 xxs:h-6 sm:h-8 bg-white/5 border-b border-white/10 sticky top-0 z-20" style={{ width: timelineWidth }}>
               {getTimeMarkers().map((time) => {
                 const x = time * PIXELS_PER_SECOND * ui.timelineZoom;
                 return (
@@ -1195,7 +1224,7 @@ export const Timeline: React.FC = () => {
                     style={{ left: `${x}px` }}
                   >
                     <div className="w-px h-1 sm:h-2 bg-neutral-400" />
-                    <span className="text-[0.6rem] sm:text-caption text-neutral-400 ml-1 select-none">
+                    <span className="text-[8px] xxs:text-[0.6rem] sm:text-caption text-neutral-400 ml-0.5 xxs:ml-1 select-none">
                       {formatTime(time)}
                     </span>
                   </div>
@@ -1207,7 +1236,7 @@ export const Timeline: React.FC = () => {
             {tracks.map((track) => (
               <div
                 key={track.id}
-                className="timeline-track h-12 sm:h-16 border-b border-white/10 relative"
+                className="timeline-track h-10 xxs:h-12 sm:h-16 border-b border-white/10 relative"
                 onDrop={(e) => handleDrop(e, track.id)}
                 onDragOver={handleDragOver}
                 style={{ width: timelineWidth }}
@@ -1223,11 +1252,11 @@ export const Timeline: React.FC = () => {
                   return (
                     <div
                       key={clip.id}
-                      className={`timeline-clip absolute top-1 sm:top-2 ${
+                      className={`timeline-clip absolute top-0.5 xxs:top-1 sm:top-2 ${
                         track.type === 'audio' ? 'timeline-clip-audio' : ''
                       } ${isSelected ? 'selected' : ''} ${
                         draggedClipId === clip.id ? 'dragging' : ''
-                      } overflow-hidden flex items-center px-1 sm:px-2 cursor-grab active:cursor-grabbing`}
+                      } overflow-hidden flex items-center px-0.5 xxs:px-1 sm:px-2 cursor-grab active:cursor-grabbing`}
                       style={{
                         left: `${clipX}px`,
                         width: `${clipWidth}px`,
@@ -1283,7 +1312,7 @@ export const Timeline: React.FC = () => {
                       )}
 
                       {/* Clip name */}
-                      <p className="text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
+                      <p className="text-[8px] xxs:text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
                         {clip.name}
                       </p>
                     </div>
@@ -1294,7 +1323,7 @@ export const Timeline: React.FC = () => {
 
             {/* Text Track */}
             <div
-              className="timeline-track h-12 sm:h-16 border-b border-white/10 relative"
+              className="timeline-track h-10 xxs:h-12 sm:h-16 border-b border-white/10 relative"
               style={{ width: timelineWidth }}
             >
               {textOverlays.map((text) => {
@@ -1305,9 +1334,9 @@ export const Timeline: React.FC = () => {
                 return (
                   <div
                     key={text.id}
-                    className={`timeline-clip absolute top-1 sm:top-2 bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
+                    className={`timeline-clip absolute top-0.5 xxs:top-1 sm:top-2 bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
                       draggedTextId === text.id ? 'dragging' : ''
-                    } overflow-hidden flex items-center px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded`}
+                    } overflow-hidden flex items-center px-0.5 xxs:px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded`}
                     style={{
                       left: `${textX}px`,
                       width: `${textWidth}px`,
@@ -1332,7 +1361,7 @@ export const Timeline: React.FC = () => {
                     </div>
 
                     {/* Text content */}
-                    <p className="text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
+                    <p className="text-[8px] xxs:text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
                       {text.text}
                     </p>
                   </div>

@@ -1,3 +1,7 @@
+/* Copyright (c) 2025 Jema Technology.
+ * Distributed under the license specified in the root directory of this project.
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
@@ -465,11 +469,188 @@
   }
 }
 
+/* Safe Area for iPhone notch and home indicator */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-area-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
 /* Mobile touch targets */
 @media (max-width: 640px) {
   .btn-icon {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+/* Mobile-specific styles */
+@media (max-width: 767px) {
+  /* Larger touch targets for mobile */
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  
+  /* Smaller text for mobile */
+  .text-body {
+    font-size: 14px;
+  }
+  
+  .text-caption {
+    font-size: 11px;
+  }
+  
+  /* Timeline adjustments for mobile */
+  .timeline-track {
+    min-height: 40px;
+  }
+  
+  .timeline-clip {
+    min-height: 28px;
+  }
+  
+  /* Playhead adjustments */
+  .playhead::before {
+    width: 10px;
+    height: 10px;
+    left: -4px;
+    top: -4px;
+  }
+  
+  /* Glass panel adjustments */
+  .glass-panel,
+  .glass-panel-medium,
+  .glass-panel-subtle {
+    border-radius: 6px;
+  }
+  
+  /* Input adjustments */
+  .glass-input {
+    height: 44px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  
+  /* Scrollbar hidden on mobile for cleaner look */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+}
+
+/* Very small screens (iPhone SE, iPhone 4-5, 320px width) */
+@media (max-width: 374px) {
+  .btn-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  
+  .text-body {
+    font-size: 12px;
+  }
+  
+  .text-caption {
+    font-size: 9px;
+  }
+  
+  /* Smaller buttons for very small screens */
+  .btn-primary,
+  .btn-secondary {
+    min-height: 36px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  
+  /* Smaller timeline elements */
+  .timeline-track {
+    min-height: 32px;
+  }
+  
+  .timeline-clip {
+    min-height: 24px;
+  }
+  
+  /* Smaller playhead */
+  .playhead::before {
+    width: 8px;
+    height: 8px;
+    left: -3px;
+    top: -3px;
+  }
+  
+  /* Smaller inputs */
+  .glass-input {
+    height: 36px;
+    font-size: 14px;
+  }
+  
+  /* Smaller scrollbar */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+}
+
+/* Extra small screens (iPhone 4, 320px width) */
+@media (max-width: 320px) {
+  .btn-icon {
+    min-width: 32px;
+    min-height: 32px;
+  }
+  
+  .text-body {
+    font-size: 11px;
+  }
+  
+  .text-caption {
+    font-size: 8px;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    min-height: 32px;
+    padding: 0 6px;
+    font-size: 10px;
+  }
+  
+  .timeline-track {
+    min-height: 28px;
+  }
+  
+  .timeline-clip {
+    min-height: 20px;
+  }
+  
+  .glass-input {
+    height: 32px;
+    font-size: 14px;
+  }
+}
+
+/* Tablet adjustments */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .timeline-track {
+    min-height: 52px;
+  }
+  
+  .timeline-clip {
+    min-height: 36px;
   }
 }
 

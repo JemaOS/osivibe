@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 export function formatTime(seconds: number): string {
   if (isNaN(seconds) || seconds < 0) return '00:00';
   
