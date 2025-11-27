@@ -103,6 +103,7 @@ interface EditorState {
   openExportModal: () => void;
   closeExportModal: () => void;
   setProcessing: (isProcessing: boolean, progress?: number, message?: string) => void;
+  setMobileSidebarOpen: (isOpen: boolean) => void;
   
   // Export actions
   setExportSettings: (settings: Partial<ExportSettings>) => void;
@@ -150,6 +151,7 @@ const defaultUIState: UIState = {
   isProcessing: false,
   processingProgress: 0,
   processingMessage: '',
+  isMobileSidebarOpen: false,
 };
 
 const defaultExportSettings: ExportSettings = {
@@ -960,6 +962,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ui: { ...state.ui, isProcessing, processingProgress: progress, processingMessage: message },
     }));
   },
+  setMobileSidebarOpen: (isOpen) => set((state) => ({ ui: { ...state.ui, isMobileSidebarOpen: isOpen } })),
   
   // Export actions
   setExportSettings: (settings) => {

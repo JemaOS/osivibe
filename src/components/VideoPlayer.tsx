@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import {
   Play,
   Pause,
@@ -24,6 +24,8 @@ import {
   initializePreviewOptimizer,
   getOptimalSettings,
   applyVideoOptimizations,
+  optimizeMobilePlayback,
+  getMobileVideoAttributes,
   FrameRateLimiter,
   PerformanceMonitor,
   getHardwareProfile,
@@ -66,6 +68,18 @@ export const VideoPlayer: React.FC = () => {
   const animationRef = useRef<number>();
   const frameRateLimiterRef = useRef<FrameRateLimiter | null>(null);
   const performanceMonitorRef = useRef<PerformanceMonitor | null>(null);
+  
+  // Refs for smooth video synchronization
+  const lastSyncTimeRef = useRef<number>(0);
+  const syncDebounceRef = useRef<number | null>(null);
+  const isSeekingRef = useRef<boolean>(false);
+  const pendingSeekRef = useRef<number | null>(null);
+  const preloadedClipsRef = useRef<Set<string>>(new Set());
+  
+  // Mobile optimization refs
+  const isMobileRef = useRef<boolean>(false);
+  const lastStateUpdateRef = useRef<number>(0);
+  const rafIdRef = useRef<number | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
@@ -98,6 +112,9 @@ export const VideoPlayer: React.FC = () => {
     const profile = initializePreviewOptimizer();
     setHardwareProfile(profile);
     
+    // Store mobile status in ref for performance
+    isMobileRef.current = profile.isMobile;
+    
     // Get optimal settings based on detected hardware
     const settings = getOptimalSettings(1920, 1080, profile);
     
@@ -119,12 +136,16 @@ export const VideoPlayer: React.FC = () => {
       settings,
       recommendedQuality: profile.recommendedQuality,
       cpuCores: profile.cpuCores,
-      isLowEnd: profile.isLowEnd
+      isLowEnd: profile.isLowEnd,
+      isMobile: profile.isMobile
     });
     
     return () => {
       frameRateLimiterRef.current = null;
       performanceMonitorRef.current = null;
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
     };
   }, []);
   
@@ -340,54 +361,191 @@ export const VideoPlayer: React.FC = () => {
       .join(',');
   }, [tracks]);
 
-  // Update video playback
-  useEffect(() => {
+  // Sync video volume and playback state immediately (no debounce for audio)
+  const syncVideoVolumeAndPlayback = useCallback(() => {
     const activeClips = getActiveClips();
     
-    // Sync all active video clips
-    activeClips.forEach((item, index) => {
+    activeClips.forEach((item) => {
       if (item.media.type !== 'video') return;
       
       const videoEl = videoRefs.current[item.clip.id];
       if (!videoEl) return;
 
       // Determine if this is the "main" video (bottom-most video track)
-      // We use the first video found in the sorted activeClips as the main one
       const isMainVideo = activeClips.find(c => c.media.type === 'video')?.clip.id === item.clip.id;
 
+      // Only the main video gets volume, others are muted to prevent echo
+      const isAudioMuted = item.clip.audioMuted === true;
+      const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
+      
+      // Always apply volume immediately
+      if (videoEl.volume !== targetVolume) {
+        videoEl.volume = targetVolume;
+      }
+      
+      videoEl.playbackRate = player.playbackRate;
+
+      if (player.isPlaying) {
+        if (videoEl.paused) {
+          videoEl.play().catch(() => {});
+        }
+      } else {
+        if (!videoEl.paused) {
+          videoEl.pause();
+        }
+      }
+    });
+  }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips]);
+
+  // Debounced video sync function to prevent stuttering during rapid navigation
+  // This only handles time sync and filters, NOT volume/playback
+  const syncVideosDebounced = useCallback((forceSync: boolean = false) => {
+    const now = performance.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    
+    // MOBILE OPTIMIZATION: Use longer intervals on mobile to reduce CPU load
+    const isMobile = isMobileRef.current;
+    const MIN_SYNC_INTERVAL = isMobile ? 33 : 16; // ~30fps on mobile, ~60fps on desktop
+    const PAUSED_SYNC_INTERVAL = isMobile ? 100 : 50; // Longer debounce when paused on mobile
+    
+    // If we're playing, sync immediately but throttled
+    // If we're seeking (not playing), debounce more aggressively
+    const shouldSyncNow = forceSync ||
+      (player.isPlaying && timeSinceLastSync >= MIN_SYNC_INTERVAL) ||
+      (!player.isPlaying && timeSinceLastSync >= PAUSED_SYNC_INTERVAL);
+    
+    if (!shouldSyncNow) {
+      // Schedule a sync for later if not already scheduled
+      if (syncDebounceRef.current === null) {
+        syncDebounceRef.current = window.setTimeout(() => {
+          syncDebounceRef.current = null;
+          syncVideosDebounced(true);
+        }, player.isPlaying ? MIN_SYNC_INTERVAL : PAUSED_SYNC_INTERVAL);
+      }
+      return;
+    }
+    
+    lastSyncTimeRef.current = now;
+    
+    const activeClips = getActiveClips();
+    
+    // Sync all active video clips - time and filters only
+    activeClips.forEach((item) => {
+      if (item.media.type !== 'video') return;
+      
+      const videoEl = videoRefs.current[item.clip.id];
+      if (!videoEl) return;
+
+      // Only update src if it changed
       if (videoEl.src !== item.media.url) {
         videoEl.src = item.media.url;
+        videoEl.load();
       }
 
       const clipStart = item.clip.startTime;
       const localTime = player.currentTime - clipStart + item.clip.trimStart;
       
-      if (Math.abs(videoEl.currentTime - localTime) > 0.1) {
-        videoEl.currentTime = localTime;
+      // MOBILE OPTIMIZATION: Use larger seek threshold on mobile
+      // This prevents micro-seeks that cause stuttering
+      const seekThreshold = isMobile
+        ? (player.isPlaying ? 0.25 : 0.1) // Larger threshold on mobile
+        : (player.isPlaying ? 0.15 : 0.05);
+      const timeDiff = Math.abs(videoEl.currentTime - localTime);
+      
+      if (timeDiff > seekThreshold) {
+        // Mark as seeking to prevent race conditions
+        if (!isSeekingRef.current) {
+          isSeekingRef.current = true;
+          videoEl.currentTime = localTime;
+          
+          // Reset seeking flag after a short delay (longer on mobile)
+          setTimeout(() => {
+            isSeekingRef.current = false;
+          }, isMobile ? 100 : 50);
+        }
       }
 
-      // Apply filter
-      const clipFilter = filters[item.clip.id];
-      if (clipFilter) {
-        videoEl.style.filter = getCSSFilter(clipFilter);
-      } else {
-        videoEl.style.filter = 'none';
-      }
-
-      // Only the main video gets volume, others are muted to prevent echo
-      // Also check if audio was detached from this video clip (audioMuted flag)
-      const isAudioMuted = item.clip.audioMuted === true;
-      console.log('🔊 Video volume check:', { clipId: item.clip.id, isMainVideo, isAudioMuted, audioMuted: item.clip.audioMuted, willMute: !isMainVideo || isAudioMuted });
-      videoEl.volume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
-      videoEl.playbackRate = player.playbackRate;
-
-      if (player.isPlaying) {
-        videoEl.play().catch(() => {});
-      } else {
-        videoEl.pause();
+      // MOBILE OPTIMIZATION: Only apply filters when paused or on desktop
+      // Filters are expensive on mobile during playback
+      if (!isMobile || !player.isPlaying) {
+        const clipFilter = filters[item.clip.id];
+        if (clipFilter) {
+          videoEl.style.filter = getCSSFilter(clipFilter);
+        } else {
+          videoEl.style.filter = 'none';
+        }
       }
     });
-  }, [player.currentTime, player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, filters, audioMutedStates]);
+    
+    // Always sync volume and playback state immediately after time sync
+    syncVideoVolumeAndPlayback();
+  }, [player.currentTime, player.isPlaying, getActiveClips, filters, syncVideoVolumeAndPlayback]);
+  
+  // Sync volume and playback immediately when these change (no debounce)
+  useEffect(() => {
+    syncVideoVolumeAndPlayback();
+  }, [syncVideoVolumeAndPlayback, player.volume, player.isMuted, player.playbackRate, audioMutedStates]);
+
+  // Update video playback with optimized sync
+  useEffect(() => {
+    syncVideosDebounced();
+    
+    // Cleanup debounce timer on unmount
+    return () => {
+      if (syncDebounceRef.current !== null) {
+        clearTimeout(syncDebounceRef.current);
+        syncDebounceRef.current = null;
+      }
+    };
+  }, [syncVideosDebounced, audioMutedStates]);
+  
+  // Preload adjacent clips for smoother transitions
+  useEffect(() => {
+    const activeClips = getActiveClips();
+    
+    // Find clips that will be active soon (within 2 seconds)
+    const upcomingClips: string[] = [];
+    
+    tracks.forEach((track) => {
+      if (track.type !== 'video') return;
+      
+      track.clips.forEach((clip) => {
+        const clipStart = clip.startTime;
+        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+        
+        // Check if clip starts within the next 2 seconds
+        if (clipStart > player.currentTime && clipStart <= player.currentTime + 2) {
+          upcomingClips.push(clip.id);
+        }
+      });
+    });
+    
+    // Preload upcoming clips
+    upcomingClips.forEach((clipId) => {
+      if (preloadedClipsRef.current.has(clipId)) return;
+      
+      const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+      if (!clip) return;
+      
+      const media = mediaFiles.find(m => m.id === clip.mediaId);
+      if (!media || media.type !== 'video') return;
+      
+      // Create a hidden video element to preload
+      const preloadVideo = document.createElement('video');
+      preloadVideo.preload = 'auto';
+      preloadVideo.muted = true;
+      preloadVideo.src = media.url;
+      preloadVideo.currentTime = clip.trimStart;
+      
+      preloadedClipsRef.current.add(clipId);
+      
+      // Clean up after 10 seconds
+      setTimeout(() => {
+        preloadedClipsRef.current.delete(clipId);
+        preloadVideo.src = '';
+      }, 10000);
+    });
+  }, [player.currentTime, tracks, mediaFiles, getActiveClips]);
 
   // Animation loop for playback with frame rate limiting
   useEffect(() => {
@@ -404,6 +562,12 @@ export const VideoPlayer: React.FC = () => {
     let lastTime = performance.now();
     let isActive = true;
     let fpsUpdateCounter = 0;
+    let accumulatedTime = 0;
+    
+    // MOBILE OPTIMIZATION: Use lower update rate on mobile
+    const isMobile = isMobileRef.current;
+    const MIN_TIME_STEP = isMobile ? 1000 / 30 : 1000 / 60; // 30fps on mobile, 60fps on desktop
+    const FPS_UPDATE_INTERVAL = isMobile ? 60 : 30; // Update FPS display less often on mobile
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
@@ -423,16 +587,23 @@ export const VideoPlayer: React.FC = () => {
       if (perfMonitor) {
         perfMonitor.recordFrame(currentTime);
         
-        // Update FPS display every 30 frames
+        // Update FPS display periodically (less often on mobile)
         fpsUpdateCounter++;
-        if (fpsUpdateCounter >= 30) {
+        if (fpsUpdateCounter >= FPS_UPDATE_INTERVAL) {
           fpsUpdateCounter = 0;
           const fps = perfMonitor.getAverageFps();
-          setCurrentFps(fps);
+          
+          // MOBILE OPTIMIZATION: Batch state updates
+          // Only update if FPS changed significantly
+          if (Math.abs(fps - currentFps) > 2) {
+            setCurrentFps(fps);
+          }
           
           // Check for poor performance and auto-adjust
           const isPoor = perfMonitor.isPerformancePoor();
-          setIsPerformancePoor(isPoor);
+          if (isPoor !== isPerformancePoor) {
+            setIsPerformancePoor(isPoor);
+          }
           
           // Auto-adjust quality if performance is poor
           if (isPoor && previewSettings.quality !== 'low') {
@@ -449,27 +620,46 @@ export const VideoPlayer: React.FC = () => {
         }
       }
       
-      const deltaTime = (currentTime - lastTime) / 1000;
+      const deltaTime = currentTime - lastTime;
       lastTime = currentTime;
-
-      // Get current state
-      const state = useEditorStore.getState();
-      const newTime = state.player.currentTime + (deltaTime * state.player.playbackRate);
       
-      if (newTime >= state.projectDuration) {
-        state.seek(0);
-        state.pause();
-      } else {
-        state.seek(newTime);
+      // Accumulate time and only update state when we have enough
+      accumulatedTime += deltaTime;
+      
+      if (accumulatedTime >= MIN_TIME_STEP) {
+        // Get current state directly (avoid re-render)
+        const state = useEditorStore.getState();
+        const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
+        const newTime = state.player.currentTime + timeAdvance;
+        
+        // Reset accumulated time
+        accumulatedTime = 0;
+        
+        if (newTime >= state.projectDuration) {
+          state.seek(0);
+          state.pause();
+        } else {
+          // MOBILE OPTIMIZATION: Throttle state updates
+          const now = performance.now();
+          const timeSinceLastUpdate = now - lastStateUpdateRef.current;
+          const updateThreshold = isMobile ? 50 : 16; // Update less frequently on mobile
+          
+          if (timeSinceLastUpdate >= updateThreshold) {
+            lastStateUpdateRef.current = now;
+            state.seek(newTime);
+          }
+        }
       }
 
-      if (state.player.isPlaying && isActive) {
+      if (useEditorStore.getState().player.isPlaying && isActive) {
         animationRef.current = requestAnimationFrame(animate);
       }
     };
 
     // Reset frame limiter when starting playback
     frameRateLimiterRef.current?.reset();
+    accumulatedTime = 0;
+    lastStateUpdateRef.current = performance.now();
     animationRef.current = requestAnimationFrame(animate);
 
     return () => {
@@ -479,7 +669,7 @@ export const VideoPlayer: React.FC = () => {
         animationRef.current = undefined;
       }
     };
-  }, [player.isPlaying, previewSettings.quality, handleQualityChange]);
+  }, [player.isPlaying, previewSettings.quality, handleQualityChange, currentFps, isPerformancePoor]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1105,12 +1295,23 @@ export const VideoPlayer: React.FC = () => {
   const setVideoRef = useCallback((id: string, el: HTMLVideoElement | null) => {
     if (el) {
       videoRefs.current[id] = el;
-      // Apply video optimizations for smooth playback
-      applyVideoOptimizations(el, previewSettings);
+      // Apply video optimizations for smooth playback with hardware profile
+      applyVideoOptimizations(el, previewSettings, hardwareProfile || undefined);
+      
+      // Apply mobile-specific playback optimizations
+      if (hardwareProfile?.isMobile) {
+        optimizeMobilePlayback(el);
+        
+        // Apply mobile video attributes
+        const mobileAttrs = getMobileVideoAttributes();
+        Object.entries(mobileAttrs).forEach(([key, value]) => {
+          el.setAttribute(key, value);
+        });
+      }
     } else {
       delete videoRefs.current[id];
     }
-  }, [previewSettings]);
+  }, [previewSettings, hardwareProfile]);
   
   // Get video style based on preview settings (for resolution limiting)
   const getVideoStyle = useCallback((media: MediaFile): React.CSSProperties => {
@@ -1134,10 +1335,10 @@ export const VideoPlayer: React.FC = () => {
   // Quality options for the menu
   const qualityOptions: { value: PreviewSettings['quality']; label: string; description: string }[] = [
     { value: 'auto', label: 'Auto', description: hardwareProfile ? `Détecté: ${hardwareProfile.recommendedQuality}` : 'Ajustement automatique' },
-    { value: 'low', label: 'Basse (360p)', description: 'Pour PC anciens (≤2 cœurs)' },
-    { value: 'medium', label: 'Moyenne (480p)', description: 'Équilibré (2-4 cœurs)' },
-    { value: 'high', label: 'Haute (720p)', description: 'Bonne qualité (4-6 cœurs)' },
-    { value: 'original', label: 'Originale', description: 'Qualité maximale (6+ cœurs)' },
+    { value: 'low', label: 'Basse (360p)', description: 'Pour appareils anciens' },
+    { value: 'medium', label: 'Moyenne (480p)', description: 'Équilibré' },
+    { value: 'high', label: 'Haute (720p)', description: 'Bonne qualité' },
+    { value: 'original', label: 'Originale', description: 'Qualité maximale' },
   ];
   
   // Get quality label for display
@@ -1150,9 +1351,9 @@ export const VideoPlayer: React.FC = () => {
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className={`glass-panel flex flex-col h-full ${player.isFullscreen ? 'fixed inset-0 z-50 rounded-none' : ''}`}
+      className={`glass-panel flex flex-col h-full ${player.isFullscreen ? 'fixed inset-0 z-[100] rounded-none' : ''}`}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(true)}
     >
@@ -1208,8 +1409,10 @@ export const VideoPlayer: React.FC = () => {
                             className="object-cover"
                             style={{ ...getCropStyle(item.clip), ...videoStyle }}
                             playsInline
+                            webkit-playsinline="true"
                             muted={false}
                             controls={false}
+                            preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
                             onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
                           />
                         </div>
@@ -1231,8 +1434,10 @@ export const VideoPlayer: React.FC = () => {
                           className="w-full h-full object-contain"
                           style={videoStyle}
                           playsInline
+                          webkit-playsinline="true"
                           muted={false}
                           controls={false}
+                          preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
                           onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
                         />
                       </div>
@@ -1614,8 +1819,8 @@ export const VideoPlayer: React.FC = () => {
           )}
         </div>
 
-        {/* Big Play Button */}
-        {!player.isPlaying && activeClips.length > 0 && !cropMode && !editingTextId && !transformingImageId && !resizingImageId && !rotatingImageId && !draggedTextId && !ui.selectedClipId && !ui.selectedTextId && !resizingTextId && (
+        {/* Big Play Button - Hidden when mobile sidebar is open */}
+        {!player.isPlaying && activeClips.length > 0 && !cropMode && !editingTextId && !transformingImageId && !resizingImageId && !rotatingImageId && !draggedTextId && !ui.selectedClipId && !ui.selectedTextId && !resizingTextId && !ui.isMobileSidebarOpen && (
           <button
             onClick={togglePlayPause}
             className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors z-[60]"
@@ -1747,7 +1952,10 @@ export const VideoPlayer: React.FC = () => {
                       <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
                     </div>
                     <div className="mt-1" style={{ color: '#808080' }}>
-                      {hardwareProfile.cpuCores} cœurs CPU • {hardwareProfile.isLowEnd ? 'Mode économie' : 'Performance normale'}
+                      {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
+                      {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
+                      {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
+                      {hardwareProfile.isLowEnd && ' • Mode économie'}
                     </div>
                   </div>
                 )}

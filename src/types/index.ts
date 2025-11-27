@@ -176,6 +176,7 @@ export interface UIState {
   isProcessing: boolean;
   processingProgress: number;
   processingMessage: string;
+  isMobileSidebarOpen: boolean; // Mobile sidebar overlay state
 }
 
 // Resolution presets

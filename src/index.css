@@ -680,3 +680,197 @@ label {
 .glass-panel div {
   color: inherit;
 }
+
+/* ============================================
+   MOBILE VIDEO PERFORMANCE OPTIMIZATIONS
+   ============================================ */
+
+/* Force GPU acceleration for video containers on mobile */
+@media (max-width: 1024px) {
+  /* Video container optimizations */
+  .video-container,
+  [class*="VideoPlayer"] {
+    /* Force GPU compositing */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    perspective: 1000px;
+    -webkit-perspective: 1000px;
+  }
+  
+  /* Video element optimizations */
+  video {
+    /* Force hardware acceleration */
+    transform: translate3d(0, 0, 0);
+    -webkit-transform: translate3d(0, 0, 0);
+    
+    /* Optimize rendering */
+    image-rendering: auto;
+    -webkit-image-rendering: auto;
+    
+    /* Reduce paint complexity */
+    contain: layout paint;
+    
+    /* Prevent layout thrashing */
+    will-change: contents;
+    
+    /* Disable pointer events during playback for better performance */
+    /* Re-enabled via JS when needed */
+  }
+  
+  /* Reduce animation complexity on mobile */
+  .timeline-clip,
+  .playhead,
+  .btn-icon,
+  .btn-primary,
+  .btn-secondary {
+    transition-duration: 100ms !important;
+  }
+  
+  /* Disable hover effects on touch devices */
+  @media (hover: none) {
+    .timeline-clip:hover,
+    .btn-icon:hover,
+    .btn-primary:hover,
+    .btn-secondary:hover {
+      transform: none !important;
+    }
+  }
+}
+
+/* Chrome mobile specific optimizations */
+@supports (-webkit-touch-callout: none) or (not (-webkit-touch-callout: none)) {
+  @media (max-width: 1024px) {
+    /* Optimize video for Chrome on Android */
+    video {
+      /* Use optimized decoding */
+      -webkit-video-playable-inline: true;
+      
+      /* Reduce memory usage */
+      object-fit: contain;
+      
+      /* Prevent unnecessary repaints */
+      isolation: isolate;
+    }
+    
+    /* Reduce DOM complexity during playback */
+    .playing video {
+      /* Minimize style recalculations */
+      pointer-events: none;
+    }
+  }
+}
+
+/* iOS Safari specific optimizations */
+@supports (-webkit-touch-callout: none) {
+  video {
+    /* Required for inline playback on iOS */
+    -webkit-playsinline: true;
+    playsinline: true;
+    
+    /* Prevent fullscreen on play */
+    webkit-playsinline: true;
+  }
+}
+
+/* Low-end device optimizations */
+@media (max-width: 1024px) and (prefers-reduced-motion: reduce) {
+  video {
+    /* Disable all transitions */
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  /* Simplify UI during playback */
+  .timeline-clip,
+  .playhead {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Memory-constrained devices */
+@media (max-width: 640px) {
+  /* Reduce shadow complexity */
+  .glass-panel,
+  .timeline-clip,
+  .btn-primary,
+  .btn-secondary {
+    box-shadow: none !important;
+  }
+  
+  /* Simplify borders */
+  .glass-panel {
+    border-width: 1px !important;
+  }
+  
+  /* Reduce blur effects (expensive on mobile) */
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(26, 26, 26, 0.95) !important;
+  }
+}
+
+/* Video playback state classes */
+.video-playing video {
+  /* Optimize for playback */
+  will-change: contents;
+  contain: strict;
+}
+
+.video-paused video {
+  /* Reset optimizations when paused */
+  will-change: auto;
+  contain: layout paint;
+}
+
+/* Smooth scrolling disabled on mobile for better performance */
+@media (max-width: 1024px) {
+  .custom-scrollbar {
+    scroll-behavior: auto !important;
+    -webkit-overflow-scrolling: auto !important;
+  }
+}
+
+/* Touch-friendly video controls */
+@media (pointer: coarse) {
+  /* Larger touch targets for video controls */
+  .video-controls button {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 12px;
+  }
+  
+  /* Easier to tap progress bar */
+  .video-progress {
+    min-height: 24px;
+    padding: 8px 0;
+  }
+}
+
+/* Prevent text selection during video interaction */
+.video-container {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Optimize canvas rendering (used for video effects) */
+canvas {
+  image-rendering: optimizeSpeed;
+  -webkit-image-rendering: optimizeSpeed;
+}
+
+/* High DPI screen optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  video {
+    /* Prevent subpixel rendering issues */
+    transform: translateZ(0);
+  }
+}
