@@ -749,18 +749,55 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         
         const splitPoint = splitTime - clipStart + clip.trimStart;
         
-        // Create two new clips
+        // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
+        // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
+        // Each split part starts fresh with its own audio state
         const firstClip: TimelineClip = {
-          ...clip,
+          id: clip.id, // Keep original ID for first part
+          mediaId: clip.mediaId,
+          trackId: clip.trackId,
+          startTime: clip.startTime,
+          duration: clip.duration,
+          trimStart: clip.trimStart,
           trimEnd: clip.duration - splitPoint,
+          name: clip.name,
+          type: clip.type,
+          thumbnail: clip.thumbnail,
+          crop: clip.crop,
+          transform: clip.transform,
+          // Audio state is INDEPENDENT - not copied from original
+          audioMuted: false,
+          detachedAudioClipId: undefined,
+          linkedVideoClipId: undefined,
         };
         
         const secondClip: TimelineClip = {
-          ...clip,
-          id: uuidv4(),
+          id: uuidv4(), // New ID for second part
+          mediaId: clip.mediaId,
+          trackId: clip.trackId,
           startTime: splitTime,
+          duration: clip.duration,
           trimStart: splitPoint,
+          trimEnd: clip.trimEnd,
+          name: clip.name + ' (2)',
+          type: clip.type,
+          thumbnail: clip.thumbnail,
+          crop: clip.crop,
+          transform: clip.transform,
+          // Audio state is INDEPENDENT - not copied from original
+          audioMuted: false,
+          detachedAudioClipId: undefined,
+          linkedVideoClipId: undefined,
         };
+        
+        console.log('✂️ Split clip:', {
+          originalId: clipId,
+          firstClipId: firstClip.id,
+          secondClipId: secondClip.id,
+          splitTime,
+          firstClipAudioMuted: firstClip.audioMuted,
+          secondClipAudioMuted: secondClip.audioMuted
+        });
         
         const newClips = [...track.clips];
         newClips.splice(clipIndex, 1, firstClip, secondClip);
