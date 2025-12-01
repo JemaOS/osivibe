@@ -101,15 +101,16 @@ export function isFFmpegLoaded(): boolean {
 /**
  * Load a default font into FFmpeg's virtual filesystem for text overlays
  * Uses CORS-friendly CDN sources for Roboto font
+ * @returns true if font was loaded successfully, false otherwise
  */
-export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
+export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> {
   if (isFontLoaded) {
-    console.log('Font already loaded');
-    return;
+    console.log('🔤 DEBUG - Font already loaded');
+    return true;
   }
 
   try {
-    console.log('Loading default font for text overlays...');
+    console.log('🔤 DEBUG - Loading default font for text overlays...');
     
     // Font URLs - TTF format REQUIRED for FFmpeg.wasm (WOFF2 not supported)
     // Local TTF file has priority for reliability and compatibility
@@ -122,23 +123,34 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
     ];
     
     let fontData: Uint8Array | null = null;
+    let loadedFromUrl: string | null = null;
+    let lastError: Error | null = null;
     
     for (const fontUrl of fontUrls) {
       try {
-        console.log(`Trying to load font from: ${fontUrl}`);
+        console.log(`🔤 DEBUG - Trying to load font from: ${fontUrl}`);
         const response = await fetch(fontUrl, {
           mode: 'cors',
           credentials: 'omit'
         });
+        console.log(`🔤 DEBUG - Font fetch response for ${fontUrl}:`, {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          contentType: response.headers.get('content-type')
+        });
         if (response.ok) {
           fontData = new Uint8Array(await response.arrayBuffer());
-          console.log(`Successfully loaded font from: ${fontUrl}`);
+          loadedFromUrl = fontUrl;
+          console.log(`🔤 DEBUG - Successfully loaded font from: ${fontUrl}, size: ${fontData.length} bytes`);
           break;
         } else {
-          console.warn(`Font fetch returned status ${response.status} for: ${fontUrl}`);
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          console.warn(`🔤 DEBUG - Font fetch returned status ${response.status} for: ${fontUrl}`);
         }
       } catch (e) {
-        console.warn(`Failed to fetch font from ${fontUrl}:`, e);
+        lastError = e instanceof Error ? e : new Error(String(e));
+        console.warn(`🔤 DEBUG - Failed to fetch font from ${fontUrl}:`, e);
       }
     }
     
@@ -146,21 +158,29 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
       // Create fonts directory in FFmpeg virtual filesystem
       try {
         await ffmpegInstance.createDir('/fonts');
+        console.log('🔤 DEBUG - Created /fonts directory in FFmpeg VFS');
       } catch (e) {
+        console.log('🔤 DEBUG - /fonts directory already exists or error:', e);
         // Directory might already exist, ignore error
       }
       
       // Write font file to virtual filesystem
       await ffmpegInstance.writeFile(FFMPEG_FONT_PATH, fontData);
       isFontLoaded = true;
-      console.log('Default font loaded successfully into FFmpeg virtual filesystem');
+      console.log(`🔤 DEBUG - Font loaded successfully into FFmpeg VFS at ${FFMPEG_FONT_PATH}`);
+      console.log(`🔤 DEBUG - Font source: ${loadedFromUrl}`);
+      return true;
     } else {
-      console.warn('Could not load any font from CDN sources, text overlays may not work');
+      console.error('🔤 DEBUG - ❌ FONT LOADING FAILED - Could not load any font from sources');
+      console.error('🔤 DEBUG - Last error:', lastError?.message || 'Unknown error');
+      console.error('🔤 DEBUG - Text overlays WILL NOT WORK without a font file');
       console.warn('Consider adding a local font file at public/fonts/Roboto.ttf');
+      return false;
     }
   } catch (error) {
-    console.error('Error loading font:', error);
+    console.error('🔤 DEBUG - ❌ Error loading font:', error);
     // Don't throw - text overlays will fail gracefully
+    return false;
   }
 }
 
@@ -231,34 +251,48 @@ function hexToFFmpegColor(hex: string): string {
 /**
  * Generate FFmpeg drawtext filter string for a text overlay
  * @param textOverlay - The text overlay configuration
- * @param videoWidth - The video width in pixels
- * @param videoHeight - The video height in pixels
+ * @param videoWidth - The video width in pixels (export resolution)
+ * @param videoHeight - The video height in pixels (export resolution)
  * @param fontPath - Path to the font file in FFmpeg virtual filesystem (optional, uses default if not provided)
+ * @param referenceWidth - The reference width used in preview (typically ~600px). Used to scale fontSize proportionally.
  * @returns FFmpeg drawtext filter string
  */
 export function getTextFilterString(
   textOverlay: TextOverlay,
   videoWidth: number,
   videoHeight: number,
-  fontPath: string = FFMPEG_FONT_PATH
+  fontPath: string = FFMPEG_FONT_PATH,
+  referenceWidth: number = 600
 ): string {
   const escapedText = escapeTextForFFmpeg(textOverlay.text);
   const fontColor = hexToFFmpegColor(textOverlay.color);
   
+  // Scale fontSize from preview context to export context
+  // In preview, text is displayed at fontSize scaled DOWN by (previewWidth / exportWidth)
+  // So in export, we need to scale fontSize UP by (exportWidth / referenceWidth)
+  // This ensures text appears at the same relative size in both preview and export
+  const scaleFactor = videoWidth / referenceWidth;
+  const scaledFontSize = Math.round(textOverlay.fontSize * scaleFactor);
+  
   // Calculate position in pixels from percentage
   // x and y are percentages (0-100), convert to pixel positions
-  const xPos = Math.round((textOverlay.x / 100) * videoWidth);
-  const yPos = Math.round((textOverlay.y / 100) * videoHeight);
+  // The position represents the CENTER of the text, so we need to offset by half the text dimensions
+  // FFmpeg drawtext positions text by its top-left corner, so we subtract half width/height
+  // Using FFmpeg expressions: text_w and text_h give the rendered text dimensions
+  const xPosBase = Math.round((textOverlay.x / 100) * videoWidth);
+  const yPosBase = Math.round((textOverlay.y / 100) * videoHeight);
   
   // Build the drawtext filter
   // IMPORTANT: fontfile is REQUIRED for FFmpeg.wasm - it doesn't have built-in fonts
+  // Position is calculated to center the text at the specified coordinates
+  // x = baseX - (text_w / 2), y = baseY - (text_h / 2)
   const parts: string[] = [
     `fontfile=${fontPath}`,
     `text='${escapedText}'`,
-    `fontsize=${textOverlay.fontSize}`,
+    `fontsize=${scaledFontSize}`,
     `fontcolor=${fontColor}`,
-    `x=${xPos}`,
-    `y=${yPos}`,
+    `x=${xPosBase}-tw/2`,
+    `y=${yPosBase}-th/2`,
   ];
   
   // Add background color if specified
@@ -332,6 +366,102 @@ export function getTransitionFilter(
   const duration = Math.max(0.1, Math.min(transition.duration, 2)); // Clamp duration between 0.1 and 2 seconds
   
   return `xfade=transition=${ffmpegTransition}:duration=${duration}:offset=${offset}`;
+}
+
+/**
+ * Generate FFmpeg filter for single clip fade in/out effects
+ * Used when a transition is applied to a single clip (no other clip to transition to/from)
+ * @param transition - The transition configuration
+ * @param clipDuration - The duration of the clip in seconds
+ * @returns FFmpeg filter string for fade effect
+ */
+export function getSingleClipTransitionFilter(
+  transition: Transition,
+  clipDuration: number
+): string {
+  if (transition.type === 'none') {
+    return '';
+  }
+  
+  const duration = Math.max(0.1, Math.min(transition.duration, clipDuration * 0.5)); // Max 50% of clip duration
+  const frames = Math.round(duration * 30); // Assuming 30fps for frame-based calculations
+  
+  // For single clips, we apply fade in/out effects based on position
+  // 'start' position = fade in at the beginning
+  // 'end' position = fade out at the end
+  if (transition.position === 'start') {
+    // Fade in effect at the start of the clip
+    // Different transition types map to different fade styles
+    switch (transition.type) {
+      case 'fade':
+      case 'dissolve':
+      case 'cross-dissolve':
+        return `fade=t=in:st=0:d=${duration}`;
+      case 'zoom-in':
+        // Zoom in from smaller to normal size
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=iw*2:ih*2,fade=t=in:st=0:d=${duration}`;
+      case 'zoom-out':
+        // Start zoomed in, zoom out to normal
+        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=iw*2:ih*2,fade=t=in:st=0:d=${duration}`;
+      case 'rotate-in':
+        // Rotate in effect: start rotated (PI radians = 180°) and rotate to normal (0°)
+        // The rotation angle decreases from PI to 0 over the duration
+        // Using format filter to ensure proper pixel format for rotation
+        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
+        return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
+      case 'rotate-out':
+        // For rotate-out at start position, we rotate FROM a rotated state TO normal
+        // This is similar to rotate-in but conceptually the "out" refers to the previous clip
+        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
+        return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
+      case 'wipe-left':
+      case 'wipe-right':
+      case 'wipe-up':
+      case 'wipe-down':
+      case 'circle-wipe':
+      case 'diamond-wipe':
+        // Wipe effects - use fade as approximation for single clip
+        return `fade=t=in:st=0:d=${duration}`;
+      default:
+        return `fade=t=in:st=0:d=${duration}`;
+    }
+  } else if (transition.position === 'end') {
+    // Fade out effect at the end of the clip
+    const fadeStart = Math.max(0, clipDuration - duration);
+    switch (transition.type) {
+      case 'fade':
+      case 'dissolve':
+      case 'cross-dissolve':
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'zoom-in':
+        // Zoom in at the end (zoom out of frame)
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'zoom-out':
+        // Zoom out at the end
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'rotate-in':
+        // For rotate-in at end position, rotate from normal to rotated state
+        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
+        return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'rotate-out':
+        // Rotate out effect: start normal (0°) and rotate to PI radians (180°)
+        // The rotation angle increases from 0 to PI over the duration at the end
+        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
+        return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'wipe-left':
+      case 'wipe-right':
+      case 'wipe-up':
+      case 'wipe-down':
+      case 'circle-wipe':
+      case 'diamond-wipe':
+        // Wipe effects - use fade as approximation for single clip
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+      default:
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+    }
+  }
+  
+  return '';
 }
 
 /**
@@ -486,6 +616,8 @@ export async function exportProject(
 
       onProgress?.(5, 'Traitement de la vidéo...');
       
+      const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+      
       // Build video filter chain
       let videoFilterChain = `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
       
@@ -497,14 +629,45 @@ export async function exportProject(
         }
       }
       
+      // Apply transitions for single clip (fade in/out effects)
+      if (transitions && transitions.length > 0) {
+        console.log('🔀 DEBUG - Processing transitions for single clip export');
+        const clipId = clip.id;
+        
+        // Find transitions for this clip
+        const clipTransitions = transitions.filter(t => t.clipId === clipId && t.type !== 'none');
+        console.log(`🔀 DEBUG - Found ${clipTransitions.length} transitions for single clip`);
+        
+        for (const transition of clipTransitions) {
+          console.log(`🔀 DEBUG - Single clip transition:`, {
+            type: transition.type,
+            position: transition.position,
+            duration: transition.duration
+          });
+          
+          const transitionFilter = getSingleClipTransitionFilter(transition, clipDuration);
+          if (transitionFilter) {
+            videoFilterChain += ',' + transitionFilter;
+            console.log(`🔀 DEBUG - Applied single clip transition filter: ${transitionFilter}`);
+          }
+        }
+      }
+      
       // Add text overlays for single clip export
       if (textOverlays && textOverlays.length > 0) {
-        const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+        console.log('🔤 DEBUG - Processing text overlays for single clip export');
+        console.log('🔤 DEBUG - isFontLoaded:', isFontLoaded);
+        
+        console.log('🔤 DEBUG - Clip duration:', clipDuration);
+        
         const relevantTexts = textOverlays.filter(text => {
           const textEnd = text.startTime + text.duration;
-          // Check if text overlaps with clip timeline (considering trim)
-          return text.startTime < clipDuration && textEnd > 0;
+          const isRelevant = text.startTime < clipDuration && textEnd > 0;
+          console.log(`🔤 DEBUG - Text "${text.text}" (${text.startTime}s - ${textEnd}s): ${isRelevant ? 'INCLUDED' : 'EXCLUDED'}`);
+          return isRelevant;
         });
+        
+        console.log('🔤 DEBUG - Relevant texts count:', relevantTexts.length);
         
         for (const text of relevantTexts) {
           // Adjust text timing relative to clip
@@ -520,15 +683,20 @@ export async function exportProject(
           }
           if (adjustedText.duration > 0) {
             const textFilter = getTextFilterString(adjustedText, resolution.width, resolution.height);
+            console.log(`🔤 DEBUG - Text filter for "${text.text}":`, textFilter);
             videoFilterChain += ',' + textFilter;
+          } else {
+            console.log(`🔤 DEBUG - Text "${text.text}" skipped: duration <= 0 after adjustment`);
           }
         }
+        
+        console.log('🔤 DEBUG - Final video filter chain:', videoFilterChain);
       }
       
       const args = [
         '-i', inputFileName,
         '-ss', clip.trimStart.toString(),
-        '-t', (clip.duration - clip.trimStart - clip.trimEnd).toString(),
+        '-t', clipDuration.toString(),
         '-vf', videoFilterChain,
         '-c:v', outputFormat === 'webm' ? 'libvpx-vp9' : 'libx264',
         '-crf', quality,
@@ -602,23 +770,49 @@ export async function exportProject(
       cumulativeTime += clipDurations[i];
     }
     
-    // Build transition map for clips that have transitions
-    // Key: clipId, Value: transition (for 'start' position transitions)
-    const transitionMap = new Map<string, Transition>();
+    // Build transition maps for clips that have transitions
+    // startTransitionMap: Key: clipId, Value: transition (for 'start' position transitions - applied at beginning of clip)
+    // endTransitionMap: Key: clipId, Value: transition (for 'end' position transitions - applied at end of clip)
+    const startTransitionMap = new Map<string, Transition>();
+    const endTransitionMap = new Map<string, Transition>();
+    
     if (transitions && transitions.length > 0) {
-      console.log('Transitions received:', transitions);
+      console.log('🔀 DEBUG - Building transition maps from', transitions.length, 'transitions');
       for (const transition of transitions) {
+        console.log(`🔀 DEBUG - Transition:`, {
+          id: transition.id,
+          type: transition.type,
+          clipId: transition.clipId,
+          position: transition.position,
+          duration: transition.duration
+        });
         if (transition.type !== 'none') {
-          transitionMap.set(transition.clipId, transition);
-          console.log(`Transition mapped: clipId=${transition.clipId}, type=${transition.type}, duration=${transition.duration}`);
+          if (transition.position === 'start') {
+            startTransitionMap.set(transition.clipId, transition);
+            console.log(`🔀 DEBUG - Start transition mapped: clipId=${transition.clipId}, type=${transition.type}`);
+          } else if (transition.position === 'end') {
+            endTransitionMap.set(transition.clipId, transition);
+            console.log(`🔀 DEBUG - End transition mapped: clipId=${transition.clipId}, type=${transition.type}`);
+          }
+        } else {
+          console.log(`🔀 DEBUG - Transition skipped (type=none): clipId=${transition.clipId}`);
         }
       }
+      console.log('🔀 DEBUG - Start transition map size:', startTransitionMap.size);
+      console.log('🔀 DEBUG - End transition map size:', endTransitionMap.size);
+    } else {
+      console.log('🔀 DEBUG - No transitions to process');
     }
     
     // Apply transitions between clips using xfade
     // xfade merges two video streams with a transition effect
     // Format: [input1][input2]xfade=transition=type:duration=d:offset=o[output]
     // The offset is when the transition starts (relative to the beginning of the combined output)
+    //
+    // Transition logic:
+    // - 'start' position on clip N: transition FROM clip N-1 TO clip N (applied between N-1 and N)
+    // - 'end' position on clip N: transition FROM clip N TO clip N+1 (applied between N and N+1)
+    // Both are equivalent for the same pair of clips, just different UI perspectives
     
     let hasTransitions = false;
     let currentVideoLabel = 'v0';
@@ -630,13 +824,31 @@ export async function exportProject(
     for (let i = 1; i < clips.length; i++) {
       const clip = clips[i];
       const clipId = clip.id;
-      // Check if this clip has a transition at its start
-      const transition = clipId ? transitionMap.get(clipId) : undefined;
+      const prevClip = clips[i - 1];
+      const prevClipId = prevClip.id;
       
-      console.log(`Processing clip ${i}: id=${clipId}, has transition=${!!transition}`);
+      // Check for transition: either 'start' on current clip OR 'end' on previous clip
+      let transition = clipId ? startTransitionMap.get(clipId) : undefined;
+      let transitionSource = 'start';
       
-      if (transition && transition.position === 'start') {
+      // If no 'start' transition on current clip, check for 'end' transition on previous clip
+      if (!transition && prevClipId) {
+        transition = endTransitionMap.get(prevClipId);
+        transitionSource = 'end';
+      }
+      
+      console.log(`🔀 DEBUG - Processing clip ${i}/${clips.length - 1}:`, {
+        clipId,
+        prevClipId,
+        hasTransition: !!transition,
+        transitionType: transition?.type,
+        transitionPosition: transition?.position,
+        transitionSource
+      });
+      
+      if (transition) {
         hasTransitions = true;
+        console.log(`🔀 DEBUG - ✅ Applying transition ${transition.type} between clips ${i-1} and ${i} (source: ${transitionSource} position on ${transitionSource === 'start' ? 'current' : 'previous'} clip)`);
         
         // Transition duration should not exceed either clip's duration
         const transitionDuration = Math.min(
@@ -672,7 +884,7 @@ export async function exportProject(
         // Update cumulative offset: just add the full clip duration
         cumulativeOffset += clipDurations[i];
         
-        console.log(`No transition for clip ${i}, using concat. New cumulative offset: ${cumulativeOffset}`);
+        console.log(`🔀 DEBUG - No transition for clip ${i}, using concat. New cumulative offset: ${cumulativeOffset}`);
       }
     }
     
@@ -710,6 +922,9 @@ export async function exportProject(
     
     // Add text overlays to the final merged video
     if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
+      console.log('🔤 DEBUG - Processing text overlays for multi-clip export');
+      console.log('🔤 DEBUG - isFontLoaded:', isFontLoaded);
+      
       // Remove the last filter that outputs to [outv] - we'll chain text filters instead
       filterComplex.pop();
       
@@ -718,15 +933,28 @@ export async function exportProject(
       let textOutputLabel = 'vtext0';
       
       const validTexts = textOverlays.filter(t => t.text.trim());
+      console.log('🔤 DEBUG - Valid texts count:', validTexts.length);
+      
       for (let i = 0; i < validTexts.length; i++) {
         const text = validTexts[i];
         const textFilter = getTextFilterString(text, resolution.width, resolution.height);
         const isLast = i === validTexts.length - 1;
         textOutputLabel = isLast ? 'outv' : `vtext${i}`;
         
+        console.log(`🔤 DEBUG - Text ${i + 1}/${validTexts.length}:`, {
+          text: text.text,
+          startTime: text.startTime,
+          duration: text.duration,
+          filter: textFilter
+        });
+        
         filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
         textInputLabel = textOutputLabel;
       }
+      
+      console.log('🔤 DEBUG - Text filters added to filter complex');
+    } else {
+      console.log('🔤 DEBUG - No text overlays to process (count:', textOverlays?.length, ', hasValidText:', textOverlays?.some(t => t.text.trim()), ')');
     }
 
     const outputFileName = `output.${outputFormat}`;

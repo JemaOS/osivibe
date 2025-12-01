@@ -62,6 +62,49 @@ export const ExportModal: React.FC = () => {
 
       console.log('Exporting', videoClips.length, 'clips');
 
+      // DEBUG: Log text overlays being exported
+      console.log('🔤 DEBUG - Text overlays to export:', textOverlays.length);
+      textOverlays.forEach((text, index) => {
+        console.log(`  Text ${index + 1}:`, {
+          id: text.id,
+          text: text.text,
+          x: text.x,
+          y: text.y,
+          fontSize: text.fontSize,
+          color: text.color,
+          startTime: text.startTime,
+          duration: text.duration,
+          endTime: text.startTime + text.duration
+        });
+      });
+
+      // DEBUG: Log transitions being exported
+      console.log('🔀 DEBUG - Transitions to export:', transitions.length);
+      transitions.forEach((transition, index) => {
+        console.log(`  Transition ${index + 1}:`, {
+          id: transition.id,
+          type: transition.type,
+          clipId: transition.clipId,
+          position: transition.position,
+          duration: transition.duration
+        });
+      });
+
+      // DEBUG: Log clip IDs for matching
+      console.log('🎬 DEBUG - Video clips for export:');
+      videoClips.forEach((clip, index) => {
+        const hasTransition = transitions.find(t => t.clipId === clip.id);
+        console.log(`  Clip ${index + 1}:`, {
+          id: clip.id,
+          name: clip.name,
+          startTime: clip.startTime,
+          duration: clip.duration,
+          hasTransition: !!hasTransition,
+          transitionType: hasTransition?.type,
+          transitionPosition: hasTransition?.position
+        });
+      });
+
       // Prepare clips with their media files and filters
       const clipsToExport = videoClips.map(clip => {
         const media = mediaFiles.find(m => m.id === clip.mediaId);

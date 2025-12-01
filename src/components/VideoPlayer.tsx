@@ -20,6 +20,7 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { formatTime, getCSSFilter } from '../utils/helpers';
 import type { TimelineClip, MediaFile, TransformSettings } from '../types';
+import { RESOLUTION_PRESETS } from '../types';
 import {
   initializePreviewOptimizer,
   getOptimalSettings,
@@ -47,6 +48,7 @@ export const VideoPlayer: React.FC = () => {
     player,
     projectDuration,
     ui,
+    exportSettings,
     play,
     pause,
     togglePlayPause,
@@ -107,6 +109,9 @@ export const VideoPlayer: React.FC = () => {
   const [isPerformancePoor, setIsPerformancePoor] = useState(false);
   const [autoQualityApplied, setAutoQualityApplied] = useState(false);
   
+  // Preview container dimensions for text scaling
+  const [previewDimensions, setPreviewDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  
   // Initialize preview optimizer on mount - AUTO QUALITY FROM START
   useEffect(() => {
     const profile = initializePreviewOptimizer();
@@ -153,6 +158,85 @@ export const VideoPlayer: React.FC = () => {
   useEffect(() => {
     console.log('🖼️ VideoPlayer: aspect ratio changed to', aspectRatio);
   }, [aspectRatio]);
+  
+  // Track preview container dimensions for text scaling
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (videoContainerRef.current) {
+        const rect = videoContainerRef.current.getBoundingClientRect();
+        // Find the actual video display area within the container
+        // The video maintains aspect ratio, so we need to calculate the actual display size
+        const containerWidth = rect.width;
+        const containerHeight = rect.height;
+        
+        // Get the aspect ratio value
+        let aspectWidth = 16, aspectHeight = 9;
+        switch (aspectRatio) {
+          case '16:9': aspectWidth = 16; aspectHeight = 9; break;
+          case '9:16': aspectWidth = 9; aspectHeight = 16; break;
+          case '1:1': aspectWidth = 1; aspectHeight = 1; break;
+          case '4:3': aspectWidth = 4; aspectHeight = 3; break;
+          case '21:9': aspectWidth = 21; aspectHeight = 9; break;
+        }
+        
+        // Calculate the actual display dimensions maintaining aspect ratio
+        const containerAspect = containerWidth / containerHeight;
+        const videoAspect = aspectWidth / aspectHeight;
+        
+        let displayWidth, displayHeight;
+        if (containerAspect > videoAspect) {
+          // Container is wider than video - height is the constraint
+          displayHeight = containerHeight;
+          displayWidth = containerHeight * videoAspect;
+        } else {
+          // Container is taller than video - width is the constraint
+          displayWidth = containerWidth;
+          displayHeight = containerWidth / videoAspect;
+        }
+        
+        setPreviewDimensions({ width: displayWidth, height: displayHeight });
+        console.log('📐 Preview dimensions updated:', { displayWidth, displayHeight, containerWidth, containerHeight });
+      }
+    };
+    
+    updateDimensions();
+    
+    // Use ResizeObserver for more accurate tracking
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (videoContainerRef.current) {
+      resizeObserver.observe(videoContainerRef.current);
+    }
+    
+    window.addEventListener('resize', updateDimensions);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+  }, [aspectRatio]);
+  
+  // Calculate text scale factor based on preview size vs export resolution
+  const getTextScaleFactor = useCallback(() => {
+    if (previewDimensions.width === 0 || previewDimensions.height === 0) {
+      return 1;
+    }
+    
+    // Get the export resolution
+    const exportResolution = RESOLUTION_PRESETS[exportSettings.resolution];
+    const exportWidth = exportResolution.width;
+    const exportHeight = exportResolution.height;
+    
+    // Calculate scale factor based on the preview width vs export width
+    // This ensures text appears at the same relative size in preview as in export
+    const scaleFactor = previewDimensions.width / exportWidth;
+    
+    console.log('📝 Text scale factor:', {
+      previewWidth: previewDimensions.width,
+      exportWidth,
+      scaleFactor
+    });
+    
+    return scaleFactor;
+  }, [previewDimensions, exportSettings.resolution]);
   
   // Update preview settings when quality changes
   const handleQualityChange = useCallback((quality: PreviewSettings['quality']) => {
@@ -1654,39 +1738,39 @@ export const VideoPlayer: React.FC = () => {
                       }
                     }}
                   >
-                    {/* Corner handles - Larger and more visible */}
-                    <div 
-                      className="absolute -top-2 -left-2 w-6 h-6 bg-primary-500 border-2 border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-lg" 
+                    {/* Corner handles - Small and unobtrusive */}
+                    <div
+                      className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'nw')}
                     />
-                    <div 
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-primary-500 border-2 border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-lg" 
+                    <div
+                      className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'ne')}
                     />
-                    <div 
-                      className="absolute -bottom-2 -left-2 w-6 h-6 bg-primary-500 border-2 border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-lg" 
+                    <div
+                      className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'sw')}
                     />
-                    <div 
-                      className="absolute -bottom-2 -right-2 w-6 h-6 bg-primary-500 border-2 border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-lg" 
+                    <div
+                      className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'se')}
                     />
                     
-                    {/* Edge handles - Larger bars */}
-                    <div 
-                      className="absolute -top-2 left-1/2 -translate-x-1/2 w-12 h-4 bg-primary-500 border-2 border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-lg" 
+                    {/* Edge handles - Small bars */}
+                    <div
+                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'n')}
                     />
-                    <div 
-                      className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-12 h-4 bg-primary-500 border-2 border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-lg" 
+                    <div
+                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 's')}
                     />
-                    <div 
-                      className="absolute top-1/2 -translate-y-1/2 -left-2 w-4 h-12 bg-primary-500 border-2 border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-lg" 
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 -left-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'w')}
                     />
-                    <div 
-                      className="absolute top-1/2 -translate-y-1/2 -right-2 w-4 h-12 bg-primary-500 border-2 border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-lg" 
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
                       onMouseDown={(e) => handleCropResizeStart(e, 'e')}
                     />
                     
@@ -1709,7 +1793,12 @@ export const VideoPlayer: React.FC = () => {
               )}
               
               {/* Text Overlays - now draggable */}
-              {!cropMode && currentTexts.map((text) => (
+              {!cropMode && currentTexts.map((text) => {
+                // Calculate scaled font size to match export resolution
+                const scaleFactor = getTextScaleFactor();
+                const scaledFontSize = text.fontSize * scaleFactor;
+                
+                return (
                 <div
                   key={text.id}
                   className={`absolute cursor-move ${ui.selectedTextId === text.id ? 'ring-2 ring-primary-500' : ''}`}
@@ -1718,7 +1807,7 @@ export const VideoPlayer: React.FC = () => {
                     left: `${text.x}%`,
                     top: `${text.y}%`,
                     transform: `translate(-50%, -50%) scale(${text.scaleX ?? 1}, ${text.scaleY ?? 1})`,
-                    fontSize: `${text.fontSize}px`,
+                    fontSize: `${scaledFontSize}px`,
                     fontFamily: text.fontFamily,
                     color: text.color,
                     backgroundColor: text.backgroundColor,
@@ -1748,7 +1837,7 @@ export const VideoPlayer: React.FC = () => {
                       onFocus={(e) => e.target.select()}
                       className="w-full h-full p-0 bg-transparent border-none outline-none"
                       style={{
-                        fontSize: `${text.fontSize}px`,
+                        fontSize: `${scaledFontSize}px`,
                         fontFamily: text.fontFamily,
                         color: text.color,
                         backgroundColor: text.backgroundColor,
@@ -1806,7 +1895,8 @@ export const VideoPlayer: React.FC = () => {
                     </>
                   )}
                 </div>
-              ))}
+              );
+              })}
             </>
           ) : (
             <div className="text-center text-neutral-400 p-2 xxs:p-4">
