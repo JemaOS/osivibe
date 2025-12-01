@@ -1855,41 +1855,49 @@ export const VideoPlayer: React.FC = () => {
                     text.text
                   )}
 
-                  {/* Resize handles for text */}
+                  {/* Resize handles for text - with inverse scale to counteract parent's scale transform */}
                   {ui.selectedTextId === text.id && !editingTextId && (
                     <>
-                      <div 
+                      <div
                         className="absolute -top-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'nw')}
                       />
-                      <div 
+                      <div
                         className="absolute -top-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'ne')}
                       />
-                      <div 
+                      <div
                         className="absolute -bottom-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'sw')}
                       />
-                      <div 
+                      <div
                         className="absolute -bottom-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'se')}
                       />
                       
                       {/* Side handles */}
-                      <div 
-                        className="absolute top-1/2 -left-2 -translate-y-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                      <div
+                        className="absolute top-1/2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'w')}
                       />
-                      <div 
-                        className="absolute top-1/2 -right-2 -translate-y-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                      <div
+                        className="absolute top-1/2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'e')}
                       />
-                      <div 
-                        className="absolute -top-2 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                      <div
+                        className="absolute -top-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 'n')}
                       />
-                      <div 
-                        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                      <div
+                        className="absolute -bottom-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                        style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
                         onMouseDown={(e) => handleTextResizeStart(e, text.id, 's')}
                       />
                     </>
