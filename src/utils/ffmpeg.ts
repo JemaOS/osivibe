@@ -598,52 +598,86 @@ export async function exportProject(
     }
     
     // Build transition map for clips that have transitions
+    // Key: clipId, Value: transition (for 'start' position transitions)
     const transitionMap = new Map<string, Transition>();
     if (transitions && transitions.length > 0) {
+      console.log('Transitions received:', transitions);
       for (const transition of transitions) {
         if (transition.type !== 'none') {
           transitionMap.set(transition.clipId, transition);
+          console.log(`Transition mapped: clipId=${transition.clipId}, type=${transition.type}, duration=${transition.duration}`);
         }
       }
     }
     
     // Apply transitions between clips using xfade
-    // We need to chain xfade filters: [v0][v1]xfade...[vt0];[vt0][v2]xfade...[vt1];...
+    // xfade merges two video streams with a transition effect
+    // Format: [input1][input2]xfade=transition=type:duration=d:offset=o[output]
+    // The offset is when the transition starts (relative to the beginning of the combined output)
+    
+    let hasTransitions = false;
     let currentVideoLabel = 'v0';
-    let transitionIndex = 0;
-    let transitionOffset = clipDurations[0]; // First transition starts at end of first clip
+    let cumulativeOffset = clipDurations[0]; // Running total of video duration (accounting for overlaps)
+    
+    console.log('Starting transition processing with', clips.length, 'clips');
+    console.log('Clip durations:', clipDurations);
     
     for (let i = 1; i < clips.length; i++) {
       const clip = clips[i];
       const clipId = clip.id;
+      // Check if this clip has a transition at its start
       const transition = clipId ? transitionMap.get(clipId) : undefined;
       
+      console.log(`Processing clip ${i}: id=${clipId}, has transition=${!!transition}`);
+      
       if (transition && transition.position === 'start') {
-        // Apply xfade transition
-        const transitionDuration = Math.min(transition.duration, clipDurations[i - 1], clipDurations[i]);
-        const offset = transitionOffset - transitionDuration;
+        hasTransitions = true;
         
-        const outputLabel = i === clips.length - 1 ? 'vmerged' : `vt${transitionIndex}`;
+        // Transition duration should not exceed either clip's duration
+        const transitionDuration = Math.min(
+          transition.duration,
+          clipDurations[i - 1] * 0.9, // Don't use more than 90% of previous clip
+          clipDurations[i] * 0.9      // Don't use more than 90% of current clip
+        );
+        
+        // The offset is where the transition starts in the output timeline
+        // It's the cumulative duration minus the transition duration (because clips overlap)
+        const offset = Math.max(0, cumulativeOffset - transitionDuration);
+        
+        const outputLabel = `vt${i}`;
         const xfadeFilter = getTransitionFilter(transition, offset);
+        
+        console.log(`Applying xfade: [${currentVideoLabel}][v${i}] offset=${offset}, duration=${transitionDuration}`);
+        console.log(`xfade filter: ${xfadeFilter}`);
         
         if (xfadeFilter) {
           filterComplex.push(`[${currentVideoLabel}][v${i}]${xfadeFilter}[${outputLabel}]`);
           currentVideoLabel = outputLabel;
-          transitionIndex++;
-          // Adjust offset: transition overlaps, so next clip starts earlier
-          transitionOffset = offset + clipDurations[i];
-        } else {
-          // No transition, just concatenate
-          transitionOffset += clipDurations[i];
+          
+          // Update cumulative offset: add current clip duration minus overlap
+          cumulativeOffset = offset + clipDurations[i];
         }
       } else {
-        // No transition for this clip, will be handled by concat
-        transitionOffset += clipDurations[i];
+        // No transition - need to concatenate this clip with the current video
+        // Use concat filter to join without transition
+        const outputLabel = `vt${i}`;
+        filterComplex.push(`[${currentVideoLabel}][v${i}]concat=n=2:v=1:a=0[${outputLabel}]`);
+        currentVideoLabel = outputLabel;
+        
+        // Update cumulative offset: just add the full clip duration
+        cumulativeOffset += clipDurations[i];
+        
+        console.log(`No transition for clip ${i}, using concat. New cumulative offset: ${cumulativeOffset}`);
       }
     }
     
-    // If we used transitions, we need different concat logic
-    const hasTransitions = transitionIndex > 0;
+    // Rename final video output to vmerged
+    if (clips.length > 1) {
+      filterComplex.push(`[${currentVideoLabel}]copy[vmerged]`);
+      currentVideoLabel = 'vmerged';
+    }
+    
+    console.log('Transition processing complete. hasTransitions:', hasTransitions, 'finalLabel:', currentVideoLabel);
     
     // Generate audio filters for all clips
     for (let i = 0; i < clips.length; i++) {
@@ -662,63 +696,31 @@ export async function exportProject(
       
     onProgress?.(5, 'Assemblage des clips...');
 
-    // Concatenate all clips (video already merged if transitions were used)
-    if (hasTransitions) {
-      // Audio still needs to be concatenated
-      const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
-      filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
-      // Video is already in vmerged or last vt label
-      filterComplex.push(`[${currentVideoLabel}]copy[outv]`);
-    } else {
-      // Original concat for both video and audio
-      const concatInputs = clips.map((_, i) => `[v${i}][a${i}]`).join('');
-      filterComplex.push(`${concatInputs}concat=n=${clips.length}:v=1:a=1[outv][outa]`);
-    }
+    // Audio concatenation - always needed for multiple clips
+    const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
+    filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
+    
+    // Video is already merged in currentVideoLabel (vmerged), just rename to outv
+    filterComplex.push(`[${currentVideoLabel}]copy[outv]`);
     
     // Add text overlays to the final merged video
     if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
-      // Replace [outv] with text filters chain
-      // Remove the last filter that outputs to [outv]
-      const lastFilter = filterComplex.pop();
+      // Remove the last filter that outputs to [outv] - we'll chain text filters instead
+      filterComplex.pop();
       
-      if (hasTransitions) {
-        // For transitions, we need to apply text to the merged video
-        let textInputLabel = currentVideoLabel;
-        let textOutputLabel = 'vtext0';
+      // Apply text filters to the merged video (currentVideoLabel = vmerged)
+      let textInputLabel = currentVideoLabel;
+      let textOutputLabel = 'vtext0';
+      
+      const validTexts = textOverlays.filter(t => t.text.trim());
+      for (let i = 0; i < validTexts.length; i++) {
+        const text = validTexts[i];
+        const textFilter = getTextFilterString(text, resolution.width, resolution.height);
+        const isLast = i === validTexts.length - 1;
+        textOutputLabel = isLast ? 'outv' : `vtext${i}`;
         
-        const validTexts = textOverlays.filter(t => t.text.trim());
-        for (let i = 0; i < validTexts.length; i++) {
-          const text = validTexts[i];
-          const textFilter = getTextFilterString(text, resolution.width, resolution.height);
-          const isLast = i === validTexts.length - 1;
-          textOutputLabel = isLast ? 'outv' : `vtext${i}`;
-          
-          filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
-          textInputLabel = textOutputLabel;
-        }
-        
-        // Re-add audio concat
-        const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
-        filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
-      } else {
-        // For non-transition case, chain text filters after concat
-        // First, output concat to intermediate label
-        const concatInputs = clips.map((_, i) => `[v${i}][a${i}]`).join('');
-        filterComplex.push(`${concatInputs}concat=n=${clips.length}:v=1:a=1[vconcated][outa]`);
-        
-        let textInputLabel = 'vconcated';
-        let textOutputLabel = 'vtext0';
-        
-        const validTexts = textOverlays.filter(t => t.text.trim());
-        for (let i = 0; i < validTexts.length; i++) {
-          const text = validTexts[i];
-          const textFilter = getTextFilterString(text, resolution.width, resolution.height);
-          const isLast = i === validTexts.length - 1;
-          textOutputLabel = isLast ? 'outv' : `vtext${i}`;
-          
-          filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
-          textInputLabel = textOutputLabel;
-        }
+        filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
+        textInputLabel = textOutputLabel;
       }
     }
 
