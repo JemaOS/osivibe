@@ -111,16 +111,14 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
   try {
     console.log('Loading default font for text overlays...');
     
-    // CORS-friendly font URLs (ordered by reliability)
+    // Font URLs - TTF format REQUIRED for FFmpeg.wasm (WOFF2 not supported)
+    // Local TTF file has priority for reliability and compatibility
     const fontUrls = [
-      // jsDelivr CDN - reliable and CORS-enabled
-      'https://cdn.jsdelivr.net/npm/@fontsource/roboto@latest/files/roboto-latin-400-normal.woff2',
-      // Google Fonts static CDN - CORS-enabled
-      'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2',
-      // Alternative: Open Sans from jsDelivr
-      'https://cdn.jsdelivr.net/npm/@fontsource/open-sans@latest/files/open-sans-latin-400-normal.woff2',
-      // Local fallback (must be placed in public/fonts/)
-      '/fonts/Roboto.ttf'
+      // Local TTF file - PRIORITY (FFmpeg.wasm only supports TTF, not WOFF2)
+      '/fonts/Roboto.ttf',
+      // CDN TTF fallbacks (if local file fails)
+      'https://github.com/ArtifexSoftware/urw-base35-fonts/raw/master/fonts/NimbusSans-Regular.otf',
+      'https://cdn.jsdelivr.net/gh/ArtifexSoftware/urw-base35-fonts@master/fonts/NimbusSans-Regular.otf'
     ];
     
     let fontData: Uint8Array | null = null;
