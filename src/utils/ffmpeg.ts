@@ -7,8 +7,12 @@ import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFil
 
 let ffmpeg: FFmpeg | null = null;
 let isLoaded = false;
+let isFontLoaded = false;
 let currentProgressCallback: ((progress: number, message: string) => void) | undefined;
 let currentTotalDuration = 0;
+
+// Default font file path in FFmpeg virtual filesystem
+const FFMPEG_FONT_PATH = '/fonts/default.ttf';
 
 export async function loadFFmpeg(
   onProgress?: (progress: number, message: string) => void
@@ -94,6 +98,67 @@ export function isFFmpegLoaded(): boolean {
   return isLoaded;
 }
 
+/**
+ * Load a default font into FFmpeg's virtual filesystem for text overlays
+ * Uses Google's Roboto font from CDN
+ */
+export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
+  if (isFontLoaded) {
+    console.log('Font already loaded');
+    return;
+  }
+
+  try {
+    console.log('Loading default font for text overlays...');
+    
+    // Fetch Roboto Regular font from Google Fonts CDN
+    const fontUrl = 'https://github.com/google/fonts/raw/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf';
+    // Alternative: use a more reliable CDN
+    const fallbackFontUrl = 'https://cdn.jsdelivr.net/gh/ArtifexSoftware/urw-base35-fonts@master/fonts/NimbusSans-Regular.otf';
+    
+    let fontData: Uint8Array | null = null;
+    
+    try {
+      const response = await fetch(fontUrl);
+      if (response.ok) {
+        fontData = new Uint8Array(await response.arrayBuffer());
+      }
+    } catch (e) {
+      console.warn('Failed to fetch primary font, trying fallback:', e);
+    }
+    
+    if (!fontData) {
+      try {
+        const response = await fetch(fallbackFontUrl);
+        if (response.ok) {
+          fontData = new Uint8Array(await response.arrayBuffer());
+        }
+      } catch (e) {
+        console.warn('Failed to fetch fallback font:', e);
+      }
+    }
+    
+    if (fontData) {
+      // Create fonts directory in FFmpeg virtual filesystem
+      try {
+        await ffmpegInstance.createDir('/fonts');
+      } catch (e) {
+        // Directory might already exist, ignore error
+      }
+      
+      // Write font file to virtual filesystem
+      await ffmpegInstance.writeFile(FFMPEG_FONT_PATH, fontData);
+      isFontLoaded = true;
+      console.log('Default font loaded successfully');
+    } else {
+      console.warn('Could not load any font, text overlays may not work');
+    }
+  } catch (error) {
+    console.error('Error loading font:', error);
+    // Don't throw - text overlays will fail gracefully
+  }
+}
+
 export function cancelExport() {
   if (ffmpeg) {
     try {
@@ -163,12 +228,14 @@ function hexToFFmpegColor(hex: string): string {
  * @param textOverlay - The text overlay configuration
  * @param videoWidth - The video width in pixels
  * @param videoHeight - The video height in pixels
+ * @param fontPath - Path to the font file in FFmpeg virtual filesystem (optional, uses default if not provided)
  * @returns FFmpeg drawtext filter string
  */
 export function getTextFilterString(
   textOverlay: TextOverlay,
   videoWidth: number,
-  videoHeight: number
+  videoHeight: number,
+  fontPath: string = FFMPEG_FONT_PATH
 ): string {
   const escapedText = escapeTextForFFmpeg(textOverlay.text);
   const fontColor = hexToFFmpegColor(textOverlay.color);
@@ -179,17 +246,15 @@ export function getTextFilterString(
   const yPos = Math.round((textOverlay.y / 100) * videoHeight);
   
   // Build the drawtext filter
+  // IMPORTANT: fontfile is REQUIRED for FFmpeg.wasm - it doesn't have built-in fonts
   const parts: string[] = [
+    `fontfile=${fontPath}`,
     `text='${escapedText}'`,
     `fontsize=${textOverlay.fontSize}`,
     `fontcolor=${fontColor}`,
     `x=${xPos}`,
     `y=${yPos}`,
   ];
-  
-  // Add font family if specified (use default if not available in FFmpeg)
-  // FFmpeg.wasm has limited font support, so we use a fallback approach
-  // For web, we'll use the default sans-serif font
   
   // Add background color if specified
   if (textOverlay.backgroundColor) {
@@ -389,6 +454,12 @@ export async function exportProject(
     };
 
     const ffmpegInstance = await loadFFmpeg(exportProgressHandler);
+    
+    // Load font for text overlays if there are any text overlays
+    if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
+      onProgress?.(2, 'Chargement de la police...');
+      await loadDefaultFont(ffmpegInstance);
+    }
     
     onProgress?.(3, 'Préparation des paramètres...');
     const resolution = RESOLUTION_PRESETS[settings.resolution];
