@@ -3,7 +3,7 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile } from '../types';
+import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile, TextOverlay, Transition, TransitionType } from '../types';
 
 let ffmpeg: FFmpeg | null = null;
 let isLoaded = false;
@@ -136,6 +136,147 @@ export function getFilterString(filter: VideoFilter): string {
   return filters.length > 0 ? filters.join(',') : '';
 }
 
+/**
+ * Escape text for FFmpeg drawtext filter
+ * Special characters need to be escaped: ' : \
+ */
+function escapeTextForFFmpeg(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\\\\\')  // Escape backslashes
+    .replace(/'/g, "\\'")         // Escape single quotes
+    .replace(/:/g, '\\:')         // Escape colons
+    .replace(/\[/g, '\\[')        // Escape brackets
+    .replace(/\]/g, '\\]');
+}
+
+/**
+ * Convert hex color to FFmpeg format (0xRRGGBB or with alpha 0xRRGGBBAA)
+ */
+function hexToFFmpegColor(hex: string): string {
+  // Remove # if present
+  const cleanHex = hex.replace('#', '');
+  return `0x${cleanHex}`;
+}
+
+/**
+ * Generate FFmpeg drawtext filter string for a text overlay
+ * @param textOverlay - The text overlay configuration
+ * @param videoWidth - The video width in pixels
+ * @param videoHeight - The video height in pixels
+ * @returns FFmpeg drawtext filter string
+ */
+export function getTextFilterString(
+  textOverlay: TextOverlay,
+  videoWidth: number,
+  videoHeight: number
+): string {
+  const escapedText = escapeTextForFFmpeg(textOverlay.text);
+  const fontColor = hexToFFmpegColor(textOverlay.color);
+  
+  // Calculate position in pixels from percentage
+  // x and y are percentages (0-100), convert to pixel positions
+  const xPos = Math.round((textOverlay.x / 100) * videoWidth);
+  const yPos = Math.round((textOverlay.y / 100) * videoHeight);
+  
+  // Build the drawtext filter
+  const parts: string[] = [
+    `text='${escapedText}'`,
+    `fontsize=${textOverlay.fontSize}`,
+    `fontcolor=${fontColor}`,
+    `x=${xPos}`,
+    `y=${yPos}`,
+  ];
+  
+  // Add font family if specified (use default if not available in FFmpeg)
+  // FFmpeg.wasm has limited font support, so we use a fallback approach
+  // For web, we'll use the default sans-serif font
+  
+  // Add background color if specified
+  if (textOverlay.backgroundColor) {
+    const bgColor = hexToFFmpegColor(textOverlay.backgroundColor);
+    parts.push(`box=1`);
+    parts.push(`boxcolor=${bgColor}@0.5`);
+    parts.push(`boxborderw=5`);
+  }
+  
+  // Add timing - enable filter only during the text's duration
+  const startTime = textOverlay.startTime;
+  const endTime = textOverlay.startTime + textOverlay.duration;
+  parts.push(`enable='between(t,${startTime},${endTime})'`);
+  
+  return `drawtext=${parts.join(':')}`;
+}
+
+/**
+ * Map TransitionType to FFmpeg xfade transition name
+ * FFmpeg xfade supports: fade, wipeleft, wiperight, wipeup, wipedown,
+ * slideleft, slideright, slideup, slidedown, circlecrop, rectcrop,
+ * distance, fadeblack, fadewhite, radial, smoothleft, smoothright,
+ * smoothup, smoothdown, circleopen, circleclose, vertopen, vertclose,
+ * horzopen, horzclose, dissolve, pixelize, diagtl, diagtr, diagbl, diagbr,
+ * hlslice, hrslice, vuslice, vdslice, hblur, fadegrays, wipetl, wipetr,
+ * wipebl, wipebr, squeezeh, squeezev, zoomin, fadefast, fadeslow
+ */
+function mapTransitionTypeToFFmpeg(type: TransitionType): string {
+  const mapping: Record<TransitionType, string> = {
+    'none': 'fade',
+    'fade': 'fade',
+    'dissolve': 'dissolve',
+    'slide-left': 'slideleft',
+    'slide-right': 'slideright',
+    'slide-up': 'slideup',
+    'slide-down': 'slidedown',
+    'slide-diagonal-tl': 'diagtl',
+    'slide-diagonal-tr': 'diagtr',
+    'wipe-left': 'wipeleft',
+    'wipe-right': 'wiperight',
+    'wipe-up': 'wipeup',
+    'wipe-down': 'wipedown',
+    'zoom-in': 'zoomin',
+    'zoom-out': 'fadefast', // No direct zoom-out, use fadefast as alternative
+    'rotate-in': 'radial',
+    'rotate-out': 'radial',
+    'circle-wipe': 'circleopen',
+    'diamond-wipe': 'rectcrop',
+    'cross-dissolve': 'dissolve',
+  };
+  
+  return mapping[type] || 'fade';
+}
+
+/**
+ * Generate FFmpeg xfade filter string for a transition between two clips
+ * @param transition - The transition configuration
+ * @param offset - The time offset where the transition starts (in seconds)
+ * @returns FFmpeg xfade filter string
+ */
+export function getTransitionFilter(
+  transition: Transition,
+  offset: number
+): string {
+  if (transition.type === 'none') {
+    return '';
+  }
+  
+  const ffmpegTransition = mapTransitionTypeToFFmpeg(transition.type);
+  const duration = Math.max(0.1, Math.min(transition.duration, 2)); // Clamp duration between 0.1 and 2 seconds
+  
+  return `xfade=transition=${ffmpegTransition}:duration=${duration}:offset=${offset}`;
+}
+
+/**
+ * Generate audio crossfade filter for transitions
+ * @param duration - Transition duration in seconds
+ * @param offset - The time offset where the transition starts
+ * @returns FFmpeg acrossfade filter string
+ */
+export function getAudioTransitionFilter(
+  duration: number,
+  offset: number
+): string {
+  return `acrossfade=d=${duration}:c1=tri:c2=tri`;
+}
+
 export async function trimVideo(
   inputFile: File,
   startTime: number,
@@ -228,9 +369,11 @@ export async function generateThumbnail(
 }
 
 export async function exportProject(
-  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter }[],
+  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string }[],
   settings: ExportSettings,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  textOverlays?: TextOverlay[],
+  transitions?: Transition[]
 ): Promise<Blob> {
   try {
     // Calculate total duration for progress normalization
@@ -267,11 +410,50 @@ export async function exportProject(
 
       onProgress?.(5, 'Traitement de la vidéo...');
       
+      // Build video filter chain
+      let videoFilterChain = `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+      
+      // Add clip filter if present
+      if (clip.filter) {
+        const filterString = getFilterString(clip.filter);
+        if (filterString) {
+          videoFilterChain += ',' + filterString;
+        }
+      }
+      
+      // Add text overlays for single clip export
+      if (textOverlays && textOverlays.length > 0) {
+        const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+        const relevantTexts = textOverlays.filter(text => {
+          const textEnd = text.startTime + text.duration;
+          // Check if text overlaps with clip timeline (considering trim)
+          return text.startTime < clipDuration && textEnd > 0;
+        });
+        
+        for (const text of relevantTexts) {
+          // Adjust text timing relative to clip
+          const adjustedText = {
+            ...text,
+            startTime: Math.max(0, text.startTime - clip.trimStart),
+            duration: text.duration,
+          };
+          // Ensure endTime doesn't exceed clip duration
+          const endTime = adjustedText.startTime + adjustedText.duration;
+          if (endTime > clipDuration) {
+            adjustedText.duration = clipDuration - adjustedText.startTime;
+          }
+          if (adjustedText.duration > 0) {
+            const textFilter = getTextFilterString(adjustedText, resolution.width, resolution.height);
+            videoFilterChain += ',' + textFilter;
+          }
+        }
+      }
+      
       const args = [
         '-i', inputFileName,
         '-ss', clip.trimStart.toString(),
         '-t', (clip.duration - clip.trimStart - clip.trimEnd).toString(),
-        '-vf', `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`,
+        '-vf', videoFilterChain,
         '-c:v', outputFormat === 'webm' ? 'libvpx-vp9' : 'libx264',
         '-crf', quality,
         '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
@@ -281,14 +463,6 @@ export async function exportProject(
         '-threads', '0', // Let FFmpeg decide optimal thread count
         outputFileName
       ];
-
-      if (clip.filter) {
-        const filterString = getFilterString(clip.filter);
-        if (filterString) {
-          const vfIndex = args.indexOf('-vf');
-          args[vfIndex + 1] = args[vfIndex + 1] + ',' + filterString;
-        }
-      }
 
       console.log('FFmpeg command:', args.join(' '));
       await ffmpegInstance.exec(args);
@@ -341,29 +515,141 @@ export async function exportProject(
       }
       
       filterComplex.push(`${videoFilter}[v${i}]`);
+    }
+    
+    // Calculate cumulative durations for transition offsets and text timing
+    const clipDurations: number[] = clips.map(clip => clip.duration - clip.trimStart - clip.trimEnd);
+    const clipStartTimes: number[] = [];
+    let cumulativeTime = 0;
+    for (let i = 0; i < clips.length; i++) {
+      clipStartTimes.push(cumulativeTime);
+      cumulativeTime += clipDurations[i];
+    }
+    
+    // Build transition map for clips that have transitions
+    const transitionMap = new Map<string, Transition>();
+    if (transitions && transitions.length > 0) {
+      for (const transition of transitions) {
+        if (transition.type !== 'none') {
+          transitionMap.set(transition.clipId, transition);
+        }
+      }
+    }
+    
+    // Apply transitions between clips using xfade
+    // We need to chain xfade filters: [v0][v1]xfade...[vt0];[vt0][v2]xfade...[vt1];...
+    let currentVideoLabel = 'v0';
+    let transitionIndex = 0;
+    let transitionOffset = clipDurations[0]; // First transition starts at end of first clip
+    
+    for (let i = 1; i < clips.length; i++) {
+      const clip = clips[i];
+      const clipId = clip.id;
+      const transition = clipId ? transitionMap.get(clipId) : undefined;
       
-      // Audio filter chain
-      // We need to generate silent audio for clips that don't have audio (like images or muted videos)
-      // to ensure concat works properly (concat requires all segments to have same streams)
+      if (transition && transition.position === 'start') {
+        // Apply xfade transition
+        const transitionDuration = Math.min(transition.duration, clipDurations[i - 1], clipDurations[i]);
+        const offset = transitionOffset - transitionDuration;
+        
+        const outputLabel = i === clips.length - 1 ? 'vmerged' : `vt${transitionIndex}`;
+        const xfadeFilter = getTransitionFilter(transition, offset);
+        
+        if (xfadeFilter) {
+          filterComplex.push(`[${currentVideoLabel}][v${i}]${xfadeFilter}[${outputLabel}]`);
+          currentVideoLabel = outputLabel;
+          transitionIndex++;
+          // Adjust offset: transition overlaps, so next clip starts earlier
+          transitionOffset = offset + clipDurations[i];
+        } else {
+          // No transition, just concatenate
+          transitionOffset += clipDurations[i];
+        }
+      } else {
+        // No transition for this clip, will be handled by concat
+        transitionOffset += clipDurations[i];
+      }
+    }
+    
+    // If we used transitions, we need different concat logic
+    const hasTransitions = transitionIndex > 0;
+    
+    // Generate audio filters for all clips
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      const isImage = clip.file.type.startsWith('image/');
+      const duration = clip.duration - clip.trimStart - clip.trimEnd;
+      
       if (isImage) {
         // Generate silence for image duration
         filterComplex.push(`aevalsrc=0:d=${duration}[a${i}]`);
       } else {
-        // For video, try to use its audio.
-        // Ideally we should check if video has audio stream.
-        // For simplicity, we assume it does. If it fails, we might need a fallback.
-        // A robust way is to use -map [i:a]? but inside filter_complex it's tricky.
-        // Let's assume video has audio for now, or use a fallback strategy if we could detect it.
-        // If we encounter errors with videos without audio, we'll need to probe first.
+        // For video, use its audio
         filterComplex.push(`[${i}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[a${i}]`);
       }
     }
-
+      
     onProgress?.(5, 'Assemblage des clips...');
 
-    // Concatenate all clips
-    const concatInputs = clips.map((_, i) => `[v${i}][a${i}]`).join('');
-    filterComplex.push(`${concatInputs}concat=n=${clips.length}:v=1:a=1[outv][outa]`);
+    // Concatenate all clips (video already merged if transitions were used)
+    if (hasTransitions) {
+      // Audio still needs to be concatenated
+      const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
+      filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
+      // Video is already in vmerged or last vt label
+      filterComplex.push(`[${currentVideoLabel}]copy[outv]`);
+    } else {
+      // Original concat for both video and audio
+      const concatInputs = clips.map((_, i) => `[v${i}][a${i}]`).join('');
+      filterComplex.push(`${concatInputs}concat=n=${clips.length}:v=1:a=1[outv][outa]`);
+    }
+    
+    // Add text overlays to the final merged video
+    if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
+      // Replace [outv] with text filters chain
+      // Remove the last filter that outputs to [outv]
+      const lastFilter = filterComplex.pop();
+      
+      if (hasTransitions) {
+        // For transitions, we need to apply text to the merged video
+        let textInputLabel = currentVideoLabel;
+        let textOutputLabel = 'vtext0';
+        
+        const validTexts = textOverlays.filter(t => t.text.trim());
+        for (let i = 0; i < validTexts.length; i++) {
+          const text = validTexts[i];
+          const textFilter = getTextFilterString(text, resolution.width, resolution.height);
+          const isLast = i === validTexts.length - 1;
+          textOutputLabel = isLast ? 'outv' : `vtext${i}`;
+          
+          filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
+          textInputLabel = textOutputLabel;
+        }
+        
+        // Re-add audio concat
+        const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
+        filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
+      } else {
+        // For non-transition case, chain text filters after concat
+        // First, output concat to intermediate label
+        const concatInputs = clips.map((_, i) => `[v${i}][a${i}]`).join('');
+        filterComplex.push(`${concatInputs}concat=n=${clips.length}:v=1:a=1[vconcated][outa]`);
+        
+        let textInputLabel = 'vconcated';
+        let textOutputLabel = 'vtext0';
+        
+        const validTexts = textOverlays.filter(t => t.text.trim());
+        for (let i = 0; i < validTexts.length; i++) {
+          const text = validTexts[i];
+          const textFilter = getTextFilterString(text, resolution.width, resolution.height);
+          const isLast = i === validTexts.length - 1;
+          textOutputLabel = isLast ? 'outv' : `vtext${i}`;
+          
+          filterComplex.push(`[${textInputLabel}]${textFilter}[${textOutputLabel}]`);
+          textInputLabel = textOutputLabel;
+        }
+      }
+    }
 
     const outputFileName = `output.${outputFormat}`;
     

@@ -15,6 +15,8 @@ export const ExportModal: React.FC = () => {
     tracks,
     mediaFiles,
     filters,
+    textOverlays,
+    transitions,
     setExportSettings,
     closeExportModal,
     setProcessing,
@@ -66,6 +68,7 @@ export const ExportModal: React.FC = () => {
         if (!media) throw new Error('Fichier média introuvable');
 
         return {
+          id: clip.id, // Include clip ID for transition matching
           file: media.file,
           startTime: clip.startTime,
           duration: clip.duration,
@@ -82,7 +85,7 @@ export const ExportModal: React.FC = () => {
       }, 600000); // 10 minutes
 
       try {
-        // Export video with progress callback
+        // Export video with progress callback, including text overlays and transitions
         const blob = await exportProject(
           clipsToExport,
           exportSettings,
@@ -90,7 +93,9 @@ export const ExportModal: React.FC = () => {
             console.log('Export progress:', progress, message);
             setExportProgress(Math.min(99, Math.max(0, progress)));
             setExportMessage(message || 'Traitement en cours...');
-          }
+          },
+          textOverlays,
+          transitions
         );
 
         clearTimeout(exportTimeout);
