@@ -100,7 +100,7 @@ export function isFFmpegLoaded(): boolean {
 
 /**
  * Load a default font into FFmpeg's virtual filesystem for text overlays
- * Uses Google's Roboto font from CDN
+ * Uses CORS-friendly CDN sources for Roboto font
  */
 export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
   if (isFontLoaded) {
@@ -111,30 +111,36 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
   try {
     console.log('Loading default font for text overlays...');
     
-    // Fetch Roboto Regular font from Google Fonts CDN
-    const fontUrl = 'https://github.com/google/fonts/raw/main/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf';
-    // Alternative: use a more reliable CDN
-    const fallbackFontUrl = 'https://cdn.jsdelivr.net/gh/ArtifexSoftware/urw-base35-fonts@master/fonts/NimbusSans-Regular.otf';
+    // CORS-friendly font URLs (ordered by reliability)
+    const fontUrls = [
+      // jsDelivr CDN - reliable and CORS-enabled
+      'https://cdn.jsdelivr.net/npm/@fontsource/roboto@latest/files/roboto-latin-400-normal.woff2',
+      // Google Fonts static CDN - CORS-enabled
+      'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2',
+      // Alternative: Open Sans from jsDelivr
+      'https://cdn.jsdelivr.net/npm/@fontsource/open-sans@latest/files/open-sans-latin-400-normal.woff2',
+      // Local fallback (must be placed in public/fonts/)
+      '/fonts/Roboto.ttf'
+    ];
     
     let fontData: Uint8Array | null = null;
     
-    try {
-      const response = await fetch(fontUrl);
-      if (response.ok) {
-        fontData = new Uint8Array(await response.arrayBuffer());
-      }
-    } catch (e) {
-      console.warn('Failed to fetch primary font, trying fallback:', e);
-    }
-    
-    if (!fontData) {
+    for (const fontUrl of fontUrls) {
       try {
-        const response = await fetch(fallbackFontUrl);
+        console.log(`Trying to load font from: ${fontUrl}`);
+        const response = await fetch(fontUrl, {
+          mode: 'cors',
+          credentials: 'omit'
+        });
         if (response.ok) {
           fontData = new Uint8Array(await response.arrayBuffer());
+          console.log(`Successfully loaded font from: ${fontUrl}`);
+          break;
+        } else {
+          console.warn(`Font fetch returned status ${response.status} for: ${fontUrl}`);
         }
       } catch (e) {
-        console.warn('Failed to fetch fallback font:', e);
+        console.warn(`Failed to fetch font from ${fontUrl}:`, e);
       }
     }
     
@@ -149,9 +155,10 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<void> {
       // Write font file to virtual filesystem
       await ffmpegInstance.writeFile(FFMPEG_FONT_PATH, fontData);
       isFontLoaded = true;
-      console.log('Default font loaded successfully');
+      console.log('Default font loaded successfully into FFmpeg virtual filesystem');
     } else {
-      console.warn('Could not load any font, text overlays may not work');
+      console.warn('Could not load any font from CDN sources, text overlays may not work');
+      console.warn('Consider adding a local font file at public/fonts/Roboto.ttf');
     }
   } catch (error) {
     console.error('Error loading font:', error);
