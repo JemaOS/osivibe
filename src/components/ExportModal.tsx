@@ -8,6 +8,17 @@ import { ExportResolution, ExportFormat, ExportQuality } from '../types';
 import { exportProject, cancelExport } from '../utils/ffmpeg';
 import { downloadBlob } from '../utils/helpers';
 
+// Aspect ratio options for export
+type AspectRatioOption = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+
+const ASPECT_RATIO_OPTIONS: { value: AspectRatioOption; label: string; description: string }[] = [
+  { value: '16:9', label: '16:9', description: 'Paysage (YouTube, TV)' },
+  { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Reels)' },
+  { value: '1:1', label: '1:1', description: 'Carré (Instagram)' },
+  { value: '4:3', label: '4:3', description: 'Classique' },
+  { value: '21:9', label: '21:9', description: 'Cinéma' },
+];
+
 export const ExportModal: React.FC = () => {
   const {
     ui,
@@ -17,14 +28,17 @@ export const ExportModal: React.FC = () => {
     filters,
     textOverlays,
     transitions,
+    aspectRatio,
     setExportSettings,
     closeExportModal,
     setProcessing,
+    setAspectRatio,
   } = useEditorStore();
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportMessage, setExportMessage] = useState('');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
 
   if (!ui.isExportModalOpen) return null;
 
@@ -128,7 +142,8 @@ export const ExportModal: React.FC = () => {
       }, 600000); // 10 minutes
 
       try {
-        // Export video with progress callback, including text overlays and transitions
+        // Export video with progress callback, including text overlays, transitions, and aspect ratio
+        console.log('📐 DEBUG - Exporting with aspect ratio:', selectedAspectRatio);
         const blob = await exportProject(
           clipsToExport,
           exportSettings,
@@ -138,7 +153,8 @@ export const ExportModal: React.FC = () => {
             setExportMessage(message || 'Traitement en cours...');
           },
           textOverlays,
-          transitions
+          transitions,
+          selectedAspectRatio
         );
 
         clearTimeout(exportTimeout);
@@ -230,6 +246,35 @@ export const ExportModal: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Aspect Ratio */}
+              <div>
+                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                  Ratio d'aspect
+                </label>
+                <div className="grid grid-cols-5 gap-1 sm:gap-2">
+                  {ASPECT_RATIO_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => {
+                        setSelectedAspectRatio(option.value);
+                        setAspectRatio(option.value);
+                      }}
+                      className={`py-2 sm:py-3 px-1 sm:px-2 rounded-lg sm:rounded-xl text-[10px] sm:text-small font-medium transition-all ${
+                        selectedAspectRatio === option.value
+                          ? 'bg-primary-500 text-white'
+                          : 'glass-panel-medium hover:border-primary-500/50'
+                      }`}
+                      title={option.description}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] sm:text-xs text-neutral-500 mt-1">
+                  {ASPECT_RATIO_OPTIONS.find(o => o.value === selectedAspectRatio)?.description}
+                </p>
               </div>
 
               {/* Format & FPS - Combined row on mobile */}

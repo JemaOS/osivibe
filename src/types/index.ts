@@ -130,6 +130,7 @@ export type ExportResolution = '720p' | '1080p' | '4K';
 export type ExportFormat = 'mp4' | 'webm';
 export type ExportQuality = 'low' | 'medium' | 'high';
 export type ExportFPS = '30' | '60' | '120';
+export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 
 export interface ExportSettings {
   resolution: ExportResolution;
@@ -137,6 +138,7 @@ export interface ExportSettings {
   quality: ExportQuality;
   fps: ExportFPS;
   filename: string;
+  aspectRatio?: AspectRatio; // Optional, defaults to project aspect ratio
 }
 
 // Project Types
@@ -179,12 +181,55 @@ export interface UIState {
   isMobileSidebarOpen: boolean; // Mobile sidebar overlay state
 }
 
-// Resolution presets
+// Resolution presets (base 16:9 dimensions)
 export const RESOLUTION_PRESETS = {
   '720p': { width: 1280, height: 720 },
   '1080p': { width: 1920, height: 1080 },
   '4K': { width: 3840, height: 2160 },
 } as const;
+
+// Aspect ratio multipliers for calculating dimensions
+export const ASPECT_RATIO_VALUES: Record<AspectRatio, { width: number; height: number }> = {
+  '16:9': { width: 16, height: 9 },
+  '9:16': { width: 9, height: 16 },
+  '1:1': { width: 1, height: 1 },
+  '4:3': { width: 4, height: 3 },
+  '21:9': { width: 21, height: 9 },
+};
+
+/**
+ * Get resolution dimensions adjusted for aspect ratio
+ * @param resolution - The base resolution (720p, 1080p, 4K)
+ * @param aspectRatio - The target aspect ratio
+ * @returns { width, height } in pixels
+ */
+export function getResolutionForAspectRatio(
+  resolution: ExportResolution,
+  aspectRatio: AspectRatio
+): { width: number; height: number } {
+  const baseRes = RESOLUTION_PRESETS[resolution];
+  const aspect = ASPECT_RATIO_VALUES[aspectRatio];
+  
+  // Calculate dimensions based on aspect ratio
+  // Use the height as the base and calculate width, or vice versa
+  // to ensure we don't exceed the base resolution
+  const aspectValue = aspect.width / aspect.height;
+  
+  if (aspectValue >= 1) {
+    // Landscape or square: use height as base
+    const height = baseRes.height;
+    const width = Math.round(height * aspectValue);
+    // Ensure width is even (required by most video codecs)
+    return { width: width % 2 === 0 ? width : width + 1, height };
+  } else {
+    // Portrait: use width as base (but swap logic for portrait)
+    // For portrait, we want the width to be smaller
+    const width = baseRes.height; // Use the smaller dimension as width
+    const height = Math.round(width / aspectValue);
+    // Ensure height is even
+    return { width, height: height % 2 === 0 ? height : height + 1 };
+  }
+}
 
 // Available transitions with descriptions and preview info
 export const AVAILABLE_TRANSITIONS: { type: TransitionType; name: string; description: string; category: string }[] = [

@@ -3,7 +3,7 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile, TextOverlay, Transition, TransitionType } from '../types';
+import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile, TextOverlay, Transition, TransitionType, getResolutionForAspectRatio, AspectRatio } from '../types';
 
 let ffmpeg: FFmpeg | null = null;
 let isLoaded = false;
@@ -573,7 +573,8 @@ export async function exportProject(
   settings: ExportSettings,
   onProgress?: (progress: number, message: string) => void,
   textOverlays?: TextOverlay[],
-  transitions?: Transition[]
+  transitions?: Transition[],
+  aspectRatio?: AspectRatio
 ): Promise<Blob> {
   try {
     // Calculate total duration for progress normalization
@@ -597,7 +598,10 @@ export async function exportProject(
     }
     
     onProgress?.(3, 'Préparation des paramètres...');
-    const resolution = RESOLUTION_PRESETS[settings.resolution];
+    // Get resolution based on aspect ratio if provided, otherwise use default 16:9
+    const effectiveAspectRatio = aspectRatio || settings.aspectRatio || '16:9';
+    const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
+    console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
     const outputFormat = settings.format;
     const quality = settings.quality === 'high' ? '18' : settings.quality === 'medium' ? '23' : '28';
 
