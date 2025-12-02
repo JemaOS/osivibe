@@ -729,13 +729,100 @@ export async function exportProject(
     // Separate video/image clips from audio clips if needed, but current structure assumes clips have both or are video
     // We need to handle cases where clips might not have audio stream
     
+    // Track gaps between clips based on their startTime positions
+    // A gap exists when clip[i].startTime > (clip[i-1].startTime + clip[i-1].effectiveDuration)
+    interface GapInfo {
+      beforeClipIndex: number; // Gap appears before this clip index
+      duration: number; // Gap duration in seconds
+    }
+    const gaps: GapInfo[] = [];
+    
+    // Calculate effective durations and detect gaps
+    console.log('🕳️ DEBUG - Detecting gaps between clips based on startTime positions');
+    
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      const effectiveDuration = clip.duration - clip.trimStart - clip.trimEnd;
+      const clipStartTime = clip.startTime;
+      
+      // For the first clip, check if it starts after time 0 (gap at the beginning)
+      if (i === 0) {
+        if (clipStartTime > 0.01) { // Only consider gaps > 10ms to avoid floating point issues
+          console.log(`🕳️ DEBUG - Gap detected at the beginning: ${clipStartTime}s`);
+          gaps.push({
+            beforeClipIndex: 0,
+            duration: clipStartTime
+          });
+        }
+        console.log(`🕳️ DEBUG - Clip ${i}: startTime=${clipStartTime}, effectiveDuration=${effectiveDuration}`);
+      } else {
+        // For subsequent clips, calculate expected start time based on previous clip
+        const prevClip = clips[i - 1];
+        const prevEffectiveDuration = prevClip.duration - prevClip.trimStart - prevClip.trimEnd;
+        const expectedStartTime = prevClip.startTime + prevEffectiveDuration;
+        
+        console.log(`🕳️ DEBUG - Clip ${i}: startTime=${clipStartTime}, effectiveDuration=${effectiveDuration}, expectedStartTime=${expectedStartTime}`);
+        
+        // Check for gap before this clip
+        const gapDuration = clipStartTime - expectedStartTime;
+        if (gapDuration > 0.01) { // Only consider gaps > 10ms to avoid floating point issues
+          console.log(`🕳️ DEBUG - Gap detected before clip ${i}: ${gapDuration}s`);
+          gaps.push({
+            beforeClipIndex: i,
+            duration: gapDuration
+          });
+        }
+      }
+    }
+    
+    console.log(`🕳️ DEBUG - Total gaps detected: ${gaps.length}`);
+    gaps.forEach((gap, idx) => {
+      console.log(`🕳️ DEBUG - Gap ${idx + 1}: before clip ${gap.beforeClipIndex}, duration=${gap.duration}s`);
+    });
+    
+    // Create a map for quick gap lookup
+    const gapMap = new Map<number, number>(); // clipIndex -> gap duration before this clip
+    for (const gap of gaps) {
+      gapMap.set(gap.beforeClipIndex, gap.duration);
+    }
+    
+    // Track video/audio segment labels including gaps
+    // We'll use: v0, v1, v2... for clips and vgap0, vgap1... for gaps
+    // Similarly: a0, a1, a2... for clip audio and agap0, agap1... for gap audio
+    let gapCounter = 0;
+    const videoSegments: string[] = []; // Labels in order: v0, vgap0, v1, vgap1, v2...
+    const audioSegments: string[] = []; // Labels in order: a0, agap0, a1, agap1, a2...
+    
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const inputFileName = `input${i}${getFileExtension(clip.file.name)}`;
       await ffmpegInstance.writeFile(inputFileName, await fetchFile(clip.file));
       inputFiles.push(inputFileName);
       
-      // Video filter chain
+      // Check if there's a gap before this clip
+      const gapDuration = gapMap.get(i);
+      if (gapDuration && gapDuration > 0) {
+        // Generate black video segment for the gap
+        const gapVideoLabel = `vgap${gapCounter}`;
+        const gapAudioLabel = `agap${gapCounter}`;
+        
+        // color filter generates a solid color video
+        // Format: color=c=black:s=WIDTHxHEIGHT:d=DURATION:r=FPS
+        // Add fps and settb to normalize timebase for xfade compatibility
+        filterComplex.push(`color=c=black:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${settings.fps || 30},format=yuv420p,fps=30,settb=1/30,setsar=1[${gapVideoLabel}]`);
+        
+        // aevalsrc generates silence
+        // Format: aevalsrc=0:d=DURATION:s=SAMPLE_RATE:c=stereo
+        filterComplex.push(`aevalsrc=0:d=${gapDuration}:s=48000:c=stereo[${gapAudioLabel}]`);
+        
+        videoSegments.push(gapVideoLabel);
+        audioSegments.push(gapAudioLabel);
+        gapCounter++;
+        
+        console.log(`🕳️ DEBUG - Generated gap segment before clip ${i}: video=[${gapVideoLabel}], audio=[${gapAudioLabel}], duration=${gapDuration}s`);
+      }
+      
+      // Video filter chain for the clip
       // Ensure we have a video stream. If it's an image, loop it.
       // If it's a video, trim it.
       const isImage = clip.file.type.startsWith('image/');
@@ -745,10 +832,14 @@ export async function exportProject(
       if (isImage) {
         // For images: loop 1, trim to duration, scale/pad
         // Note: images don't have [i:v], they are just input i. But ffmpeg treats image input as video stream.
-        videoFilter = `[${i}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+        // Add fps=30,settb=1/30 to normalize framerate and timebase for xfade compatibility
+        videoFilter = `[${i}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=30,settb=1/30,setsar=1`;
       } else {
         // For video: trim, scale/pad, setsar to avoid aspect ratio issues
-        videoFilter = `[${i}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+        // Add fps=30,settb=1/30 to normalize framerate and timebase for xfade compatibility
+        // This fixes "First input link main timebase do not match second input link xfade timebase" errors
+        // when mixing videos from different sources (e.g., Clipchamp 30fps vs Google 24fps)
+        videoFilter = `[${i}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=30,settb=1/30,setsar=1`;
       }
       
       if (clip.filter) {
@@ -759,22 +850,42 @@ export async function exportProject(
       }
       
       filterComplex.push(`${videoFilter}[v${i}]`);
+      videoSegments.push(`v${i}`);
+      audioSegments.push(`a${i}`); // Audio will be added later
     }
     
+    console.log(`🕳️ DEBUG - Video segments in order: ${videoSegments.join(', ')}`);
+    console.log(`🕳️ DEBUG - Audio segments in order: ${audioSegments.join(', ')}`);
+    
     // Calculate cumulative durations for transition offsets and text timing
+    // Now we need to account for gaps in the timeline
     const clipDurations: number[] = clips.map(clip => clip.duration - clip.trimStart - clip.trimEnd);
     const clipStartTimes: number[] = [];
     let cumulativeTime = 0;
     for (let i = 0; i < clips.length; i++) {
+      // Add gap duration before this clip if any
+      const gapDuration = gapMap.get(i);
+      if (gapDuration && gapDuration > 0) {
+        cumulativeTime += gapDuration;
+      }
       clipStartTimes.push(cumulativeTime);
       cumulativeTime += clipDurations[i];
     }
+    
+    console.log(`🕳️ DEBUG - Clip start times (with gaps): ${clipStartTimes.join(', ')}`);
+    console.log(`🕳️ DEBUG - Total duration (with gaps): ${cumulativeTime}s`);
     
     // Build transition maps for clips that have transitions
     // startTransitionMap: Key: clipId, Value: transition (for 'start' position transitions - applied at beginning of clip)
     // endTransitionMap: Key: clipId, Value: transition (for 'end' position transitions - applied at end of clip)
     const startTransitionMap = new Map<string, Transition>();
     const endTransitionMap = new Map<string, Transition>();
+    
+    // DEBUG: Log the clip order and IDs for troubleshooting transition matching
+    console.log('🎬 DEBUG - Clips in export order (sorted by startTime):');
+    clips.forEach((clip, index) => {
+      console.log(`🎬 DEBUG - Clip ${index}: id=${clip.id}, startTime=${clip.startTime}, duration=${clip.duration}`);
+    });
     
     if (transitions && transitions.length > 0) {
       console.log('🔀 DEBUG - Building transition maps from', transitions.length, 'transitions');
@@ -815,88 +926,269 @@ export async function exportProject(
     // Both are equivalent for the same pair of clips, just different UI perspectives
     
     let hasTransitions = false;
-    let currentVideoLabel = 'v0';
-    let cumulativeOffset = clipDurations[0]; // Running total of video duration (accounting for overlaps)
     
-    console.log('Starting transition processing with', clips.length, 'clips');
+    // When we have gaps, we need to handle the video merging differently
+    // First, we need to merge all segments (clips + gaps) in order
+    // Then apply transitions between actual clips (not gaps)
+    
+    // If there are gaps, we need to handle transitions differently
+    // We can still apply xfade between ADJACENT clips (no gap between them)
+    // but we need to use concat for gap segments
+    const hasGaps = gaps.length > 0;
+    let currentVideoLabel = '';
+    let cumulativeOffset = 0;
+    
+    console.log('Starting transition processing with', clips.length, 'clips and', gaps.length, 'gaps');
     console.log('Clip durations:', clipDurations);
+    console.log('Has gaps:', hasGaps);
     
-    for (let i = 1; i < clips.length; i++) {
-      const clip = clips[i];
-      const clipId = clip.id;
-      const prevClip = clips[i - 1];
-      const prevClipId = prevClip.id;
-      
-      // Check for transition: either 'start' on current clip OR 'end' on previous clip
-      let transition = clipId ? startTransitionMap.get(clipId) : undefined;
-      let transitionSource = 'start';
-      
-      // If no 'start' transition on current clip, check for 'end' transition on previous clip
-      if (!transition && prevClipId) {
-        transition = endTransitionMap.get(prevClipId);
-        transitionSource = 'end';
+    // NEW HYBRID APPROACH: Apply xfade between adjacent clips, use concat for gaps
+    //
+    // Strategy:
+    // 1. Identify "groups" of adjacent clips (clips without gaps between them)
+    // 2. Within each group, apply xfade transitions between clips
+    // 3. Use concat to join: gap segments + processed clip groups
+    //
+    // Example: [Clip A] [Gap] [Clip B] [Clip C with transition to D] [Clip D]
+    // Groups: Group1=[A], Group2=[B, C, D]
+    // Process:
+    //   - Group1: just [vA]
+    //   - Group2: [vB] concat [vC][vD]xfade -> [vBCD]
+    // Final: [vA][vgap0][vBCD]concat
+    
+    // Build adjacency information: which clips are adjacent (no gap between them)?
+    // A clip at index i is adjacent to clip at index i+1 if there's no gap before clip i+1
+    const isAdjacentToNext: boolean[] = [];
+    for (let i = 0; i < clips.length - 1; i++) {
+      // Clip i is adjacent to clip i+1 if there's no gap before clip i+1
+      const hasGapBeforeNext = gapMap.has(i + 1);
+      isAdjacentToNext.push(!hasGapBeforeNext);
+    }
+    isAdjacentToNext.push(false); // Last clip has no next
+    
+    console.log('🔀 DEBUG - Adjacency info:', isAdjacentToNext);
+    
+    // Process clips and apply xfade between adjacent clips with transitions
+    // We'll build "processed segments" that will be concatenated at the end
+    // Each processed segment is either:
+    // - A gap segment (vgapX)
+    // - A single clip (vX)
+    // - A group of clips merged with xfade (vtX)
+    
+    interface ProcessedSegment {
+      label: string;
+      type: 'gap' | 'clip' | 'merged';
+      clipIndices?: number[]; // For merged segments, track which clips are included
+    }
+    const processedVideoSegments: ProcessedSegment[] = [];
+    const processedAudioSegments: ProcessedSegment[] = []; // Parallel array for audio
+    
+    // Track which clips have been processed (merged into a previous group)
+    const processedClips = new Set<number>();
+    
+    // Counter for merged audio segments
+    let audioMergeCounter = 0;
+    
+    // First, add gap at the beginning if exists
+    if (gapMap.has(0)) {
+      processedVideoSegments.push({ label: 'vgap0', type: 'gap' });
+      processedAudioSegments.push({ label: 'agap0', type: 'gap' });
+      console.log('🔀 DEBUG - Added initial gap segment: vgap0, agap0');
+    }
+    
+    let mergeCounter = 0;
+    
+    for (let i = 0; i < clips.length; i++) {
+      // Skip if already processed as part of a previous group
+      if (processedClips.has(i)) {
+        continue;
       }
       
-      console.log(`🔀 DEBUG - Processing clip ${i}/${clips.length - 1}:`, {
-        clipId,
-        prevClipId,
-        hasTransition: !!transition,
-        transitionType: transition?.type,
-        transitionPosition: transition?.position,
-        transitionSource
+      const clip = clips[i];
+      const clipId = clip.id;
+      
+      // Check if this clip should be merged with the next clip(s) via xfade
+      // We look ahead to find all adjacent clips that have transitions between them
+      let currentGroupLabel = `v${i}`;
+      let groupEndIndex = i;
+      let groupCumulativeOffset = clipDurations[i];
+      
+      // Look ahead for adjacent clips with transitions
+      while (groupEndIndex < clips.length - 1 && isAdjacentToNext[groupEndIndex]) {
+        const nextIndex = groupEndIndex + 1;
+        const nextClip = clips[nextIndex];
+        const nextClipId = nextClip.id;
+        const currentClipId = clips[groupEndIndex].id;
+        
+        // Check for transition between current and next clip
+        // A 'start' transition on the NEXT clip means: transition FROM current TO next
+        // An 'end' transition on the CURRENT clip means: transition FROM current TO next
+        let transition = nextClipId ? startTransitionMap.get(nextClipId) : undefined;
+        let transitionSource = 'start';
+        
+        if (!transition && currentClipId) {
+          transition = endTransitionMap.get(currentClipId);
+          transitionSource = 'end';
+        }
+        
+        // DEBUG: Log all available transitions and clip IDs for troubleshooting
+        console.log(`🔀 DEBUG - Checking transition between clip ${groupEndIndex} (id=${currentClipId}) and ${nextIndex} (id=${nextClipId}):`);
+        console.log(`🔀 DEBUG - Looking for: startTransitionMap[${nextClipId}] or endTransitionMap[${currentClipId}]`);
+        console.log(`🔀 DEBUG - startTransitionMap keys:`, Array.from(startTransitionMap.keys()));
+        console.log(`🔀 DEBUG - endTransitionMap keys:`, Array.from(endTransitionMap.keys()));
+        console.log(`🔀 DEBUG - Result:`, {
+          hasTransition: !!transition,
+          transitionType: transition?.type,
+          transitionSource
+        });
+        
+        if (transition && transition.type !== 'none') {
+          hasTransitions = true;
+          console.log(`🔀 DEBUG - ✅ Applying xfade ${transition.type} between clips ${groupEndIndex} and ${nextIndex}`);
+          
+          // Transition duration should not exceed either clip's duration
+          const transitionDuration = Math.min(
+            transition.duration,
+            clipDurations[groupEndIndex] * 0.9,
+            clipDurations[nextIndex] * 0.9
+          );
+          
+          // The offset is where the transition starts in the merged output
+          const offset = Math.max(0, groupCumulativeOffset - transitionDuration);
+          
+          const outputLabel = `vm${mergeCounter}`;
+          const xfadeFilter = getTransitionFilter(transition, offset);
+          
+          console.log(`🔀 DEBUG - xfade: [${currentGroupLabel}][v${nextIndex}] offset=${offset}, duration=${transitionDuration}`);
+          
+          if (xfadeFilter) {
+            filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]${xfadeFilter}[${outputLabel}]`);
+            currentGroupLabel = outputLabel;
+            mergeCounter++;
+            
+            // Update cumulative offset for the group
+            groupCumulativeOffset = offset + clipDurations[nextIndex];
+          }
+          
+          processedClips.add(nextIndex);
+          groupEndIndex = nextIndex;
+        } else {
+          // No transition - check if we should still merge (adjacent but no transition)
+          // In this case, we use concat instead of xfade
+          console.log(`🔀 DEBUG - No transition between adjacent clips ${groupEndIndex} and ${nextIndex}, using concat`);
+          
+          const outputLabel = `vm${mergeCounter}`;
+          // Add fps=30,settb=1/30 after concat to normalize timebase for xfade compatibility
+          // This fixes "First input link main timebase do not match second input link xfade timebase" errors
+          filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]concat=n=2:v=1:a=0,fps=30,settb=1/30[${outputLabel}]`);
+          currentGroupLabel = outputLabel;
+          mergeCounter++;
+          
+          groupCumulativeOffset += clipDurations[nextIndex];
+          
+          processedClips.add(nextIndex);
+          groupEndIndex = nextIndex;
+        }
+      }
+      
+      // Add the processed group/clip to segments
+      const isMerged = groupEndIndex > i;
+      const clipIndicesInGroup: number[] = [];
+      for (let ci = i; ci <= groupEndIndex; ci++) {
+        clipIndicesInGroup.push(ci);
+      }
+      
+      processedVideoSegments.push({
+        label: currentGroupLabel,
+        type: isMerged ? 'merged' : 'clip',
+        clipIndices: clipIndicesInGroup
       });
       
-      if (transition) {
-        hasTransitions = true;
-        console.log(`🔀 DEBUG - ✅ Applying transition ${transition.type} between clips ${i-1} and ${i} (source: ${transitionSource} position on ${transitionSource === 'start' ? 'current' : 'previous'} clip)`);
+      // Add corresponding audio segment(s)
+      if (isMerged) {
+        // For merged video segments, we need to merge the corresponding audio segments
+        // Create a merged audio segment by concatenating the audio of all clips in the group
+        const audioLabelsToMerge = clipIndicesInGroup.map(ci => `a${ci}`);
+        const mergedAudioLabel = `am${audioMergeCounter}`;
         
-        // Transition duration should not exceed either clip's duration
-        const transitionDuration = Math.min(
-          transition.duration,
-          clipDurations[i - 1] * 0.9, // Don't use more than 90% of previous clip
-          clipDurations[i] * 0.9      // Don't use more than 90% of current clip
-        );
+        // Build the audio concat filter for this merged group
+        const audioMergeLabels = audioLabelsToMerge.map(l => `[${l}]`).join('');
+        filterComplex.push(`${audioMergeLabels}concat=n=${audioLabelsToMerge.length}:v=0:a=1[${mergedAudioLabel}]`);
         
-        // The offset is where the transition starts in the output timeline
-        // It's the cumulative duration minus the transition duration (because clips overlap)
-        const offset = Math.max(0, cumulativeOffset - transitionDuration);
+        processedAudioSegments.push({
+          label: mergedAudioLabel,
+          type: 'merged',
+          clipIndices: clipIndicesInGroup
+        });
         
-        const outputLabel = `vt${i}`;
-        const xfadeFilter = getTransitionFilter(transition, offset);
-        
-        console.log(`Applying xfade: [${currentVideoLabel}][v${i}] offset=${offset}, duration=${transitionDuration}`);
-        console.log(`xfade filter: ${xfadeFilter}`);
-        
-        if (xfadeFilter) {
-          filterComplex.push(`[${currentVideoLabel}][v${i}]${xfadeFilter}[${outputLabel}]`);
-          currentVideoLabel = outputLabel;
-          
-          // Update cumulative offset: add current clip duration minus overlap
-          cumulativeOffset = offset + clipDurations[i];
-        }
+        console.log(`🔀 DEBUG - Created merged audio segment: ${mergedAudioLabel} from clips ${clipIndicesInGroup.join(', ')}`);
+        audioMergeCounter++;
       } else {
-        // No transition - need to concatenate this clip with the current video
-        // Use concat filter to join without transition
-        const outputLabel = `vt${i}`;
-        filterComplex.push(`[${currentVideoLabel}][v${i}]concat=n=2:v=1:a=0[${outputLabel}]`);
-        currentVideoLabel = outputLabel;
-        
-        // Update cumulative offset: just add the full clip duration
-        cumulativeOffset += clipDurations[i];
-        
-        console.log(`🔀 DEBUG - No transition for clip ${i}, using concat. New cumulative offset: ${cumulativeOffset}`);
+        // Single clip, just use its audio directly
+        processedAudioSegments.push({
+          label: `a${i}`,
+          type: 'clip',
+          clipIndices: [i]
+        });
+      }
+      
+      console.log(`🔀 DEBUG - Added segment: ${currentGroupLabel} (type: ${isMerged ? 'merged' : 'clip'})`);
+      
+      // Add gap after this group if there's one before the next unprocessed clip
+      // Find the next unprocessed clip
+      let nextUnprocessedIndex = groupEndIndex + 1;
+      while (nextUnprocessedIndex < clips.length && processedClips.has(nextUnprocessedIndex)) {
+        nextUnprocessedIndex++;
+      }
+      
+      if (nextUnprocessedIndex < clips.length && gapMap.has(nextUnprocessedIndex)) {
+        // Find the gap index for this position
+        let gapIndex = 0;
+        for (let g = 0; g < nextUnprocessedIndex; g++) {
+          if (gapMap.has(g)) gapIndex++;
+        }
+        // Adjust: we need to find which vgapX corresponds to the gap before nextUnprocessedIndex
+        // The gaps are numbered in order of their beforeClipIndex
+        let actualGapIndex = 0;
+        for (const gap of gaps) {
+          if (gap.beforeClipIndex === nextUnprocessedIndex) {
+            processedVideoSegments.push({ label: `vgap${actualGapIndex}`, type: 'gap' });
+            processedAudioSegments.push({ label: `agap${actualGapIndex}`, type: 'gap' });
+            console.log(`🔀 DEBUG - Added gap segment: vgap${actualGapIndex}, agap${actualGapIndex} (before clip ${nextUnprocessedIndex})`);
+            break;
+          }
+          actualGapIndex++;
+        }
       }
     }
     
-    // Rename final video output to vmerged
-    if (clips.length > 1) {
+    console.log('🔀 DEBUG - Processed video segments:', processedVideoSegments.map(s => s.label));
+    console.log('🔀 DEBUG - Processed audio segments:', processedAudioSegments.map(s => s.label));
+    
+    // Now concatenate all processed segments
+    if (processedVideoSegments.length === 1) {
+      // Only one segment, just rename it
+      currentVideoLabel = processedVideoSegments[0].label;
       filterComplex.push(`[${currentVideoLabel}]copy[vmerged]`);
+      currentVideoLabel = 'vmerged';
+    } else if (processedVideoSegments.length > 1) {
+      // Multiple segments, concatenate them
+      const allLabels = processedVideoSegments.map(s => `[${s.label}]`).join('');
+      // Add fps=30,settb=1/30 after concat to normalize timebase for subsequent filters
+      // This fixes "First input link main timebase do not match second input link xfade timebase" errors
+      filterComplex.push(`${allLabels}concat=n=${processedVideoSegments.length}:v=1:a=0,fps=30,settb=1/30[vmerged]`);
+      currentVideoLabel = 'vmerged';
+      console.log(`🔀 DEBUG - Final concat: ${processedVideoSegments.length} segments into [vmerged]`);
+    } else {
+      // No segments? This shouldn't happen, but handle it
+      currentVideoLabel = 'v0';
+      filterComplex.push(`[v0]copy[vmerged]`);
       currentVideoLabel = 'vmerged';
     }
     
     console.log('Transition processing complete. hasTransitions:', hasTransitions, 'finalLabel:', currentVideoLabel);
     
-    // Generate audio filters for all clips
+    // Generate audio filters for all clips (gap audio was already generated above)
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const isImage = clip.file.type.startsWith('image/');
@@ -904,7 +1196,7 @@ export async function exportProject(
       
       if (isImage) {
         // Generate silence for image duration
-        filterComplex.push(`aevalsrc=0:d=${duration}[a${i}]`);
+        filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
       } else {
         // For video, use its audio
         filterComplex.push(`[${i}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[a${i}]`);
@@ -913,9 +1205,14 @@ export async function exportProject(
       
     onProgress?.(5, 'Assemblage des clips...');
 
-    // Audio concatenation - always needed for multiple clips
-    const audioConcat = clips.map((_, i) => `[a${i}]`).join('');
-    filterComplex.push(`${audioConcat}concat=n=${clips.length}:v=0:a=1[outa]`);
+    // Audio concatenation - use processedAudioSegments which is synchronized with processedVideoSegments
+    // This ensures gaps and merged clips are in the correct order
+    const allProcessedAudioLabels = processedAudioSegments.map(s => `[${s.label}]`).join('');
+    const totalProcessedAudioSegments = processedAudioSegments.length;
+    filterComplex.push(`${allProcessedAudioLabels}concat=n=${totalProcessedAudioSegments}:v=0:a=1[outa]`);
+    
+    console.log(`🕳️ DEBUG - Audio concatenation: ${totalProcessedAudioSegments} segments (synchronized with video)`);
+    console.log(`🕳️ DEBUG - Audio labels: ${processedAudioSegments.map(s => s.label).join(', ')}`);
     
     // Video is already merged in currentVideoLabel (vmerged), just rename to outv
     filterComplex.push(`[${currentVideoLabel}]copy[outv]`);
