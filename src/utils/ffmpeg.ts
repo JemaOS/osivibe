@@ -876,41 +876,63 @@ export async function exportProject(
     console.log(`🕳️ DEBUG - Total duration (with gaps): ${cumulativeTime}s`);
     
     // Build transition maps for clips that have transitions
-    // startTransitionMap: Key: clipId, Value: transition (for 'start' position transitions - applied at beginning of clip)
-    // endTransitionMap: Key: clipId, Value: transition (for 'end' position transitions - applied at end of clip)
-    const startTransitionMap = new Map<string, Transition>();
-    const endTransitionMap = new Map<string, Transition>();
+    // We need to map transitions by SORTED INDEX, not by clipId
+    // This is because clips are sorted by startTime, but transitions reference clipId
+    //
+    // Strategy:
+    // 1. Create a clipId -> sorted index mapping
+    // 2. Build transition maps using sorted indices as keys
+    //
+    // startTransitionByIndex: Key: sorted index, Value: transition (for 'start' position transitions)
+    // endTransitionByIndex: Key: sorted index, Value: transition (for 'end' position transitions)
+    
+    // Step 1: Create clipId to sorted index mapping
+    const clipIdToSortedIndex = new Map<string, number>();
+    clips.forEach((clip, index) => {
+      if (clip.id) {
+        clipIdToSortedIndex.set(clip.id, index);
+      }
+    });
     
     // DEBUG: Log the clip order and IDs for troubleshooting transition matching
     console.log('🎬 DEBUG - Clips in export order (sorted by startTime):');
     clips.forEach((clip, index) => {
       console.log(`🎬 DEBUG - Clip ${index}: id=${clip.id}, startTime=${clip.startTime}, duration=${clip.duration}`);
     });
+    console.log('🎬 DEBUG - clipIdToSortedIndex mapping:', Object.fromEntries(clipIdToSortedIndex));
+    
+    // Step 2: Build transition maps using sorted indices
+    const startTransitionByIndex = new Map<number, Transition>();
+    const endTransitionByIndex = new Map<number, Transition>();
     
     if (transitions && transitions.length > 0) {
       console.log('🔀 DEBUG - Building transition maps from', transitions.length, 'transitions');
       for (const transition of transitions) {
+        const sortedIndex = clipIdToSortedIndex.get(transition.clipId);
         console.log(`🔀 DEBUG - Transition:`, {
           id: transition.id,
           type: transition.type,
           clipId: transition.clipId,
           position: transition.position,
-          duration: transition.duration
+          duration: transition.duration,
+          sortedIndex: sortedIndex
         });
-        if (transition.type !== 'none') {
+        if (transition.type !== 'none' && sortedIndex !== undefined) {
           if (transition.position === 'start') {
-            startTransitionMap.set(transition.clipId, transition);
-            console.log(`🔀 DEBUG - Start transition mapped: clipId=${transition.clipId}, type=${transition.type}`);
+            startTransitionByIndex.set(sortedIndex, transition);
+            console.log(`🔀 DEBUG - Start transition mapped: sortedIndex=${sortedIndex}, clipId=${transition.clipId}, type=${transition.type}`);
           } else if (transition.position === 'end') {
-            endTransitionMap.set(transition.clipId, transition);
-            console.log(`🔀 DEBUG - End transition mapped: clipId=${transition.clipId}, type=${transition.type}`);
+            endTransitionByIndex.set(sortedIndex, transition);
+            console.log(`🔀 DEBUG - End transition mapped: sortedIndex=${sortedIndex}, clipId=${transition.clipId}, type=${transition.type}`);
           }
-        } else {
+        } else if (transition.type === 'none') {
           console.log(`🔀 DEBUG - Transition skipped (type=none): clipId=${transition.clipId}`);
+        } else {
+          console.log(`🔀 DEBUG - Transition skipped (clipId not found in sorted clips): clipId=${transition.clipId}`);
         }
       }
-      console.log('🔀 DEBUG - Start transition map size:', startTransitionMap.size);
-      console.log('🔀 DEBUG - End transition map size:', endTransitionMap.size);
+      console.log('🔀 DEBUG - Start transition map size:', startTransitionByIndex.size);
+      console.log('🔀 DEBUG - End transition map size:', endTransitionByIndex.size);
     } else {
       console.log('🔀 DEBUG - No transitions to process');
     }
@@ -1016,26 +1038,24 @@ export async function exportProject(
       // Look ahead for adjacent clips with transitions
       while (groupEndIndex < clips.length - 1 && isAdjacentToNext[groupEndIndex]) {
         const nextIndex = groupEndIndex + 1;
-        const nextClip = clips[nextIndex];
-        const nextClipId = nextClip.id;
-        const currentClipId = clips[groupEndIndex].id;
+        const currentIndex = groupEndIndex;
         
-        // Check for transition between current and next clip
+        // Check for transition between current and next clip using SORTED INDICES
         // A 'start' transition on the NEXT clip means: transition FROM current TO next
         // An 'end' transition on the CURRENT clip means: transition FROM current TO next
-        let transition = nextClipId ? startTransitionMap.get(nextClipId) : undefined;
+        let transition = startTransitionByIndex.get(nextIndex);
         let transitionSource = 'start';
         
-        if (!transition && currentClipId) {
-          transition = endTransitionMap.get(currentClipId);
+        if (!transition) {
+          transition = endTransitionByIndex.get(currentIndex);
           transitionSource = 'end';
         }
         
-        // DEBUG: Log all available transitions and clip IDs for troubleshooting
-        console.log(`🔀 DEBUG - Checking transition between clip ${groupEndIndex} (id=${currentClipId}) and ${nextIndex} (id=${nextClipId}):`);
-        console.log(`🔀 DEBUG - Looking for: startTransitionMap[${nextClipId}] or endTransitionMap[${currentClipId}]`);
-        console.log(`🔀 DEBUG - startTransitionMap keys:`, Array.from(startTransitionMap.keys()));
-        console.log(`🔀 DEBUG - endTransitionMap keys:`, Array.from(endTransitionMap.keys()));
+        // DEBUG: Log transition lookup using sorted indices
+        console.log(`🔀 DEBUG - Checking transition between clip ${currentIndex} and ${nextIndex}:`);
+        console.log(`🔀 DEBUG - Looking for: startTransitionByIndex[${nextIndex}] or endTransitionByIndex[${currentIndex}]`);
+        console.log(`🔀 DEBUG - startTransitionByIndex keys:`, Array.from(startTransitionByIndex.keys()));
+        console.log(`🔀 DEBUG - endTransitionByIndex keys:`, Array.from(endTransitionByIndex.keys()));
         console.log(`🔀 DEBUG - Result:`, {
           hasTransition: !!transition,
           transitionType: transition?.type,
