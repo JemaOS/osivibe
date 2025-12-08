@@ -26,6 +26,50 @@
     --primary: #757AED;
     --primary-hover: #6366F1;
     --primary-active: #5B64EA;
+    
+    /* === FOLDABLE DEVICE VARIABLES === */
+    
+    /* Breakpoint values (for JS access via getComputedStyle) */
+    --bp-fold-narrow: 272px;
+    --bp-fold-cover: 301px;
+    --bp-xxs: 360px;
+    --bp-xs: 375px;
+    --bp-phone: 390px;
+    --bp-phone-lg: 428px;
+    --bp-fold-open-sm: 512px;
+    --bp-fold-open: 589px;
+    --bp-fold-open-lg: 619px;
+    --bp-sm: 640px;
+    --bp-fold-wide: 719px;
+    --bp-md: 768px;
+    --bp-fold-max: 896px;
+    --bp-lg: 1024px;
+    
+    /* Hinge dimensions (updated dynamically via JS for spanning displays) */
+    --hinge-width: 0px;
+    --hinge-height: 0px;
+    --fold-gap: 0px;
+    
+    /* Touch target sizes */
+    --touch-target-min: 44px;
+    --touch-target-recommended: 48px;
+    --touch-target-large: 52px;
+    
+    /* Layout mode (updated via media queries) */
+    --layout-mode: 'desktop';
+    --panel-visibility: visible;
+    --timeline-tracks: 4;
+    
+    /* Video player dimensions */
+    --video-max-width: 100%;
+    --video-max-height: 50vh;
+    --video-aspect-ratio: 16 / 9;
+    
+    /* Safe areas (populated by browser for notched/foldable devices) */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
   }
 
   * {
@@ -171,6 +215,16 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #505050;
+  }
+
+  /* Hidden Scrollbar (for overflow-x-auto without visible scrollbar) */
+  .scrollbar-none {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
   }
 
   /* Timeline Track */
@@ -469,6 +523,214 @@
   }
 }
 
+/* ============================================
+   FOLDABLE DEVICE LAYOUT MODE VARIABLES
+   ============================================ */
+
+/* Fold cover mode (272px - 320px) - Minimal layout */
+@media (max-width: 320px) {
+  :root {
+    --layout-mode: 'minimal';
+    --panel-visibility: hidden;
+    --timeline-tracks: 1;
+    --touch-target-min: 48px;
+    --touch-target-recommended: 52px;
+    --video-max-height: 40vh;
+    --hinge-width: 0px;
+    --fold-gap: 0px;
+  }
+}
+
+/* Standard phone mode (321px - 450px) - Compact layout */
+@media (min-width: 321px) and (max-width: 450px) {
+  :root {
+    --layout-mode: 'compact';
+    --panel-visibility: collapsed;
+    --timeline-tracks: 2;
+    --touch-target-min: 44px;
+    --touch-target-recommended: 48px;
+    --video-max-height: 45vh;
+    --hinge-width: 0px;
+    --fold-gap: 0px;
+  }
+}
+
+/* Foldable inner mode (451px - 700px with near-square aspect ratio) - Adaptive layout */
+@media (min-width: 451px) and (max-width: 700px) and (min-aspect-ratio: 3/4) {
+  :root {
+    --layout-mode: 'adaptive';
+    --panel-visibility: visible;
+    --timeline-tracks: 3;
+    --touch-target-min: 44px;
+    --touch-target-recommended: 48px;
+    --video-max-width: 85%;
+    --video-max-height: 55vh;
+    --hinge-width: 48px; /* Samsung Z Fold default */
+    --fold-gap: 48px;
+  }
+}
+
+/* Large foldable / tablet mode (701px - 1023px) - Expanded layout */
+@media (min-width: 701px) and (max-width: 1023px) {
+  :root {
+    --layout-mode: 'expanded';
+    --panel-visibility: visible;
+    --timeline-tracks: 4;
+    --touch-target-min: 40px;
+    --touch-target-recommended: 44px;
+    --video-max-width: 100%;
+    --video-max-height: 50vh;
+    --hinge-width: 0px;
+    --fold-gap: 0px;
+  }
+}
+
+/* Desktop mode (1024px+) */
+@media (min-width: 1024px) {
+  :root {
+    --layout-mode: 'desktop';
+    --panel-visibility: visible;
+    --timeline-tracks: 6;
+    --touch-target-min: 36px;
+    --touch-target-recommended: 40px;
+    --video-max-width: 100%;
+    --video-max-height: 60vh;
+    --hinge-width: 0px;
+    --fold-gap: 0px;
+  }
+}
+
+/* ============================================
+   SPANNING DISPLAY DETECTION (Dual-screen)
+   ============================================ */
+
+/* Horizontal spanning (side-by-side screens) */
+@media (horizontal-viewport-segments: 2) {
+  :root {
+    --hinge-width: env(viewport-segment-left 1 0, 48px);
+    --fold-left-width: env(viewport-segment-width 0 0, 50vw);
+    --fold-right-width: env(viewport-segment-width 1 0, 50vw);
+    --fold-gap: calc(env(viewport-segment-left 1 0, 50vw) - env(viewport-segment-right 0 0, 50vw));
+  }
+  
+  /* Grid layout for spanning displays */
+  .fold-aware-grid {
+    display: grid;
+    grid-template-columns:
+      env(viewport-segment-width 0 0, 1fr)
+      var(--fold-gap, 48px)
+      env(viewport-segment-width 1 0, 1fr);
+  }
+  
+  /* Hinge spacer element */
+  .hinge-spacer {
+    grid-column: 2;
+    background: transparent;
+    pointer-events: none;
+    width: var(--fold-gap, 48px);
+  }
+}
+
+/* Vertical spanning (top-bottom screens) */
+@media (vertical-viewport-segments: 2) {
+  :root {
+    --hinge-height: env(viewport-segment-top 0 1, 48px);
+    --fold-top-height: env(viewport-segment-height 0 0, 50vh);
+    --fold-bottom-height: env(viewport-segment-height 0 1, 50vh);
+  }
+}
+
+/* ============================================
+   HINGE AVOIDANCE ZONES
+   ============================================ */
+
+/* Samsung Galaxy Z Fold series - 48px hinge */
+.hinge-avoid-samsung {
+  --hinge-padding: 24px; /* Half of 48px on each side */
+}
+
+/* Honor Magic V3 - 40px hinge */
+.hinge-avoid-honor {
+  --hinge-padding: 20px; /* Half of 40px on each side */
+}
+
+/* Oppo Find N series - 32px hinge */
+.hinge-avoid-oppo {
+  --hinge-padding: 16px; /* Half of 32px on each side */
+}
+
+/* Generic hinge avoidance */
+.avoid-hinge-center {
+  padding-left: max(16px, calc(50% - var(--fold-left-width, 50%) + 24px));
+  padding-right: max(16px, calc(50% - var(--fold-right-width, 50%) + 24px));
+}
+
+/* ============================================
+   ASPECT RATIO MEDIA QUERIES
+   ============================================ */
+
+/* Ultra-tall displays (fold covers, 21:9+) */
+@media (max-aspect-ratio: 9/19) {
+  .video-player-responsive {
+    aspect-ratio: 16/9;
+    width: 100%;
+    max-height: 40vh;
+  }
+  
+  .layout-ultra-tall {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Tall displays (standard phones, 18:9 - 21:9) */
+@media (min-aspect-ratio: 9/19) and (max-aspect-ratio: 9/16) {
+  .video-player-responsive {
+    aspect-ratio: 16/9;
+    width: 100%;
+    max-height: 45vh;
+  }
+}
+
+/* Standard displays (16:9 - 18:9) */
+@media (min-aspect-ratio: 9/16) and (max-aspect-ratio: 3/4) {
+  .video-player-responsive {
+    aspect-ratio: 16/9;
+    width: 100%;
+    max-height: 50vh;
+  }
+}
+
+/* Near-square displays (foldable inner, 4:3 - 5:4) */
+@media (min-aspect-ratio: 3/4) and (max-aspect-ratio: 5/4) {
+  .video-player-responsive {
+    aspect-ratio: 16/9;
+    width: 85%;
+    max-height: 55vh;
+    margin: 0 auto;
+  }
+  
+  .layout-near-square {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+}
+
+/* Square displays (large foldable inner, 5:4+) */
+@media (min-aspect-ratio: 5/4) {
+  .video-player-responsive {
+    aspect-ratio: 16/9;
+    width: 80%;
+    max-height: 50vh;
+    margin: 0 auto;
+  }
+}
+
+/* ============================================
+   SAFE AREA UTILITIES (Enhanced)
+   ============================================ */
+
 /* Safe Area for iPhone notch and home indicator */
 .safe-area-top {
   padding-top: env(safe-area-inset-top, 0px);
@@ -486,6 +748,93 @@
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Combined safe area utilities */
+.safe-area-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.safe-area-y {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-all {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Margin-based safe areas */
+.safe-margin-top {
+  margin-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-margin-bottom {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ============================================
+   TOUCH TARGET SIZE UTILITIES
+   ============================================ */
+
+/* Minimum touch target (44px - WCAG 2.1 Level AAA) */
+.touch-target-min {
+  min-width: var(--touch-target-min, 44px);
+  min-height: var(--touch-target-min, 44px);
+}
+
+/* Recommended touch target (48px - Material Design) */
+.touch-target-recommended {
+  min-width: var(--touch-target-recommended, 48px);
+  min-height: var(--touch-target-recommended, 48px);
+}
+
+/* Large touch target (52px - for fold covers) */
+.touch-target-large {
+  min-width: var(--touch-target-large, 52px);
+  min-height: var(--touch-target-large, 52px);
+}
+
+/* Touch target with padding (for inline elements) */
+.touch-target-padding {
+  padding: calc((var(--touch-target-min, 44px) - 1em) / 2);
+}
+
+/* ============================================
+   FOLD TRANSITION ANIMATIONS
+   ============================================ */
+
+/* Smooth transition when fold state changes */
+@media (prefers-reduced-motion: no-preference) {
+  .fold-transition {
+    transition:
+      width 300ms cubic-bezier(0.4, 0, 0.2, 1),
+      height 300ms cubic-bezier(0.4, 0, 0.2, 1),
+      grid-template-columns 300ms cubic-bezier(0.4, 0, 0.2, 1),
+      padding 200ms ease-out;
+  }
+  
+  .video-player-transition {
+    transition:
+      aspect-ratio 300ms ease-out,
+      max-width 300ms ease-out,
+      max-height 300ms ease-out,
+      width 300ms ease-out;
+  }
+}
+
+/* Disable transitions during active folding */
+.folding .fold-transition,
+.folding .video-player-transition {
+  transition: none !important;
+}
+
+/* ============================================
+   MOBILE & FOLDABLE TOUCH TARGETS
+   ============================================ */
+
 /* Mobile touch targets */
 @media (max-width: 640px) {
   .btn-icon {
@@ -494,124 +843,11 @@
   }
 }
 
-/* Mobile-specific styles */
-@media (max-width: 767px) {
-  /* Larger touch targets for mobile */
-  .btn-icon {
-    min-width: 44px;
-    min-height: 44px;
-  }
-  
-  .btn-primary,
-  .btn-secondary {
-    min-height: 44px;
-    padding: 0 12px;
-  }
-  
-  /* Smaller text for mobile */
-  .text-body {
-    font-size: 14px;
-  }
-  
-  .text-caption {
-    font-size: 11px;
-  }
-  
-  /* Timeline adjustments for mobile */
-  .timeline-track {
-    min-height: 40px;
-  }
-  
-  .timeline-clip {
-    min-height: 28px;
-  }
-  
-  /* Playhead adjustments */
-  .playhead::before {
-    width: 10px;
-    height: 10px;
-    left: -4px;
-    top: -4px;
-  }
-  
-  /* Glass panel adjustments */
-  .glass-panel,
-  .glass-panel-medium,
-  .glass-panel-subtle {
-    border-radius: 6px;
-  }
-  
-  /* Input adjustments */
-  .glass-input {
-    height: 44px;
-    font-size: 16px; /* Prevents zoom on iOS */
-  }
-  
-  /* Scrollbar hidden on mobile for cleaner look */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-  }
-}
-
-/* Very small screens (iPhone SE, iPhone 4-5, 320px width) */
-@media (max-width: 374px) {
-  .btn-icon {
-    min-width: 36px;
-    min-height: 36px;
-  }
-  
-  .text-body {
-    font-size: 12px;
-  }
-  
-  .text-caption {
-    font-size: 9px;
-  }
-  
-  /* Smaller buttons for very small screens */
-  .btn-primary,
-  .btn-secondary {
-    min-height: 36px;
-    padding: 0 8px;
-    font-size: 11px;
-  }
-  
-  /* Smaller timeline elements */
-  .timeline-track {
-    min-height: 32px;
-  }
-  
-  .timeline-clip {
-    min-height: 24px;
-  }
-  
-  /* Smaller playhead */
-  .playhead::before {
-    width: 8px;
-    height: 8px;
-    left: -3px;
-    top: -3px;
-  }
-  
-  /* Smaller inputs */
-  .glass-input {
-    height: 36px;
-    font-size: 14px;
-  }
-  
-  /* Smaller scrollbar */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 2px;
-    height: 2px;
-  }
-}
-
-/* Extra small screens (iPhone 4, 320px width) */
+/* Fold cover mode - Extra large touch targets */
 @media (max-width: 320px) {
   .btn-icon {
-    min-width: 32px;
-    min-height: 32px;
+    min-width: var(--touch-target-recommended, 48px);
+    min-height: var(--touch-target-recommended, 48px);
   }
   
   .text-body {
@@ -624,9 +860,9 @@
   
   .btn-primary,
   .btn-secondary {
-    min-height: 32px;
-    padding: 0 6px;
-    font-size: 10px;
+    min-height: var(--touch-target-recommended, 48px);
+    padding: 0 8px;
+    font-size: 11px;
   }
   
   .timeline-track {
@@ -638,8 +874,169 @@
   }
   
   .glass-input {
-    height: 32px;
+    height: var(--touch-target-recommended, 48px);
     font-size: 14px;
+  }
+  
+  /* Hide non-essential UI on fold covers */
+  .hide-on-fold-cover {
+    display: none !important;
+  }
+}
+
+/* Very small screens (iPhone SE, 320px - 374px) */
+@media (min-width: 321px) and (max-width: 374px) {
+  .btn-icon {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  
+  .text-body {
+    font-size: 12px;
+  }
+  
+  .text-caption {
+    font-size: 9px;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  
+  .timeline-track {
+    min-height: 32px;
+  }
+  
+  .timeline-clip {
+    min-height: 24px;
+  }
+  
+  .playhead::before {
+    width: 8px;
+    height: 8px;
+    left: -3px;
+    top: -3px;
+  }
+  
+  .glass-input {
+    height: 40px;
+    font-size: 14px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+}
+
+/* Standard phones (375px - 450px) */
+@media (min-width: 375px) and (max-width: 450px) {
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  
+  .text-body {
+    font-size: 14px;
+  }
+  
+  .text-caption {
+    font-size: 11px;
+  }
+  
+  .timeline-track {
+    min-height: 40px;
+  }
+  
+  .timeline-clip {
+    min-height: 28px;
+  }
+  
+  .playhead::before {
+    width: 10px;
+    height: 10px;
+    left: -4px;
+    top: -4px;
+  }
+  
+  .glass-panel,
+  .glass-panel-medium,
+  .glass-panel-subtle {
+    border-radius: 6px;
+  }
+  
+  .glass-input {
+    height: 44px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+}
+
+/* Foldable inner displays (451px - 700px with near-square ratio) */
+@media (min-width: 451px) and (max-width: 700px) and (min-aspect-ratio: 3/4) {
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .btn-primary,
+  .btn-secondary {
+    min-height: 44px;
+    padding: 0 16px;
+  }
+  
+  .timeline-track {
+    min-height: 44px;
+  }
+  
+  .timeline-clip {
+    min-height: 32px;
+  }
+  
+  .glass-input {
+    height: 44px;
+    font-size: 16px;
+  }
+  
+  /* Show fold-specific UI */
+  .show-on-fold-inner {
+    display: block;
+  }
+  
+  /* Adjust layout for near-square aspect ratio */
+  .fold-inner-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--fold-gap, 8px);
+  }
+}
+
+/* Large phones and small foldables (451px - 640px, tall aspect ratio) */
+@media (min-width: 451px) and (max-width: 640px) and (max-aspect-ratio: 3/4) {
+  .btn-icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  .timeline-track {
+    min-height: 44px;
+  }
+  
+  .timeline-clip {
+    min-height: 32px;
   }
 }
 

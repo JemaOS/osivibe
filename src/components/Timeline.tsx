@@ -4,12 +4,12 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
+import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { formatTime } from '../utils/helpers';
 import type { TimelineClip, TextOverlay } from '../types';
 
-const PIXELS_PER_SECOND = 50; // Base scale
-const TRACK_HEIGHT = 64;
-const RULER_HEIGHT = 32;
+// Base scale - will be adjusted based on screen size
+const BASE_PIXELS_PER_SECOND = 50;
 
 interface ContextMenu {
   id: string;
@@ -50,6 +50,86 @@ export const Timeline: React.FC = () => {
     redo,
   } = useEditorStore();
 
+  // Use responsive hook for adaptive timeline
+  const responsive = useResponsive();
+  const layoutMode = useLayoutMode();
+  
+  // Determine layout characteristics
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+  const isAdaptive = layoutMode === 'adaptive';
+  const isExpanded = layoutMode === 'expanded';
+  const isDesktop = layoutMode === 'desktop';
+
+  // Get dynamic track height based on layout mode
+  const getTrackHeight = () => {
+    if (isMinimal) return 40;
+    if (isCompact) return 48;
+    if (isAdaptive) return 56;
+    if (isExpanded) return 60;
+    return 64; // Desktop
+  };
+
+  // Get dynamic ruler height
+  const getRulerHeight = () => {
+    if (isMinimal) return 24;
+    if (isCompact) return 28;
+    return 32;
+  };
+
+  // Get label width based on layout
+  const getLabelWidth = () => {
+    if (isMinimal) return 60; // Increased from 56 for better label visibility
+    if (isCompact) return 80; // Increased from 72 for iPhone 12/13/14/16 (390px) label visibility
+    if (isAdaptive) return 96; // Increased from 88 for better label visibility
+    return 128; // Desktop
+  };
+
+  // Get abbreviated track label for small screens
+  const getTrackLabel = (trackName: string): string => {
+    if (isDesktop || isExpanded) return trackName;
+    
+    // For adaptive, compact, and minimal modes, use abbreviated labels
+    const lowerName = trackName.toLowerCase();
+    
+    if (isMinimal) {
+      // Very short abbreviations for minimal mode
+      if (lowerName.includes('video')) return 'Vid';
+      if (lowerName.includes('image')) return 'Img';
+      if (lowerName.includes('audio')) return 'Aud';
+      if (lowerName.includes('text')) return 'Txt';
+      // For custom track names, take first 3 characters
+      return trackName.substring(0, 3);
+    }
+    
+    if (isCompact || isAdaptive) {
+      // Slightly longer abbreviations for compact/adaptive
+      if (lowerName.includes('video')) return 'Video';
+      if (lowerName.includes('image')) return 'Imgs';
+      if (lowerName.includes('audio')) return 'Audio';
+      if (lowerName.includes('text')) return 'Text';
+      // For custom track names, take first 5 characters
+      return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
+    }
+    
+    return trackName;
+  };
+
+  // Get track icon based on track type/name
+  const getTrackIcon = (trackName: string, trackType: string) => {
+    const lowerName = trackName.toLowerCase();
+    if (lowerName.includes('video') || trackType === 'video') return Monitor;
+    if (lowerName.includes('image')) return Monitor;
+    if (lowerName.includes('audio') || trackType === 'audio') return Volume2;
+    if (lowerName.includes('text')) return Type;
+    return Monitor;
+  };
+
+  const TRACK_HEIGHT = getTrackHeight();
+  const RULER_HEIGHT = getRulerHeight();
+  const LABEL_WIDTH = getLabelWidth();
+  const PIXELS_PER_SECOND = BASE_PIXELS_PER_SECOND;
+
   const timelineRef = useRef<HTMLDivElement>(null);
   const tracksContainerRef = useRef<HTMLDivElement>(null);
   const labelsContainerRef = useRef<HTMLDivElement>(null);
@@ -67,6 +147,11 @@ export const Timeline: React.FC = () => {
   const [copiedText, setCopiedText] = useState<TextOverlay | null>(null);
   const [isDraggingTransition, setIsDraggingTransition] = useState(false);
   const [draggedTransitionId, setDraggedTransitionId] = useState<string | null>(null);
+  
+  // Touch scrubbing state
+  const [isTouchScrubbing, setIsTouchScrubbing] = useState(false);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [touchStartTime, setTouchStartTime] = useState(0);
 
   const timelineWidth = Math.max(projectDuration * PIXELS_PER_SECOND * ui.timelineZoom, 1000);
 
@@ -219,6 +304,13 @@ export const Timeline: React.FC = () => {
     setIsDraggingPlayhead(true);
   };
 
+  // Touch-friendly playhead dragging
+  const handlePlayheadTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    setIsDraggingPlayhead(true);
+    setIsTouchScrubbing(true);
+  };
+
   useEffect(() => {
     if (!isDraggingPlayhead) return;
 
@@ -231,16 +323,38 @@ export const Timeline: React.FC = () => {
       seek(Math.max(0, Math.min(projectDuration, time)));
     };
 
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+      seek(Math.max(0, Math.min(projectDuration, time)));
+    };
+
     const handleMouseUp = () => {
       setIsDraggingPlayhead(false);
+      setIsTouchScrubbing(false);
+    };
+
+    const handleTouchEnd = () => {
+      setIsDraggingPlayhead(false);
+      setIsTouchScrubbing(false);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [isDraggingPlayhead, ui.timelineZoom, projectDuration, seek]);
 
@@ -316,6 +430,26 @@ export const Timeline: React.FC = () => {
     setDraggedClipId(clipId);
     setIsDraggingClip(true);
     setDragOffset({ x: offsetX, y: e.clientY });
+  };
+
+  // Touch-friendly clip dragging
+  const handleClipTouchStart = (e: React.TouchEvent, clipId: string, trackId: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (track?.locked) return;
+
+    e.stopPropagation();
+    selectClip(clipId);
+
+    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+    if (!clip) return;
+
+    const touch = e.touches[0];
+    const clipStartX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
+    const offsetX = touch.clientX - clipStartX - (tracksContainerRef.current?.getBoundingClientRect().left || 0) + (tracksContainerRef.current?.scrollLeft || 0);
+
+    setDraggedClipId(clipId);
+    setIsDraggingClip(true);
+    setDragOffset({ x: offsetX, y: touch.clientY });
   };
 
   // Handle text dragging
@@ -426,7 +560,7 @@ export const Timeline: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingTransition, draggedTransitionId, tracks, ui.timelineZoom, transitions, removeTransition, setTransition]);
+  }, [isDraggingTransition, draggedTransitionId, tracks, ui.timelineZoom, transitions, removeTransition, setTransition, TRACK_HEIGHT, RULER_HEIGHT]);
 
   // Check if a clip overlaps with existing clips on a track
   const hasCollision = (trackId: string, startTime: number, duration: number, excludeClipId?: string) => {
@@ -653,19 +787,68 @@ export const Timeline: React.FC = () => {
       }
     };
 
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
+      let newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
+
+      // Determine target track based on touch position
+      const trackIndex = Math.floor((touch.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
+      let targetTrack = tracks[trackIndex];
+
+      if (targetTrack && !targetTrack.locked) {
+        const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
+        if (!draggedClip) return;
+
+        // Check if clip type is compatible with target track
+        if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
+          const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
+          if (originalTrack) {
+            targetTrack = originalTrack;
+          } else {
+            return;
+          }
+        }
+
+        const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
+        const snappedTime = applySnapping(newTime, targetTrack.id, clipDuration, draggedClipId);
+
+        if (hasCollision(targetTrack.id, snappedTime, clipDuration, draggedClipId)) {
+          const adjustedTime = findNonCollidingPosition(targetTrack.id, snappedTime, clipDuration, draggedClipId);
+          moveClip(draggedClipId, targetTrack.id, adjustedTime);
+        } else {
+          moveClip(draggedClipId, targetTrack.id, snappedTime);
+        }
+      }
+    };
+
     const handleMouseUp = () => {
+      setIsDraggingClip(false);
+      setDraggedClipId(null);
+    };
+
+    const handleTouchEnd = () => {
       setIsDraggingClip(false);
       setDraggedClipId(null);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDraggingClip, draggedClipId, dragOffset, ui.timelineZoom, tracks, moveClip, mediaFiles]);
+  }, [isDraggingClip, draggedClipId, dragOffset, ui.timelineZoom, tracks, moveClip, mediaFiles, TRACK_HEIGHT, RULER_HEIGHT]);
 
   // Handle clip resizing
   const handleResizeMouseDown = (e: React.MouseEvent, clipId: string, edge: 'start' | 'end') => {
@@ -1009,19 +1192,29 @@ export const Timeline: React.FC = () => {
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  // Handle pinch-to-zoom
+  // Handle pinch-to-zoom with improved sensitivity
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
       const distance = getTouchDistance(e.touches);
       setLastPinchDistance(distance);
+    } else if (e.touches.length === 1) {
+      // Single touch - prepare for scrubbing
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (rect) {
+        setTouchStartX(e.touches[0].clientX);
+        setTouchStartTime(player.currentTime);
+      }
     }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (e.touches.length === 2 && lastPinchDistance) {
+      // Pinch-to-zoom
       const currentDistance = getTouchDistance(e.touches);
       if (currentDistance) {
-        const delta = (currentDistance - lastPinchDistance) / 100; // Sensitivity factor
+        // Improved sensitivity for foldable devices
+        const sensitivity = isMinimal || isCompact ? 150 : 100;
+        const delta = (currentDistance - lastPinchDistance) / sensitivity;
         const newZoom = Math.max(0.2, Math.min(5, ui.timelineZoom + delta));
         setTimelineZoom(newZoom);
         setLastPinchDistance(currentDistance);
@@ -1034,6 +1227,7 @@ export const Timeline: React.FC = () => {
     if (e.touches.length < 2) {
       setLastPinchDistance(null);
     }
+    setIsTouchScrubbing(false);
   };
 
   const playheadX = player.currentTime * PIXELS_PER_SECOND * ui.timelineZoom;
@@ -1093,56 +1287,70 @@ export const Timeline: React.FC = () => {
     setContextMenu(null);
   };
 
+  // Get dynamic sizes for UI elements
+  const getClipHeight = () => TRACK_HEIGHT - (isMinimal ? 8 : isCompact ? 8 : 16);
+  const getClipTop = () => isMinimal ? 4 : isCompact ? 4 : 8;
+
   return (
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
       {/* Timeline Header */}
-      <div className="px-1 xxs:px-2 sm:px-4 py-1 xxs:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0">
-        <h3 className="text-[10px] xxs:text-xs sm:text-body font-semibold text-white">Timeline</h3>
-        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
+      <div className={`px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
+        <h3 className={`${isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-xs'} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
+        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
           {/* Cut Tool */}
           <button
             onClick={handleCutClick}
-            className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white"
+            className={`btn-icon ${isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-8 h-8'} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
             title="Couper"
           >
-            <Scissors className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4" />
+            <Scissors className={`${isMinimal ? 'w-2.5 h-2.5' : isCompact ? 'w-3 h-3' : 'w-4 h-4'}`} />
           </button>
           
-          {/* Crop Tool - Hidden on very small screens */}
+          {/* Crop Tool - Hidden on minimal and compact screens */}
+          {!isMinimal && !isCompact && (
+            <button
+              onClick={() => {
+                const event = new CustomEvent('toggleCropMode');
+                window.dispatchEvent(event);
+              }}
+              className={`btn-icon w-8 h-8 hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
+              title="Rogner"
+              disabled={!ui.selectedClipId}
+            >
+              <Crop className="w-4 h-4" />
+            </button>
+          )}
+          
+          <div className={`w-px ${isMinimal ? 'h-4' : 'h-5'} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
+          
+          <span className="text-[9px] hidden sm:inline sm:text-caption text-neutral-400 flex-shrink-0">Zoom:</span>
           <button
-            onClick={() => {
-              const event = new CustomEvent('toggleCropMode');
-              window.dispatchEvent(event);
-            }}
-            className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-8 sm:h-8 hover:bg-primary-500 hover:text-white hidden xxs:flex"
-            title="Rogner"
-            disabled={!ui.selectedClipId}
+            onClick={() => handleZoom(-0.2)}
+            className={`btn-icon ${isMinimal ? 'w-5 h-5' : isCompact ? 'w-6 h-6' : 'w-8 h-8'} touch-target flex-shrink-0`}
+            disabled={ui.timelineZoom <= 0.2}
           >
-            <Crop className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4" />
+            <ZoomOut className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-4 h-4'}`} />
           </button>
-          
-          <div className="w-px h-4 xxs:h-5 bg-white/20 mx-0.5 xxs:mx-1 hidden xs:block" />
-          
-          <span className="text-[9px] xxs:text-xs sm:text-caption text-neutral-400 hidden sm:inline">Zoom:</span>
-          <button onClick={() => handleZoom(-0.2)} className="btn-icon w-5 h-5 xxs:w-6 xxs:h-6 sm:w-8 sm:h-8" disabled={ui.timelineZoom <= 0.2}>
-            <ZoomOut className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-4 sm:h-4" />
-          </button>
-          <span className="text-[9px] xxs:text-xs sm:text-caption text-neutral-300 min-w-[1.5rem] xxs:min-w-[2rem] sm:min-w-[3rem] text-center">
+          <span className={`${isMinimal ? 'text-[8px] min-w-[1.5rem]' : isCompact ? 'text-[9px] min-w-[2rem]' : 'text-xs min-w-[3rem]'} text-neutral-300 text-center flex-shrink-0`}>
             {Math.round(ui.timelineZoom * 100)}%
           </span>
-          <button onClick={() => handleZoom(0.2)} className="btn-icon w-5 h-5 xxs:w-6 xxs:h-6 sm:w-8 sm:h-8" disabled={ui.timelineZoom >= 5}>
-            <ZoomIn className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-4 sm:h-4" />
+          <button
+            onClick={() => handleZoom(0.2)}
+            className={`btn-icon ${isMinimal ? 'w-5 h-5' : isCompact ? 'w-6 h-6' : 'w-8 h-8'} touch-target flex-shrink-0`}
+            disabled={ui.timelineZoom >= 5}
+          >
+            <ZoomIn className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-4 h-4'}`} />
           </button>
 
-          <div className="w-px h-4 xxs:h-5 bg-white/20 mx-0.5 xxs:mx-1 hidden xs:block" />
+          <div className={`w-px ${isMinimal ? 'h-4' : 'h-5'} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
 
           {/* Aspect Ratio Button */}
           <button
             onClick={handleAspectRatioClick}
-            className="btn-secondary h-5 xxs:h-6 sm:h-8 text-[9px] xxs:text-xs sm:text-caption flex items-center gap-0.5 xxs:gap-1 px-1 xxs:px-2"
+            className={`btn-secondary ${isMinimal ? 'h-5 text-[8px] px-1' : isCompact ? 'h-6 text-[9px] px-1.5' : 'h-8 text-xs px-2'} flex items-center gap-0.5 touch-target flex-shrink-0`}
             title="Ratio"
           >
-            <Monitor className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+            <Monitor className={`${isMinimal ? 'w-2.5 h-2.5' : isCompact ? 'w-3 h-3' : 'w-4 h-4'}`} />
             <span className="hidden xs:inline">{aspectRatio}</span>
           </button>
         </div>
@@ -1151,51 +1359,89 @@ export const Timeline: React.FC = () => {
       {/* Timeline Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Track Labels */}
-        <div className="w-14 xxs:w-16 xs:w-20 sm:w-32 flex-shrink-0 bg-white/5 border-r border-white/10 flex flex-col">
+        <div 
+          className="flex-shrink-0 bg-white/5 border-r border-white/10 flex flex-col"
+          style={{ width: LABEL_WIDTH }}
+        >
           {/* Ruler space */}
-          <div className="h-5 xxs:h-6 sm:h-8 border-b border-white/10 flex-shrink-0" />
+          <div className="border-b border-white/10 flex-shrink-0" style={{ height: RULER_HEIGHT }} />
           
           {/* Track labels */}
           <div ref={labelsContainerRef} className="flex-1 overflow-hidden relative min-h-0">
-            {tracks.map((track) => (
-              <div
-                key={track.id}
-                className="h-10 xxs:h-12 sm:h-16 border-b border-white/10 px-0.5 xxs:px-1 sm:px-2 flex flex-col justify-center gap-0.5 xxs:gap-1"
-              >
-                <p className="text-[9px] xxs:text-[10px] xs:text-xs sm:text-caption font-medium text-neutral-300 truncate">{track.name}</p>
-                <div className="flex items-center gap-0 xxs:gap-0.5 sm:gap-1">
-                  <button
-                    onClick={() => toggleTrackMute(track.id)}
-                    className={`btn-icon w-4 h-4 xxs:w-5 xxs:h-5 sm:w-6 sm:h-6 ${track.muted ? 'text-error' : ''}`}
-                    title={track.muted ? 'Unmute' : 'Mute'}
-                  >
-                    {track.muted ? <VolumeX className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" /> : <Volume2 className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />}
-                  </button>
-                  <button
-                    onClick={() => toggleTrackLock(track.id)}
-                    className={`btn-icon w-4 h-4 xxs:w-5 xxs:h-5 sm:w-6 sm:h-6 ${track.locked ? 'text-warning' : ''}`}
-                    title={track.locked ? 'Unlock' : 'Lock'}
-                  >
-                    {track.locked ? <Lock className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" /> : <Unlock className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />}
-                  </button>
+            {tracks.map((track) => {
+              const TrackIcon = getTrackIcon(track.name, track.type);
+              return (
+                <div
+                  key={track.id}
+                  className="border-b border-white/10 px-1 fold-cover:px-1 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
+                  style={{ height: TRACK_HEIGHT }}
+                >
+                  <div className="flex items-center gap-1">
+                    {/* Show icon on small screens for better identification */}
+                    {(isMinimal || isCompact) && (
+                      <TrackIcon className={`${isMinimal ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-neutral-400 flex-shrink-0`} />
+                    )}
+                    <p
+                      className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
+                      title={track.name} // Full name on hover
+                    >
+                      {getTrackLabel(track.name)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
+                    <button
+                      onClick={() => toggleTrackMute(track.id)}
+                      className={`btn-icon ${isMinimal ? 'w-4 h-4' : isCompact ? 'w-5 h-5' : 'w-6 h-6'} ${track.muted ? 'text-error' : ''} touch-target`}
+                      title={track.muted ? 'Unmute' : 'Mute'}
+                    >
+                      {track.muted ? <VolumeX className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} /> : <Volume2 className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} />}
+                    </button>
+                    <button
+                      onClick={() => toggleTrackLock(track.id)}
+                      className={`btn-icon ${isMinimal ? 'w-4 h-4' : isCompact ? 'w-5 h-5' : 'w-6 h-6'} ${track.locked ? 'text-warning' : ''} touch-target`}
+                      title={track.locked ? 'Unlock' : 'Lock'}
+                    >
+                      {track.locked ? <Lock className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} /> : <Unlock className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} />}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Text Track Label */}
-            <div className="h-10 xxs:h-12 sm:h-16 border-b border-white/10 px-0.5 xxs:px-1 sm:px-2 flex flex-col justify-center gap-0.5 xxs:gap-1">
-              <p className="text-[9px] xxs:text-[10px] xs:text-xs sm:text-caption font-medium text-neutral-300 truncate">Textes</p>
-              <div className="flex items-center gap-0 xxs:gap-0.5 sm:gap-1">
-                <Type className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4 text-neutral-400" />
+            <div
+              className="border-b border-white/10 px-1 fold-cover:px-1 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
+              style={{ height: TRACK_HEIGHT }}
+            >
+              <div className="flex items-center gap-1">
+                {/* Show icon on small screens for better identification */}
+                {(isMinimal || isCompact) && (
+                  <Type className={`${isMinimal ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-neutral-400 flex-shrink-0`} />
+                )}
+                <p
+                  className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
+                  title="Textes" // Full name on hover
+                >
+                  {getTrackLabel('Textes')}
+                </p>
+              </div>
+              <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
+                {/* Only show icon if not already shown above */}
+                {!isMinimal && !isCompact && (
+                  <Type className={`w-4 h-4 text-neutral-400`} />
+                )}
               </div>
             </div>
           </div>
 
           {/* Add Track Button */}
-          <div className="p-0.5 xxs:p-1 sm:p-2 flex-shrink-0">
-            <button onClick={() => addTrack('video')} className="btn-secondary w-full h-5 xxs:h-6 sm:h-8 text-[9px] xxs:text-xs sm:text-caption">
-              <Plus className="w-2 h-2 xxs:w-2.5 xxs:h-2.5 sm:w-3 sm:h-3" />
-              <span className="hidden xs:inline">Track</span>
+          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0">
+            <button 
+              onClick={() => addTrack('video')} 
+              className={`btn-secondary w-full ${isMinimal ? 'h-5 text-[8px]' : isCompact ? 'h-6 text-[9px]' : 'h-8 text-xs'} touch-target`}
+            >
+              <Plus className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3'}`} />
+              <span className="fold-cover:hidden fold-open:inline">Track</span>
             </button>
           </div>
         </div>
@@ -1214,7 +1460,10 @@ export const Timeline: React.FC = () => {
         >
           <div style={{ width: timelineWidth }}>
             {/* Time Ruler */}
-            <div className="h-5 xxs:h-6 sm:h-8 bg-white/5 border-b border-white/10 sticky top-0 z-20" style={{ width: timelineWidth }}>
+            <div 
+              className="bg-white/5 border-b border-white/10 sticky top-0 z-20" 
+              style={{ width: timelineWidth, height: RULER_HEIGHT }}
+            >
               {getTimeMarkers().map((time) => {
                 const x = time * PIXELS_PER_SECOND * ui.timelineZoom;
                 return (
@@ -1223,8 +1472,8 @@ export const Timeline: React.FC = () => {
                     className="absolute top-0 bottom-0 flex flex-col justify-end"
                     style={{ left: `${x}px` }}
                   >
-                    <div className="w-px h-1 sm:h-2 bg-neutral-400" />
-                    <span className="text-[8px] xxs:text-[0.6rem] sm:text-caption text-neutral-400 ml-0.5 xxs:ml-1 select-none">
+                    <div className={`w-px ${isMinimal ? 'h-1' : 'h-2'} bg-neutral-400`} />
+                    <span className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} text-neutral-400 ml-0.5 select-none`}>
                       {formatTime(time)}
                     </span>
                   </div>
@@ -1236,10 +1485,10 @@ export const Timeline: React.FC = () => {
             {tracks.map((track) => (
               <div
                 key={track.id}
-                className="timeline-track h-10 xxs:h-12 sm:h-16 border-b border-white/10 relative"
+                className="timeline-track border-b border-white/10 relative"
                 onDrop={(e) => handleDrop(e, track.id)}
                 onDragOver={handleDragOver}
-                style={{ width: timelineWidth }}
+                style={{ width: timelineWidth, height: TRACK_HEIGHT }}
               >
                 {/* Track clips */}
                 {track.clips.map((clip) => {
@@ -1252,16 +1501,19 @@ export const Timeline: React.FC = () => {
                   return (
                     <div
                       key={clip.id}
-                      className={`timeline-clip absolute top-0.5 xxs:top-1 sm:top-2 ${
+                      className={`timeline-clip absolute ${
                         track.type === 'audio' ? 'timeline-clip-audio' : ''
                       } ${isSelected ? 'selected' : ''} ${
                         draggedClipId === clip.id ? 'dragging' : ''
-                      } overflow-hidden flex items-center px-0.5 xxs:px-1 sm:px-2 cursor-grab active:cursor-grabbing`}
+                      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
                       style={{
                         left: `${clipX}px`,
                         width: `${clipWidth}px`,
+                        top: getClipTop(),
+                        height: getClipHeight(),
                       }}
                       onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
+                      onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
                       onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
                       onDrop={(e) => handleClipDrop(e, clip.id)}
                     >
@@ -1278,22 +1530,22 @@ export const Timeline: React.FC = () => {
                           onMouseDown={(e) => handleTransitionMouseDown(e, transition.id)}
                           title={`Transition: ${transition.type} (${transition.position})`}
                         >
-                           <Move className="w-3 h-3 text-white" />
+                           <Move className={`${isMinimal ? 'w-2 h-2' : 'w-3 h-3'} text-white`} />
                         </div>
                       ))}
 
-                      {/* Resize handles */}
+                      {/* Resize handles - larger for touch */}
                       {!track.locked && (
                         <>
                           <div
-                            className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-primary-500/50 z-10 group"
+                            className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
                             onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'start')}
                             title="Étendre le début"
                           >
                             <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
                           </div>
                           <div
-                            className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-primary-500/50 z-10 group"
+                            className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
                             onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'end')}
                             title="Étendre la fin"
                           >
@@ -1312,7 +1564,7 @@ export const Timeline: React.FC = () => {
                       )}
 
                       {/* Clip name */}
-                      <p className="text-[8px] xxs:text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
+                      <p className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} font-medium text-white truncate relative z-10`}>
                         {clip.name}
                       </p>
                     </div>
@@ -1323,8 +1575,8 @@ export const Timeline: React.FC = () => {
 
             {/* Text Track */}
             <div
-              className="timeline-track h-10 xxs:h-12 sm:h-16 border-b border-white/10 relative"
-              style={{ width: timelineWidth }}
+              className="timeline-track border-b border-white/10 relative"
+              style={{ width: timelineWidth, height: TRACK_HEIGHT }}
             >
               {textOverlays.map((text) => {
                 const textWidth = text.duration * PIXELS_PER_SECOND * ui.timelineZoom;
@@ -1334,26 +1586,28 @@ export const Timeline: React.FC = () => {
                 return (
                   <div
                     key={text.id}
-                    className={`timeline-clip absolute top-0.5 xxs:top-1 sm:top-2 bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
+                    className={`timeline-clip absolute bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
                       draggedTextId === text.id ? 'dragging' : ''
-                    } overflow-hidden flex items-center px-0.5 xxs:px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded`}
+                    } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded touch-target`}
                     style={{
                       left: `${textX}px`,
                       width: `${textWidth}px`,
+                      top: getClipTop(),
+                      height: getClipHeight(),
                     }}
                     onMouseDown={(e) => handleTextMouseDown(e, text.id)}
                     onContextMenu={(e) => handleTextContextMenu(e, text.id)}
                   >
-                    {/* Resize handles */}
+                    {/* Resize handles - larger for touch */}
                     <div
-                      className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-purple-500/50 z-10 group"
+                      className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                       onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
                       title="Étendre le début"
                     >
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
                     </div>
                     <div
-                      className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-purple-500/50 z-10 group"
+                      className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                       onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
                       title="Étendre la fin"
                     >
@@ -1361,7 +1615,7 @@ export const Timeline: React.FC = () => {
                     </div>
 
                     {/* Text content */}
-                    <p className="text-[8px] xxs:text-[0.6rem] sm:text-caption font-medium text-white truncate relative z-10">
+                    <p className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} font-medium text-white truncate relative z-10`}>
                       {text.text}
                     </p>
                   </div>
@@ -1370,14 +1624,15 @@ export const Timeline: React.FC = () => {
             </div>
           </div>
 
-          {/* Playhead */}
+          {/* Playhead - with larger touch target */}
           <div
             className="playhead"
             style={{ left: `${playheadX}px` }}
           >
             <div
-              className="absolute -top-1 -left-2 w-4 h-4 cursor-ew-resize"
+              className={`absolute -top-1 ${isMinimal || isCompact ? '-left-4 w-8 h-8' : '-left-2 w-4 h-4'} cursor-ew-resize touch-target`}
               onMouseDown={handlePlayheadMouseDown}
+              onTouchStart={handlePlayheadTouchStart}
             />
           </div>
         </div>
@@ -1404,7 +1659,7 @@ export const Timeline: React.FC = () => {
                 <>
                   <button
                     onClick={() => handleCutClip(contextMenu.id)}
-                    className="w-full px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
                   >
                     <Scissors className="w-4 h-4" />
                     <span>Couper</span>
@@ -1413,7 +1668,7 @@ export const Timeline: React.FC = () => {
                   {isVideo && (
                     <button
                       onClick={() => handleDetachAudio(contextMenu.id)}
-                      className="w-full px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors"
+                      className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
                     >
                       <Music2 className="w-4 h-4" />
                       <span>Détacher audio</span>
@@ -1422,7 +1677,7 @@ export const Timeline: React.FC = () => {
 
                   <button
                     onClick={() => handleDuplicateClip(contextMenu.id)}
-                    className="w-full px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
                   >
                     <Copy className="w-4 h-4" />
                     <span>Dupliquer</span>
@@ -1432,7 +1687,7 @@ export const Timeline: React.FC = () => {
 
                   <button
                     onClick={() => handleDeleteClip(contextMenu.id)}
-                    className="w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Supprimer</span>
@@ -1459,7 +1714,7 @@ export const Timeline: React.FC = () => {
                       }
                       setContextMenu(null);
                     }}
-                    className="w-full px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
                   >
                     <Copy className="w-4 h-4" />
                     <span>Dupliquer</span>
@@ -1472,7 +1727,7 @@ export const Timeline: React.FC = () => {
                       removeTextOverlay(contextMenu.id);
                       setContextMenu(null);
                     }}
-                    className="w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Supprimer</span>

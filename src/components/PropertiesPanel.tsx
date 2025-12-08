@@ -1,10 +1,10 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState, useRef } from 'react';
-import { 
-  Type, 
-  Palette, 
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Type,
+  Palette,
   Sliders,
   Move,
   Trash2,
@@ -21,9 +21,12 @@ import {
   Link2Off,
   Monitor,
   Check,
-  Pipette
+  Pipette,
+  X,
+  GripHorizontal
 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
+import { useResponsive, useLayoutMode, useIsFoldable } from '../hooks/use-responsive';
 import { AVAILABLE_TRANSITIONS, DEFAULT_FILTER, VideoFilter, TransitionType, CropSettings } from '../types';
 import { formatTime } from '../utils/helpers';
 import TransitionPreview from './TransitionPreview';
@@ -73,6 +76,24 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     saveState,
   } = useEditorStore();
 
+  // Use responsive hooks for fold-aware layout
+  const responsive = useResponsive();
+  const layoutMode = useLayoutMode();
+  const isFoldable = useIsFoldable();
+  
+  // Determine layout characteristics
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+  const isAdaptive = layoutMode === 'adaptive';
+  const isExpanded = layoutMode === 'expanded';
+  const isDesktop = layoutMode === 'desktop';
+  
+  // Bottom sheet state for fold-cover mode
+  const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
+  const [bottomSheetHeight, setBottomSheetHeight] = useState(50); // percentage
+  const bottomSheetRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ y: number; height: number } | null>(null);
+
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'clip');
   const [expandedSection, setExpandedSection] = useState<string | null>('basic');
   const [previewTransition, setPreviewTransition] = useState<TransitionType | null>(null);
@@ -80,6 +101,56 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
   
   const colorInputRef = useRef<HTMLInputElement>(null);
   const bgColorInputRef = useRef<HTMLInputElement>(null);
+  
+  // Handle bottom sheet drag for swipe gestures
+  const handleBottomSheetDragStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    dragStartRef.current = { y: clientY, height: bottomSheetHeight };
+  }, [bottomSheetHeight]);
+  
+  const handleBottomSheetDrag = useCallback((e: TouchEvent | MouseEvent) => {
+    if (!dragStartRef.current) return;
+    
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const deltaY = dragStartRef.current.y - clientY;
+    const windowHeight = window.innerHeight;
+    const deltaPercent = (deltaY / windowHeight) * 100;
+    
+    const newHeight = Math.max(20, Math.min(90, dragStartRef.current.height + deltaPercent));
+    setBottomSheetHeight(newHeight);
+  }, []);
+  
+  const handleBottomSheetDragEnd = useCallback(() => {
+    if (!dragStartRef.current) return;
+    
+    // Snap to closed if dragged below threshold
+    if (bottomSheetHeight < 30) {
+      setIsBottomSheetOpen(false);
+      setBottomSheetHeight(50);
+    }
+    
+    dragStartRef.current = null;
+  }, [bottomSheetHeight]);
+  
+  // Set up touch/mouse event listeners for bottom sheet drag
+  useEffect(() => {
+    if (!isBottomSheetOpen) return;
+    
+    const handleMove = (e: TouchEvent | MouseEvent) => handleBottomSheetDrag(e);
+    const handleEnd = () => handleBottomSheetDragEnd();
+    
+    window.addEventListener('touchmove', handleMove, { passive: false });
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('touchend', handleEnd);
+    window.addEventListener('mouseup', handleEnd);
+    
+    return () => {
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+      window.removeEventListener('mouseup', handleEnd);
+    };
+  }, [isBottomSheetOpen, handleBottomSheetDrag, handleBottomSheetDragEnd]);
 
   const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor') => {
     if (!window.EyeDropper) {
@@ -134,17 +205,18 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     { id: 'filters' as TabType, label: 'Filtres', icon: Sliders },
   ];
 
+  // Section component with touch-friendly sizing
   const Section: React.FC<{ id: string; title: string; children: React.ReactNode }> = ({ id, title, children }) => (
     <div className="border-b border-white/10 last:border-0">
       <button
         onClick={() => setExpandedSection(expandedSection === id ? null : id)}
-        className="w-full px-4 py-3 flex items-center justify-between text-body font-medium text-white hover:bg-white/10 transition-colors"
+        className={`w-full ${isMinimal ? 'px-3 py-2.5' : isCompact ? 'px-3 py-3' : 'px-4 py-3'} flex items-center justify-between ${isMinimal ? 'text-sm' : 'text-body'} font-medium text-white hover:bg-white/10 transition-colors touch-target`}
       >
         {title}
-        {expandedSection === id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        {expandedSection === id ? <ChevronUp className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} /> : <ChevronDown className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />}
       </button>
       {expandedSection === id && (
-        <div className="px-4 pb-4">
+        <div className={`${isMinimal ? 'px-3 pb-3' : isCompact ? 'px-3 pb-4' : 'px-4 pb-4'}`}>
           {children}
         </div>
       )}
@@ -1023,28 +1095,24 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     );
   };
 
-  return (
-    <div className="glass-panel h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-white/20">
-        <h2 className="text-base sm:text-h3 font-semibold text-white">Propriétés</h2>
-      </div>
-
+  // Render panel content
+  const renderPanelContent = () => (
+    <>
       {/* Tabs */}
       {!initialTab && (
-        <div className="flex border-b border-white/10 overflow-x-auto">
+        <div className="flex border-b border-white/10 overflow-x-auto flex-shrink-0">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-[60px] sm:min-w-0 py-2 sm:py-3 flex flex-col items-center gap-0.5 sm:gap-1 text-[0.6rem] sm:text-caption transition-colors ${
+              className={`flex-1 ${isMinimal ? 'min-w-[50px] py-2' : isCompact ? 'min-w-[55px] py-2.5' : 'min-w-[60px] py-3'} flex flex-col items-center gap-0.5 ${isMinimal ? 'text-[0.55rem]' : isCompact ? 'text-[0.6rem]' : 'text-caption'} transition-colors touch-target ${
                 activeTab === tab.id
                   ? 'text-primary-500 bg-primary-50/10'
                   : 'text-neutral-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span className="hidden xs:inline">{tab.label}</span>
+              <tab.icon className={`${isMinimal ? 'w-3 h-3' : isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
+              <span className={`${isMinimal ? 'hidden' : 'inline'}`}>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -1057,6 +1125,76 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         {activeTab === 'transitions' && renderTransitions()}
         {activeTab === 'filters' && renderFilters()}
       </div>
+    </>
+  );
+
+  // For minimal/fold-cover mode, render as bottom sheet
+  if (isMinimal && responsive.foldState === 'folded') {
+    return (
+      <>
+        {/* Bottom sheet trigger button */}
+        <button
+          onClick={() => setIsBottomSheetOpen(true)}
+          className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-primary-500 text-white shadow-lg flex items-center justify-center touch-target-lg"
+          aria-label="Open properties panel"
+        >
+          <Sliders className="w-5 h-5" />
+        </button>
+        
+        {/* Bottom sheet overlay */}
+        {isBottomSheetOpen && (
+          <div
+            className="fixed inset-0 bg-black/50 z-50 fold-transition"
+            onClick={() => setIsBottomSheetOpen(false)}
+          />
+        )}
+        
+        {/* Bottom sheet panel */}
+        <div
+          ref={bottomSheetRef}
+          className={`fixed left-0 right-0 bottom-0 z-50 glass-panel rounded-t-2xl fold-transition ${
+            isBottomSheetOpen ? 'translate-y-0' : 'translate-y-full'
+          }`}
+          style={{ height: `${bottomSheetHeight}vh` }}
+        >
+          {/* Drag handle */}
+          <div
+            className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-target"
+            onTouchStart={handleBottomSheetDragStart}
+            onMouseDown={handleBottomSheetDragStart}
+          >
+            <div className="w-10 h-1 bg-white/30 rounded-full" />
+          </div>
+          
+          {/* Header with close button */}
+          <div className="px-4 pb-2 flex items-center justify-between border-b border-white/10">
+            <h2 className="text-base font-semibold text-white">Propriétés</h2>
+            <button
+              onClick={() => setIsBottomSheetOpen(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 touch-target"
+            >
+              <X className="w-4 h-4 text-white" />
+            </button>
+          </div>
+          
+          {/* Panel content */}
+          <div className="flex flex-col h-[calc(100%-60px)] overflow-hidden">
+            {renderPanelContent()}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Standard panel layout for other modes
+  return (
+    <div className={`glass-panel h-full flex flex-col overflow-hidden fold-transition ${responsive.isSpanning ? 'avoid-hinge' : ''}`}>
+      {/* Header */}
+      <div className={`${isMinimal ? 'px-2 py-1.5' : isCompact ? 'px-3 py-2' : 'px-4 py-3'} border-b border-white/20 flex-shrink-0`}>
+        <h2 className={`${isMinimal ? 'text-sm' : isCompact ? 'text-base' : 'text-h3'} font-semibold text-white`}>Propriétés</h2>
+      </div>
+
+      {renderPanelContent()}
     </div>
   );
 };

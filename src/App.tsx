@@ -10,80 +10,460 @@ import Timeline from './components/Timeline';
 import Toolbar from './components/Toolbar';
 import ExportModal from './components/ExportModal';
 import { useEditorStore } from './store/editorStore';
-import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
+import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
 import './index.css';
+
+// Footer credit component
+const FooterCredit: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
+  <footer className={`${compact ? 'py-1' : 'py-2'} px-3 text-center bg-[#0f0f0f] border-t border-white/10 flex-shrink-0`}>
+    <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-neutral-500`}>
+      Développé par{' '}
+      <a
+        href="https://www.jematechnology.fr/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[#757aed] hover:text-[#8b8ff2] hover:underline font-medium transition-colors"
+      >
+        Jema Technology
+      </a>
+      {' '}© 2025 • Open Source & Libre
+    </p>
+  </footer>
+);
 
 type SidebarTab = 'media' | 'text' | 'transitions' | 'effects';
 type MobileView = 'player' | 'timeline' | 'sidebar';
-type LayoutMode = 'mobile' | 'tablet' | 'desktop';
 
 function App() {
   const { setMobileSidebarOpen } = useEditorStore();
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('media');
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('desktop');
-  const [isVerySmallScreen, setIsVerySmallScreen] = useState(false);
   const [mobileView, setMobileView] = useState<MobileView>('player');
   const [isTimelineExpanded, setIsTimelineExpanded] = useState(false);
+  const [bottomSheetHeight, setBottomSheetHeight] = useState<'collapsed' | 'half' | 'full'>('collapsed');
 
-  // Detect screen size and device type
+  // Use the new responsive hook for foldable-aware layout
+  const responsive = useResponsive();
+  const layoutMode = useLayoutMode();
+  const isFoldable = useIsFoldable();
+
+  // Derive layout states from the responsive hook
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+  const isAdaptive = layoutMode === 'adaptive';
+  const isExpanded = layoutMode === 'expanded';
+  const isDesktop = layoutMode === 'desktop';
+
+  // Backward compatibility flags
+  const isMobile = isMinimal || isCompact;
+  const isTablet = isAdaptive || isExpanded;
+
+  // Update sidebar visibility based on layout mode
   useEffect(() => {
-    const checkLayout = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      const ua = navigator.userAgent.toLowerCase();
-      
-      // Detect foldable phones (Honor Magic, Samsung Fold, etc.)
-      const isFoldable = /magic|fold|flip|mate x/i.test(ua);
-      
-      // Detect tablets and large mobile screens
-      const isTabletSize = width >= 768 && width < 1024;
-      const isLargeMobile = width >= 600 && width < 768;
-      
-      // Aspect ratio check - foldables when unfolded have near-square aspect ratio
-      const aspectRatio = width / height;
-      const isNearSquare = aspectRatio > 0.8 && aspectRatio < 1.25;
-      
-      setIsVerySmallScreen(width <= 374);
-      
-      // Determine layout mode
-      if (width < 600) {
-        // Small phones
-        setLayoutMode('mobile');
-        setIsSidebarVisible(false);
-      } else if (width < 768 || (isTouchDevice && isLargeMobile)) {
-        // Large phones or touch devices with medium screens
-        setLayoutMode('mobile');
-        setIsSidebarVisible(false);
-      } else if (width < 1024 || (isTouchDevice && (isFoldable || isNearSquare))) {
-        // Tablets, foldables unfolded, or touch devices with tablet-size screens
-        setLayoutMode('tablet');
-        setIsSidebarVisible(true);
-      } else {
-        // Desktop
-        setLayoutMode('desktop');
-        setIsSidebarVisible(true);
-      }
-    };
-    
-    checkLayout();
-    window.addEventListener('resize', checkLayout);
-    window.addEventListener('orientationchange', checkLayout);
-    return () => {
-      window.removeEventListener('resize', checkLayout);
-      window.removeEventListener('orientationchange', checkLayout);
-    };
-  }, []);
+    if (isMinimal || isCompact) {
+      setIsSidebarVisible(false);
+    } else {
+      setIsSidebarVisible(true);
+    }
+  }, [layoutMode, isMinimal, isCompact]);
 
-  // Backward compatibility
-  const isMobile = layoutMode === 'mobile';
-  const isTablet = layoutMode === 'tablet';
+  // Handle fold state changes for smooth transitions
+  useEffect(() => {
+    if (responsive.foldState === 'folded') {
+      // On fold cover, use minimal UI
+      setIsTimelineExpanded(false);
+      setBottomSheetHeight('collapsed');
+    } else if (responsive.foldState === 'unfolded') {
+      // On unfolded, can show more UI
+      setBottomSheetHeight('half');
+    }
+  }, [responsive.foldState]);
 
-  // Tablet Layout - Optimized for foldables and tablets
-  if (isTablet) {
+  // Get dynamic styles based on fold state
+  const getFoldAwareStyles = () => {
+    if (!isFoldable || !responsive.isSpanning) {
+      return {};
+    }
+
+    // When spanning across the fold, add padding to avoid the hinge
+    return {
+      '--hinge-width': `${responsive.hingeWidth}px`,
+      '--safe-area-left': `calc(50% - ${responsive.hingeWidth / 2}px)`,
+      '--safe-area-right': `calc(50% + ${responsive.hingeWidth / 2}px)`,
+    } as React.CSSProperties;
+  };
+
+  // Sidebar tab buttons component for reuse
+  const SidebarTabs = ({ compact = false }: { compact?: boolean }) => (
+    <div className={`flex items-center ${compact ? 'gap-0.5' : 'gap-1'} ${compact ? 'px-1' : 'px-2'}`}>
+      <button
+        onClick={() => setActiveSidebarTab('media')}
+        className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+          activeSidebarTab === 'media'
+            ? 'bg-primary-500 text-white'
+            : 'text-neutral-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <Film className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+        {!compact && <span className="text-xs font-medium">Média</span>}
+      </button>
+      <button
+        onClick={() => setActiveSidebarTab('text')}
+        className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+          activeSidebarTab === 'text'
+            ? 'bg-primary-500 text-white'
+            : 'text-neutral-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <Type className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+        {!compact && <span className="text-xs font-medium">Texte</span>}
+      </button>
+      <button
+        onClick={() => setActiveSidebarTab('transitions')}
+        className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+          activeSidebarTab === 'transitions'
+            ? 'bg-primary-500 text-white'
+            : 'text-neutral-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <Scissors className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+        {!compact && <span className="text-xs font-medium">Trans.</span>}
+      </button>
+      <button
+        onClick={() => setActiveSidebarTab('effects')}
+        className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+          activeSidebarTab === 'effects'
+            ? 'bg-primary-500 text-white'
+            : 'text-neutral-400 hover:text-white hover:bg-white/10'
+        }`}
+      >
+        <Sliders className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+        {!compact && <span className="text-xs font-medium">Effets</span>}
+      </button>
+    </div>
+  );
+
+  // Bottom sheet drag handler for mobile
+  const handleBottomSheetDrag = (e: React.TouchEvent | React.MouseEvent) => {
+    // Simple toggle between states for now
+    if (bottomSheetHeight === 'collapsed') {
+      setBottomSheetHeight('half');
+    } else if (bottomSheetHeight === 'half') {
+      setBottomSheetHeight('full');
+    } else {
+      setBottomSheetHeight('collapsed');
+    }
+  };
+
+  // ============================================
+  // LAYOUT: Minimal (fold cover, very narrow screens < 301px)
+  // ============================================
+  if (isMinimal) {
     return (
-      <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a]">
+      <div 
+        className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+        style={getFoldAwareStyles()}
+      >
+        {/* Compact Header for minimal mode */}
+        <Header
+          isSidebarVisible={isSidebarVisible}
+          onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
+        />
+
+        {/* Main Content - Stacked vertically */}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Video Player - Compact */}
+          <div className={`transition-all duration-300 ease-in-out ${
+            isTimelineExpanded ? 'h-20' : 'flex-1'
+          } overflow-hidden bg-[#252525] min-h-0`}>
+            <div className="h-full p-0.5">
+              <VideoPlayer />
+            </div>
+          </div>
+
+          {/* Timeline Toggle - Touch-friendly */}
+          <button
+            onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
+            className="w-full h-10 bg-[#1a1a1a] border-t border-white/10 flex items-center justify-center gap-1 text-neutral-400 hover:text-white transition-colors touch-target"
+          >
+            {isTimelineExpanded ? (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                <span className="text-[10px]">Réduire</span>
+              </>
+            ) : (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                <span className="text-[10px]">Timeline</span>
+              </>
+            )}
+          </button>
+
+          {/* Timeline - Expandable */}
+          <div className={`transition-all duration-300 ease-in-out ${
+            isTimelineExpanded ? 'flex-1' : 'h-24'
+          } border-t border-white/10 overflow-hidden min-h-0`}>
+            <Timeline />
+          </div>
+
+          {/* Bottom Navigation - Minimal with larger touch targets */}
+          <div className="h-14 bg-[#0f0f0f] border-t border-white/10 flex items-center justify-around px-1 safe-area-bottom flex-shrink-0">
+            {['media', 'text', 'transitions', 'effects'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => {
+                  setActiveSidebarTab(tab as SidebarTab);
+                  setIsSidebarVisible(true);
+                  setMobileSidebarOpen(true);
+                }}
+                className={`flex-1 h-12 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all touch-target ${
+                  isSidebarVisible && activeSidebarTab === tab
+                    ? 'bg-primary-500 text-white'
+                    : 'text-neutral-400 active:bg-white/10'
+                }`}
+              >
+                {tab === 'media' && <Film className="w-5 h-5" />}
+                {tab === 'text' && <Type className="w-5 h-5" />}
+                {tab === 'transitions' && <Scissors className="w-5 h-5" />}
+                {tab === 'effects' && <Sliders className="w-5 h-5" />}
+                <span className="text-[9px] font-medium capitalize">{tab === 'transitions' ? 'Trans.' : tab === 'media' ? 'Média' : tab === 'text' ? 'Texte' : 'Effets'}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile Sidebar Overlay - Bottom Sheet Style */}
+          {isSidebarVisible && (
+            <div className="absolute inset-0 z-[70] flex flex-col bg-[#1a1a1a]">
+              {/* Drag Handle */}
+              <div 
+                className="h-8 flex items-center justify-center cursor-grab active:cursor-grabbing touch-target"
+                onClick={handleBottomSheetDrag}
+              >
+                <GripHorizontal className="w-6 h-6 text-neutral-500" />
+              </div>
+              
+              {/* Sidebar Header */}
+              <div className="h-10 flex items-center justify-between px-3 border-b border-white/10 flex-shrink-0">
+                <h2 className="text-xs font-semibold text-white">
+                  {activeSidebarTab === 'media' && 'Médias'}
+                  {activeSidebarTab === 'text' && 'Texte'}
+                  {activeSidebarTab === 'transitions' && 'Transitions'}
+                  {activeSidebarTab === 'effects' && 'Effets'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setIsSidebarVisible(false);
+                    setMobileSidebarOpen(false);
+                  }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white touch-target"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Sidebar Content */}
+              <div className="flex-1 overflow-auto min-h-0">
+                {activeSidebarTab === 'media' && <MediaLibrary />}
+                {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
+                {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
+                {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Credit */}
+        <FooterCredit compact />
+
+        <ExportModal />
+      </div>
+    );
+  }
+
+  // ============================================
+  // LAYOUT: Compact (small phones 301-428px)
+  // ============================================
+  if (isCompact) {
+    return (
+      <div 
+        className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+        style={getFoldAwareStyles()}
+      >
+        {/* Mobile Header */}
+        <Header
+          isSidebarVisible={isSidebarVisible}
+          onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
+        />
+
+        {/* Mobile Main Content */}
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          {/* Video Player - Always visible but can be minimized */}
+          <div className={`transition-all duration-300 ease-in-out ${
+            isTimelineExpanded ? 'h-28' : 'flex-1'
+          } overflow-hidden bg-[#252525] min-h-0`}>
+            <div className="h-full p-1">
+              <VideoPlayer />
+            </div>
+          </div>
+
+          {/* Timeline Toggle Button */}
+          <button
+            onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
+            className="w-full h-8 bg-[#1a1a1a] border-t border-white/10 flex items-center justify-center gap-2 text-neutral-400 hover:text-white transition-colors touch-target"
+          >
+            {isTimelineExpanded ? (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                <span className="text-xs">Réduire</span>
+              </>
+            ) : (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                <span className="text-xs">Timeline</span>
+              </>
+            )}
+          </button>
+
+          {/* Timeline - Expandable */}
+          <div className={`transition-all duration-300 ease-in-out ${
+            isTimelineExpanded ? 'flex-1' : 'h-32'
+          } border-t border-white/10 overflow-hidden min-h-0`}>
+            <Timeline />
+          </div>
+
+          {/* Mobile Bottom Navigation */}
+          <div className="h-14 bg-[#0f0f0f] border-t border-white/10 flex items-center justify-around px-2 safe-area-bottom flex-shrink-0">
+            {['media', 'text', 'transitions', 'effects'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => {
+                  setActiveSidebarTab(tab as SidebarTab);
+                  setIsSidebarVisible(true);
+                  setMobileSidebarOpen(true);
+                }}
+                className={`flex-1 h-12 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all touch-target ${
+                  isSidebarVisible && activeSidebarTab === tab
+                    ? 'bg-primary-500 text-white'
+                    : 'text-neutral-400 active:bg-white/10'
+                }`}
+              >
+                {tab === 'media' && <Film className="w-5 h-5" />}
+                {tab === 'text' && <Type className="w-5 h-5" />}
+                {tab === 'transitions' && <Scissors className="w-5 h-5" />}
+                {tab === 'effects' && <Sliders className="w-5 h-5" />}
+                <span className="text-[10px] font-medium capitalize">{tab === 'transitions' ? 'Trans.' : tab === 'media' ? 'Média' : tab === 'text' ? 'Texte' : 'Effets'}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile Sidebar Overlay */}
+          {isSidebarVisible && (
+            <div className="absolute inset-0 z-[70] flex flex-col bg-[#1a1a1a]">
+              {/* Sidebar Header */}
+              <div className="h-12 flex items-center justify-between px-4 border-b border-white/10 flex-shrink-0">
+                <h2 className="text-sm font-semibold text-white">
+                  {activeSidebarTab === 'media' && 'Médias'}
+                  {activeSidebarTab === 'text' && 'Texte'}
+                  {activeSidebarTab === 'transitions' && 'Transitions'}
+                  {activeSidebarTab === 'effects' && 'Effets'}
+                </h2>
+                <button
+                  onClick={() => {
+                    setIsSidebarVisible(false);
+                    setMobileSidebarOpen(false);
+                  }}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/10 text-white touch-target"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Sidebar Content */}
+              <div className="flex-1 overflow-auto min-h-0">
+                {activeSidebarTab === 'media' && <MediaLibrary />}
+                {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
+                {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
+                {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Credit */}
+        <FooterCredit compact />
+
+        <ExportModal />
+      </div>
+    );
+  }
+
+  // ============================================
+  // LAYOUT: Adaptive (large phones, foldables unfolded 428-719px)
+  // ============================================
+  if (isAdaptive) {
+    return (
+      <div 
+        className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+        style={getFoldAwareStyles()}
+      >
+        {/* Header */}
+        <Header
+          isSidebarVisible={isSidebarVisible}
+          onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
+        />
+
+        {/* Main Content - Horizontal split for adaptive */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left Panel - Sidebar (collapsible) */}
+          {isSidebarVisible && (
+            <div className={`${responsive.isSpanning ? 'w-[calc(50%-var(--hinge-width,0px)/2)]' : 'w-64'} flex flex-col bg-[#1a1a1a] border-r border-white/10 avoid-hinge`}>
+              {/* Sidebar Tabs */}
+              <div className="h-11 flex items-center border-b border-white/10">
+                <SidebarTabs compact={responsive.width < 500} />
+              </div>
+              
+              {/* Sidebar Content */}
+              <div className="flex-1 overflow-auto min-h-0">
+                {activeSidebarTab === 'media' && <MediaLibrary />}
+                {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
+                {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
+                {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
+              </div>
+            </div>
+          )}
+
+          {/* Right Panel - Player + Timeline */}
+          <div className={`flex-1 flex flex-col overflow-hidden bg-[#252525] ${responsive.isSpanning ? 'avoid-hinge' : ''}`}>
+            {/* Video Player */}
+            <div className="flex-1 overflow-hidden p-2 min-h-0">
+              <VideoPlayer />
+            </div>
+
+            {/* Timeline */}
+            <div className="h-40 border-t border-white/10 flex-shrink-0">
+              <Timeline />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Credit */}
+        <FooterCredit />
+
+        <ExportModal />
+      </div>
+    );
+  }
+
+  // ============================================
+  // LAYOUT: Expanded (tablets, foldables wide 719-1024px)
+  // ============================================
+  if (isExpanded) {
+    return (
+      <div 
+        className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+        style={getFoldAwareStyles()}
+      >
         {/* Header */}
         <Header
           isSidebarVisible={isSidebarVisible}
@@ -97,50 +477,7 @@ function App() {
             <div className="w-72 flex flex-col bg-[#1a1a1a] border-r border-white/10">
               {/* Sidebar Tabs */}
               <div className="h-12 flex items-center border-b border-white/10 px-2 gap-1">
-                <button
-                  onClick={() => setActiveSidebarTab('media')}
-                  className={`flex-1 h-9 rounded-lg flex items-center justify-center gap-1 transition-all ${
-                    activeSidebarTab === 'media'
-                      ? 'bg-primary-500 text-white'
-                      : 'text-neutral-400 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Film className="w-4 h-4" />
-                  <span className="text-xs font-medium">Média</span>
-                </button>
-                <button
-                  onClick={() => setActiveSidebarTab('text')}
-                  className={`flex-1 h-9 rounded-lg flex items-center justify-center gap-1 transition-all ${
-                    activeSidebarTab === 'text'
-                      ? 'bg-primary-500 text-white'
-                      : 'text-neutral-400 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Type className="w-4 h-4" />
-                  <span className="text-xs font-medium">Texte</span>
-                </button>
-                <button
-                  onClick={() => setActiveSidebarTab('transitions')}
-                  className={`flex-1 h-9 rounded-lg flex items-center justify-center gap-1 transition-all ${
-                    activeSidebarTab === 'transitions'
-                      ? 'bg-primary-500 text-white'
-                      : 'text-neutral-400 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Scissors className="w-4 h-4" />
-                  <span className="text-xs font-medium">Trans.</span>
-                </button>
-                <button
-                  onClick={() => setActiveSidebarTab('effects')}
-                  className={`flex-1 h-9 rounded-lg flex items-center justify-center gap-1 transition-all ${
-                    activeSidebarTab === 'effects'
-                      ? 'bg-primary-500 text-white'
-                      : 'text-neutral-400 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Sliders className="w-4 h-4" />
-                  <span className="text-xs font-medium">Effets</span>
-                </button>
+                <SidebarTabs />
               </div>
               
               {/* Sidebar Content */}
@@ -167,162 +504,17 @@ function App() {
           </div>
         </div>
 
-        {/* Export Modal */}
+        {/* Footer Credit */}
+        <FooterCredit />
+
         <ExportModal />
       </div>
     );
   }
 
-  // Mobile Layout
-  if (isMobile) {
-    return (
-      <div className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a]">
-        {/* Mobile Header */}
-        <Header
-          isSidebarVisible={isSidebarVisible}
-          onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
-        />
-
-        {/* Mobile Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Video Player - Always visible but can be minimized */}
-          <div className={`transition-all duration-300 ease-in-out ${
-            isTimelineExpanded ? (isVerySmallScreen ? 'h-24' : 'h-32') : 'flex-1'
-          } overflow-hidden bg-[#252525] min-h-0`}>
-            <div className="h-full p-1 xs:p-2">
-              <VideoPlayer />
-            </div>
-          </div>
-
-          {/* Timeline Toggle Button */}
-          <button
-            onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
-            className={`w-full ${isVerySmallScreen ? 'h-6' : 'h-8'} bg-[#1a1a1a] border-t border-white/10 flex items-center justify-center gap-1 xs:gap-2 text-neutral-400 hover:text-white transition-colors`}
-          >
-            {isTimelineExpanded ? (
-              <>
-                <ChevronDown className={`${isVerySmallScreen ? 'w-3 h-3' : 'w-4 h-4'}`} />
-                <span className={`${isVerySmallScreen ? 'text-[9px]' : 'text-xs'}`}>Réduire</span>
-              </>
-            ) : (
-              <>
-                <ChevronUp className={`${isVerySmallScreen ? 'w-3 h-3' : 'w-4 h-4'}`} />
-                <span className={`${isVerySmallScreen ? 'text-[9px]' : 'text-xs'}`}>Timeline</span>
-              </>
-            )}
-          </button>
-
-          {/* Timeline - Expandable */}
-          <div className={`transition-all duration-300 ease-in-out ${
-            isTimelineExpanded ? 'flex-1' : (isVerySmallScreen ? 'h-28' : 'h-36')
-          } border-t border-white/10 overflow-hidden min-h-0`}>
-            <Timeline />
-          </div>
-
-          {/* Mobile Bottom Navigation */}
-          <div className={`${isVerySmallScreen ? 'h-11' : 'h-14'} bg-[#0f0f0f] border-t border-white/10 flex items-center justify-around px-1 xs:px-2 safe-area-bottom flex-shrink-0`}>
-            <button
-              onClick={() => {
-                setActiveSidebarTab('media');
-                setIsSidebarVisible(true);
-                setMobileSidebarOpen(true);
-              }}
-              className={`flex-1 ${isVerySmallScreen ? 'h-9' : 'h-12'} flex flex-col items-center justify-center gap-0 xs:gap-0.5 rounded-lg transition-all ${
-                isSidebarVisible && activeSidebarTab === 'media'
-                  ? 'bg-primary-500 text-white'
-                  : 'text-neutral-400 active:bg-white/10'
-              }`}
-            >
-              <Film className={`${isVerySmallScreen ? 'w-4 h-4' : 'w-5 h-5'}`} />
-              <span className={`${isVerySmallScreen ? 'text-[8px]' : 'text-[10px]'} font-medium`}>Média</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveSidebarTab('text');
-                setIsSidebarVisible(true);
-                setMobileSidebarOpen(true);
-              }}
-              className={`flex-1 ${isVerySmallScreen ? 'h-9' : 'h-12'} flex flex-col items-center justify-center gap-0 xs:gap-0.5 rounded-lg transition-all ${
-                isSidebarVisible && activeSidebarTab === 'text'
-                  ? 'bg-primary-500 text-white'
-                  : 'text-neutral-400 active:bg-white/10'
-              }`}
-            >
-              <Type className={`${isVerySmallScreen ? 'w-4 h-4' : 'w-5 h-5'}`} />
-              <span className={`${isVerySmallScreen ? 'text-[8px]' : 'text-[10px]'} font-medium`}>Texte</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveSidebarTab('transitions');
-                setIsSidebarVisible(true);
-                setMobileSidebarOpen(true);
-              }}
-              className={`flex-1 ${isVerySmallScreen ? 'h-9' : 'h-12'} flex flex-col items-center justify-center gap-0 xs:gap-0.5 rounded-lg transition-all ${
-                isSidebarVisible && activeSidebarTab === 'transitions'
-                  ? 'bg-primary-500 text-white'
-                  : 'text-neutral-400 active:bg-white/10'
-              }`}
-            >
-              <Scissors className={`${isVerySmallScreen ? 'w-4 h-4' : 'w-5 h-5'}`} />
-              <span className={`${isVerySmallScreen ? 'text-[8px]' : 'text-[10px]'} font-medium`}>Trans.</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveSidebarTab('effects');
-                setIsSidebarVisible(true);
-                setMobileSidebarOpen(true);
-              }}
-              className={`flex-1 ${isVerySmallScreen ? 'h-9' : 'h-12'} flex flex-col items-center justify-center gap-0 xs:gap-0.5 rounded-lg transition-all ${
-                isSidebarVisible && activeSidebarTab === 'effects'
-                  ? 'bg-primary-500 text-white'
-                  : 'text-neutral-400 active:bg-white/10'
-              }`}
-            >
-              <Sliders className={`${isVerySmallScreen ? 'w-4 h-4' : 'w-5 h-5'}`} />
-              <span className={`${isVerySmallScreen ? 'text-[8px]' : 'text-[10px]'} font-medium`}>Effets</span>
-            </button>
-          </div>
-
-          {/* Mobile Sidebar Overlay */}
-          {isSidebarVisible && (
-            <div className="absolute inset-0 z-50 flex flex-col bg-[#1a1a1a]">
-              {/* Sidebar Header */}
-              <div className={`${isVerySmallScreen ? 'h-10' : 'h-12'} flex items-center justify-between px-3 xs:px-4 border-b border-white/10 flex-shrink-0`}>
-                <h2 className={`${isVerySmallScreen ? 'text-xs' : 'text-sm'} font-semibold text-white`}>
-                  {activeSidebarTab === 'media' && 'Médias'}
-                  {activeSidebarTab === 'text' && 'Texte'}
-                  {activeSidebarTab === 'transitions' && 'Transitions'}
-                  {activeSidebarTab === 'effects' && 'Effets'}
-                </h2>
-                <button
-                  onClick={() => {
-                    setIsSidebarVisible(false);
-                    setMobileSidebarOpen(false);
-                  }}
-                  className={`${isVerySmallScreen ? 'w-7 h-7' : 'w-8 h-8'} flex items-center justify-center rounded-lg bg-white/10 text-white`}
-                >
-                  <X className={`${isVerySmallScreen ? 'w-4 h-4' : 'w-5 h-5'}`} />
-                </button>
-              </div>
-              
-              {/* Sidebar Content */}
-              <div className="flex-1 overflow-auto min-h-0">
-                {activeSidebarTab === 'media' && <MediaLibrary />}
-                {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
-                {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
-                {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Export Modal */}
-        <ExportModal />
-      </div>
-    );
-  }
-
-  // Desktop Layout (unchanged)
+  // ============================================
+  // LAYOUT: Desktop (>= 1024px)
+  // ============================================
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#1a1a1a]">
       {/* Header */}
@@ -422,6 +614,9 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Footer Credit */}
+      <FooterCredit />
 
       {/* Export Modal */}
       <ExportModal />

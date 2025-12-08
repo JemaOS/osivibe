@@ -279,45 +279,86 @@ export const MediaLibrary: React.FC = () => {
           </div>
         )}
         
-        {/* Drop Zone */}
-        <div
-          className={`m-1 xxs:m-2 sm:m-4 border-2 border-dashed rounded-xl transition-all cursor-pointer flex-shrink-0 ${
-            isDragging
-              ? 'border-primary-500 bg-primary-50/50'
-              : 'border-neutral-300 hover:border-primary-400 hover:bg-white/5'
-          } ${mediaFiles.length === 0 ? 'flex-1 min-h-[80px]' : 'h-16 xxs:h-20 sm:h-24'}`}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <div className="h-full flex flex-col items-center justify-center gap-0.5 xxs:gap-1 sm:gap-2 p-2 xxs:p-3 sm:p-4 pointer-events-none">
-            <div className={`w-8 h-8 xxs:w-10 xxs:h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-colors ${
-              isDragging ? 'bg-primary-500' : 'bg-glass-medium'
-            }`}>
-              <Upload className={`w-4 h-4 xxs:w-5 xxs:h-5 sm:w-6 sm:h-6 ${isDragging ? 'text-white' : 'text-neutral-400'}`} />
+        {/* Drop Zone - Full Mode (when no media items) */}
+        {mediaFiles.length === 0 && (
+          <div
+            className={`m-1 xxs:m-2 sm:m-4 border-2 border-dashed rounded-xl transition-all cursor-pointer flex-1 min-h-[150px] flex items-center justify-center overflow-hidden ${
+              isDragging
+                ? 'border-primary-500 bg-primary-50/50'
+                : 'border-neutral-300 hover:border-primary-400 hover:bg-white/5'
+            }`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <div className="flex flex-col items-center justify-center gap-1 xxs:gap-2 sm:gap-3 p-4 xxs:p-6 sm:p-8 pointer-events-none">
+              <div className={`w-10 h-10 xxs:w-12 xxs:h-12 sm:w-14 sm:h-14 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 ${
+                isDragging ? 'bg-primary-500' : 'bg-glass-medium'
+              }`}>
+                <Upload className={`w-5 h-5 xxs:w-6 xxs:h-6 sm:w-7 sm:h-7 ${isDragging ? 'text-white' : 'text-neutral-400'}`} />
+              </div>
+              <div className="text-center">
+                <p className="text-sm xxs:text-base sm:text-lg font-medium text-white">
+                  {isDragging ? 'Déposez ici' : 'Glissez vos médias'}
+                </p>
+                <p className="text-xs xxs:text-sm sm:text-base text-neutral-400 mt-1 xxs:mt-1.5 sm:mt-2">
+                  ou cliquez pour parcourir
+                </p>
+                <p className="text-[10px] xxs:text-xs sm:text-sm text-neutral-500 mt-1 xxs:mt-1.5 sm:mt-2">
+                  MP4, WebM, MOV, MP3, WAV, PNG, JPG
+                </p>
+              </div>
             </div>
-            <div className="text-center">
-              <p className="text-[10px] xxs:text-xs sm:text-body font-medium text-white">
-                {isDragging ? 'Déposez ici' : 'Glissez vos médias'}
-              </p>
-              <p className="text-[9px] xxs:text-[0.65rem] sm:text-small text-neutral-400 mt-0 xxs:mt-0.5 sm:mt-1">
-                ou cliquez pour parcourir
-              </p>
-              <p className="text-[8px] xxs:text-[0.6rem] sm:text-xs text-neutral-500 mt-0 xxs:mt-0.5 hidden xxs:block">
-                MP4, WebM, MOV, MP3, WAV, PNG, JPG
-              </p>
-            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="video/*,audio/*,image/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="video/*,audio/*,image/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-        </div>
+        )}
+
+        {/* Drop Zone - Compact Mode (when media items exist) */}
+        {mediaFiles.length > 0 && (
+          <div
+            className={`mx-1 xxs:mx-2 sm:mx-4 mt-1 xxs:mt-2 sm:mt-4 mb-1 xxs:mb-1.5 sm:mb-2 border-2 border-dashed rounded-lg transition-all cursor-pointer flex-shrink-0 min-h-[44px] xxs:min-h-[48px] sm:min-h-[56px] flex items-center justify-center ${
+              isDragging
+                ? 'border-primary-500 bg-primary-50/50'
+                : 'border-neutral-300 hover:border-primary-400 hover:bg-white/5'
+            }`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <div className="flex items-center justify-center gap-1.5 xxs:gap-2 sm:gap-2.5 px-3 py-2 pointer-events-none">
+              <div className={`w-5 h-5 xxs:w-6 xxs:h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center transition-colors flex-shrink-0 ${
+                isDragging ? 'bg-primary-500' : 'bg-glass-medium'
+              }`}>
+                <Plus className={`w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4 ${isDragging ? 'text-white' : 'text-neutral-400'}`} />
+              </div>
+              <span className="text-xs xxs:text-sm sm:text-base font-medium text-white whitespace-nowrap">
+                {isDragging ? 'Déposez ici' : (
+                  <>
+                    <span className="hidden xxs:inline">Ajouter des médias</span>
+                    <span className="xxs:hidden">Ajouter</span>
+                  </>
+                )}
+              </span>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="video/*,audio/*,image/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
+        )}
 
         {/* Loading indicator */}
         {isLoading && (

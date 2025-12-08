@@ -15,9 +15,12 @@ import {
   ChevronRight,
   Settings,
   Crop,
-  Gauge
+  Gauge,
+  Cpu,
+  Monitor
 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
+import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { formatTime, getCSSFilter } from '../utils/helpers';
 import type { TimelineClip, MediaFile, TransformSettings } from '../types';
 import { RESOLUTION_PRESETS } from '../types';
@@ -29,13 +32,20 @@ import {
   getMobileVideoAttributes,
   FrameRateLimiter,
   PerformanceMonitor,
-  getHardwareProfile,
+  getHardwareProfile as getLegacyHardwareProfile,
   getCurrentSettings,
   updateSettings,
   PreviewSettings,
   HardwareProfile,
   PREVIEW_RESOLUTIONS,
 } from '../utils/previewOptimizer';
+import {
+  useHardwareProfile as useEnhancedHardwareProfile,
+  HardwareProfile as EnhancedHardwareProfile,
+  VideoSettings as EnhancedVideoSettings,
+  getOptimalVideoSettings as getEnhancedVideoSettings,
+  formatHardwareProfileForDisplay,
+} from '../utils/hardwareDetection';
 
 export const VideoPlayer: React.FC = () => {
   const {
@@ -62,6 +72,20 @@ export const VideoPlayer: React.FC = () => {
     updateClip,
     selectClip,
   } = useEditorStore();
+
+  // Use responsive hook for fold-aware layout
+  const responsive = useResponsive();
+  const layoutMode = useLayoutMode();
+  
+  // Determine layout characteristics
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+  const isAdaptive = layoutMode === 'adaptive';
+  const isExpanded = layoutMode === 'expanded';
+  const isDesktop = layoutMode === 'desktop';
+  
+  // Get touch target size based on device
+  const touchTargetSize = responsive.touchTargetSize;
 
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -105,6 +129,7 @@ export const VideoPlayer: React.FC = () => {
   // Preview optimization state
   const [previewSettings, setPreviewSettings] = useState<PreviewSettings>(() => getCurrentSettings());
   const [hardwareProfile, setHardwareProfile] = useState<HardwareProfile | null>(null);
+  const [enhancedProfile, setEnhancedProfile] = useState<EnhancedHardwareProfile | null>(null);
   const [currentFps, setCurrentFps] = useState<number>(30);
   const [isPerformancePoor, setIsPerformancePoor] = useState(false);
   const [autoQualityApplied, setAutoQualityApplied] = useState(false);
@@ -152,6 +177,27 @@ export const VideoPlayer: React.FC = () => {
         cancelAnimationFrame(rafIdRef.current);
       }
     };
+  }, []);
+  
+  // Initialize enhanced hardware detection for detailed GPU/processor info
+  useEffect(() => {
+    const initEnhancedDetection = async () => {
+      try {
+        const { detectHardware } = await import('../utils/hardwareDetection');
+        const enhanced = await detectHardware();
+        setEnhancedProfile(enhanced);
+        
+        console.log('🖥️ Enhanced hardware detection:', {
+          gpu: enhanced.gpu,
+          processor: enhanced.processor,
+          recommendations: enhanced.recommendations
+        });
+      } catch (error) {
+        console.warn('Enhanced hardware detection failed:', error);
+      }
+    };
+    
+    initEnhancedDetection();
   }, []);
   
   // Debug: Log aspect ratio changes
@@ -286,22 +332,29 @@ export const VideoPlayer: React.FC = () => {
   }, [hardwareProfile]);
   
   // Get all active clips at playhead position, sorted by track index (bottom to top)
+  // NOTE: track.muted should only affect AUDIO playback, not video display
+  // Video clips should always be visible regardless of mute state
   const getActiveClips = useCallback(() => {
-    const activeClips: { clip: TimelineClip; media: MediaFile; trackIndex: number }[] = [];
+    const activeClips: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
     
     tracks.forEach((track, index) => {
-      if (track.type !== 'video' || track.muted) return;
+      // Only filter by track type, NOT by muted state
+      // Muted tracks should still show video, just without audio
+      if (track.type !== 'video') return;
       
       const clip = track.clips.find(c => {
         const clipStart = c.startTime;
         const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-        return player.currentTime >= clipStart && player.currentTime < clipEnd;
+        // Use <= for clipEnd to include clips at exactly the boundary (important for split clips)
+        // This ensures the preview doesn't disappear when playhead is at the exact split point
+        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
       });
       
       if (clip) {
         const media = mediaFiles.find(m => m.id === clip.mediaId);
         if (media) {
-          activeClips.push({ clip, media, trackIndex: index });
+          // Include trackMuted state so audio can be properly controlled
+          activeClips.push({ clip, media, trackIndex: index, trackMuted: track.muted });
         }
       }
     });
@@ -459,7 +512,8 @@ export const VideoPlayer: React.FC = () => {
       const isMainVideo = activeClips.find(c => c.media.type === 'video')?.clip.id === item.clip.id;
 
       // Only the main video gets volume, others are muted to prevent echo
-      const isAudioMuted = item.clip.audioMuted === true;
+      // Also mute if the track is muted OR if the clip's audio is muted
+      const isAudioMuted = item.clip.audioMuted === true || item.trackMuted === true;
       const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
       
       // Always apply volume immediately
@@ -1392,10 +1446,25 @@ export const VideoPlayer: React.FC = () => {
           el.setAttribute(key, value);
         });
       }
+      
+      // Apply enhanced hardware-based optimizations if available
+      if (enhancedProfile) {
+        // Set playback quality hints based on GPU tier
+        if (enhancedProfile.gpu.tier === 'low') {
+          el.setAttribute('data-quality-hint', 'low');
+        } else if (enhancedProfile.gpu.tier === 'high') {
+          el.setAttribute('data-quality-hint', 'high');
+        }
+        
+        // Enable hardware acceleration if supported
+        if (enhancedProfile.gpu.supportsHardwareAcceleration) {
+          el.style.transform = 'translateZ(0)'; // Force GPU layer
+        }
+      }
     } else {
       delete videoRefs.current[id];
     }
-  }, [previewSettings, hardwareProfile]);
+  }, [previewSettings, hardwareProfile, enhancedProfile]);
   
   // Get video style based on preview settings (for resolution limiting)
   const getVideoStyle = useCallback((media: MediaFile): React.CSSProperties => {
@@ -1434,17 +1503,36 @@ export const VideoPlayer: React.FC = () => {
     return option?.label || previewSettings.quality;
   };
 
+  // Calculate fold-aware container styles
+  const getFoldAwareContainerStyles = (): React.CSSProperties => {
+    const styles: React.CSSProperties = {};
+    
+    // If device is spanning across fold, add padding to avoid hinge
+    if (responsive.isSpanning && responsive.hingeWidth > 0) {
+      // For video player, we want to keep video on one side of the fold
+      // or center it avoiding the hinge
+      styles.paddingLeft = `${responsive.hingeWidth / 2}px`;
+      styles.paddingRight = `${responsive.hingeWidth / 2}px`;
+    }
+    
+    return styles;
+  };
+
   return (
     <div
       ref={containerRef}
-      className={`glass-panel flex flex-col h-full ${player.isFullscreen ? 'fixed inset-0 z-[100] rounded-none' : ''}`}
+      className={`glass-panel flex flex-col h-full fold-transition ${player.isFullscreen ? 'fixed inset-0 z-[100] rounded-none' : ''}`}
       onMouseEnter={() => setShowControls(true)}
       onMouseLeave={() => setShowControls(true)}
+      style={getFoldAwareContainerStyles()}
     >
-      {/* Video Container */}
-      <div ref={videoContainerRef} className="flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-1 xxs:p-2 sm:p-4 min-h-0">
-        {/* Aspect Ratio Indicator */}
-        <div className="absolute top-1 xxs:top-2 right-1 xxs:right-2 bg-black/70 backdrop-blur-sm px-1.5 xxs:px-2 sm:px-3 py-0.5 xxs:py-1 rounded-full text-[9px] xxs:text-[10px] sm:text-xs font-medium text-white z-50 border border-white/20">
+      {/* Video Container - Fold-aware with aspect ratio handling */}
+      <div
+        ref={videoContainerRef}
+        className={`flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-1 fold-cover:p-0.5 fold-open:p-2 sm:p-4 min-h-0 ${responsive.isSpanning ? 'avoid-hinge' : ''}`}
+      >
+        {/* Aspect Ratio Indicator - Responsive sizing */}
+        <div className={`absolute top-1 fold-cover:top-0.5 fold-open:top-2 right-1 fold-cover:right-0.5 fold-open:right-2 bg-black/70 backdrop-blur-sm px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-3 py-0.5 fold-cover:py-0.5 fold-open:py-1 rounded-full ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-white z-50 border border-white/20`}>
           {aspectRatio}
         </div>
         
@@ -1907,94 +1995,105 @@ export const VideoPlayer: React.FC = () => {
               })}
             </>
           ) : (
-            <div className="text-center text-neutral-400 p-2 xxs:p-4">
-              <div className="w-12 h-12 xxs:w-16 xxs:h-16 sm:w-20 sm:h-20 mx-auto mb-2 xxs:mb-4 rounded-xl xxs:rounded-2xl bg-glass-medium flex items-center justify-center">
-                <Play className="w-6 h-6 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10" />
+            <div className="text-center text-neutral-400 p-2 fold-cover:p-1 fold-open:p-4">
+              <div className={`${isMinimal ? 'w-12 h-12' : isCompact ? 'w-14 h-14' : 'w-20 h-20'} mx-auto mb-2 fold-cover:mb-1 fold-open:mb-4 rounded-xl fold-cover:rounded-lg fold-open:rounded-2xl bg-glass-medium flex items-center justify-center`}>
+                <Play className={`${isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-10 h-10'}`} />
               </div>
-              <p className="text-xs xxs:text-sm sm:text-body-lg text-white">Aucune vidéo</p>
-              <p className="text-[10px] xxs:text-xs sm:text-small mt-0.5 xxs:mt-1 text-neutral-400">Ajoutez des médias</p>
+              <p className={`${isMinimal ? 'text-xs' : isCompact ? 'text-sm' : 'text-body-lg'} text-white`}>Aucune vidéo</p>
+              <p className={`${isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-small'} mt-0.5 fold-cover:mt-0.5 fold-open:mt-1 text-neutral-400`}>Ajoutez des médias</p>
             </div>
           )}
         </div>
 
-        {/* Big Play Button - Hidden when mobile sidebar is open */}
+        {/* Big Play Button - Hidden when mobile sidebar is open, touch-friendly sizing */}
         {!player.isPlaying && activeClips.length > 0 && !cropMode && !editingTextId && !transformingImageId && !resizingImageId && !rotatingImageId && !draggedTextId && !ui.selectedClipId && !ui.selectedTextId && !resizingTextId && !ui.isMobileSidebarOpen && (
           <button
             onClick={togglePlayPause}
             className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors z-[60]"
           >
-            <div className="w-12 h-12 xxs:w-16 xxs:h-16 sm:w-20 sm:h-20 rounded-full bg-glass-light backdrop-blur-md flex items-center justify-center shadow-glass-lg">
-              <Play className="w-6 h-6 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10 text-primary-500 ml-0.5 xxs:ml-1" fill="currentColor" />
+            <div className={`${isMinimal ? 'w-14 h-14' : isCompact ? 'w-16 h-16' : 'w-20 h-20'} rounded-full bg-glass-light backdrop-blur-md flex items-center justify-center shadow-glass-lg touch-target-lg`}>
+              <Play className={`${isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-10 h-10'} text-primary-500 ml-0.5 fold-cover:ml-0.5 fold-open:ml-1`} fill="currentColor" />
             </div>
           </button>
         )}
       </div>
 
-      {/* Progress Bar */}
+      {/* Progress Bar - Touch-friendly with larger hit area */}
       <div
-        className="h-1 xxs:h-1.5 bg-neutral-200/50 cursor-pointer relative group flex-shrink-0"
+        className={`${isMinimal ? 'h-1.5' : isCompact ? 'h-2' : 'h-1.5'} bg-neutral-200/50 cursor-pointer relative group flex-shrink-0`}
         onClick={handleProgressClick}
+        style={{ minHeight: touchTargetSize >= 48 ? '8px' : '6px' }}
       >
         <div
           className="absolute inset-y-0 left-0 bg-primary-500 transition-all"
           style={{ width: `${progressPercentage}%` }}
         />
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-2 h-2 xxs:w-3 xxs:h-3 bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ left: `calc(${progressPercentage}% - 4px)` }}
+          className={`absolute top-1/2 -translate-y-1/2 ${isMinimal ? 'w-3 h-3' : 'w-3 h-3'} bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity`}
+          style={{ left: `calc(${progressPercentage}% - 6px)` }}
         />
       </div>
 
       {/* Controls */}
-      <div className={`px-1.5 xxs:px-2 sm:px-4 py-1.5 xxs:py-2 sm:py-3 flex items-center justify-between gap-1 xxs:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 overflow-hidden ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         {/* Left Controls */}
-        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
-          <button onClick={() => seek(0)} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title="Debut">
-            <SkipBack className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+          {/* Skip back - hidden on very small screens */}
+          <button
+            onClick={() => seek(0)}
+            className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+            title="Debut"
+          >
+            <SkipBack className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
           </button>
           <button
             onClick={() => !cropMode && !editingTextId && togglePlayPause()}
-            className={`btn-icon w-7 h-7 xxs:w-8 xxs:h-8 sm:w-10 sm:h-10 bg-primary-500 text-white hover:bg-primary-600 border-primary-500 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`btn-icon ${isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10'} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
             title={player.isPlaying ? 'Pause' : 'Lecture'}
             disabled={cropMode || !!editingTextId}
           >
-            {player.isPlaying ? <Pause className="w-3.5 h-3.5 xxs:w-4 xxs:h-4 sm:w-5 sm:h-5" /> : <Play className="w-3.5 h-3.5 xxs:w-4 xxs:h-4 sm:w-5 sm:h-5 ml-0.5" />}
+            {player.isPlaying ? <Pause className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'}`} /> : <Play className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'} ml-0.5`} />}
           </button>
-          <button onClick={() => seek(projectDuration)} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title="Fin">
-            <SkipForward className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+          {/* Skip forward - hidden on very small screens */}
+          <button
+            onClick={() => seek(projectDuration)}
+            className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+            title="Fin"
+          >
+            <SkipForward className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
           </button>
 
-          {/* Frame by frame - Hidden on small screens */}
-          <div className="hidden sm:flex items-center gap-1 ml-2">
-            <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8" title="Image precedente">
+          {/* Frame by frame - Hidden on small/foldable screens */}
+          <div className="hidden lg:flex items-center gap-1 ml-2">
+            <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button onClick={() => seek(Math.min(projectDuration, player.currentTime + 1/30))} className="btn-icon w-8 h-8" title="Image suivante">
+            <button onClick={() => seek(Math.min(projectDuration, player.currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Time Display */}
-        <div className="font-mono text-[9px] xxs:text-[10px] sm:text-small text-neutral-400 flex-shrink-0">
+        {/* Time Display - Compact on small screens */}
+        <div className={`font-mono ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small'} text-neutral-400 flex-shrink min-w-0`}>
           <span className="text-white">{formatTime(player.currentTime)}</span>
-          <span className="mx-0.5 xxs:mx-1 text-neutral-500">/</span>
+          <span className="mx-0.5 text-neutral-500">/</span>
           <span>{formatTime(projectDuration)}</span>
         </div>
 
         {/* Right Controls */}
-        <div className="flex items-center gap-0.5 xxs:gap-1 sm:gap-2">
-          {/* Volume - Hidden on very small screens */}
-          <div className="relative hidden xxs:flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+          {/* Volume - Hidden on minimal and compact screens */}
+          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2`}>
             <button
               onClick={() => setShowVolumeSlider(!showVolumeSlider)}
-              className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9"
+              className="btn-icon w-9 h-9 touch-target"
               title="Volume"
             >
-              {player.isMuted || player.volume === 0 ? <VolumeX className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" /> : <Volume2 className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />}
+              {player.isMuted || player.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <div
-              className={`hidden sm:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
+              className={`hidden md:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
             >
               <div className="flex-1 h-6 flex items-center px-1">
                 <input
@@ -2011,14 +2110,14 @@ export const VideoPlayer: React.FC = () => {
             </div>
           </div>
 
-          {/* Preview Quality - Hidden on very small screens */}
-          <div className="relative hidden xs:block">
+          {/* Preview Quality - Hidden on minimal and compact screens */}
+          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
             <button
               onClick={() => setShowQualityMenu(!showQualityMenu)}
-              className={`btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9 ${isPerformancePoor ? 'text-warning' : ''}`}
+              className={`btn-icon ${isCompact ? 'w-9 h-9' : 'w-9 h-9'} touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
               title="Qualité"
             >
-              <Gauge className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
+              <Gauge className={`${isCompact ? 'w-4 h-4' : 'w-4 h-4'}`} />
             </button>
             {showQualityMenu && (
               <div
@@ -2055,6 +2154,21 @@ export const VideoPlayer: React.FC = () => {
                       {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
                       {hardwareProfile.isLowEnd && ' • Mode économie'}
                     </div>
+                    {/* Enhanced GPU info */}
+                    {enhancedProfile && (
+                      <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
+                        <div className="flex items-center gap-1">
+                          <Monitor className="w-3 h-3" />
+                          <span className="text-[10px]">
+                            GPU: {enhancedProfile.gpu.model || enhancedProfile.gpu.vendor}
+                            {enhancedProfile.gpu.tier !== 'unknown' && ` (${enhancedProfile.gpu.tier})`}
+                          </span>
+                        </div>
+                        {enhancedProfile.gpu.supportsWebGPU && (
+                          <span className="text-[9px] ml-4 text-green-400">WebGPU ✓</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -2107,11 +2221,11 @@ export const VideoPlayer: React.FC = () => {
             )}
           </div>
 
-          {/* Playback Speed - Hidden on very small screens */}
-          <div className="relative hidden xs:block">
+          {/* Playback Speed - Hidden on minimal and compact screens */}
+          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
             <button
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-              className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9 text-[9px] xxs:text-[10px] sm:text-caption font-mono"
+              className="btn-icon w-9 h-9 text-caption font-mono touch-target"
               title="Vitesse"
             >
               {player.playbackRate}x
@@ -2139,8 +2253,12 @@ export const VideoPlayer: React.FC = () => {
           </div>
 
           {/* Fullscreen */}
-          <button onClick={toggleFullscreen} className="btn-icon w-6 h-6 xxs:w-7 xxs:h-7 sm:w-9 sm:h-9" title={player.isFullscreen ? 'Quitter' : 'Plein écran'}>
-            {player.isFullscreen ? <Minimize className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" /> : <Maximize className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />}
+          <button
+            onClick={toggleFullscreen}
+            className={`btn-icon ${isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+            title={player.isFullscreen ? 'Quitter' : 'Plein écran'}
+          >
+            {player.isFullscreen ? <Minimize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} /> : <Maximize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />}
           </button>
         </div>
       </div>
