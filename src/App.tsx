@@ -1,14 +1,15 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
 import Header from './components/Header';
 import MediaLibrary from './components/MediaLibrary';
 import VideoPlayer from './components/VideoPlayer';
 import PropertiesPanel from './components/PropertiesPanel';
 import Timeline from './components/Timeline';
 import Toolbar from './components/Toolbar';
-import ExportModal from './components/ExportModal';
+// ExportModal is lazy loaded to reduce initial bundle size
+const ExportModal = lazy(() => import('./components/ExportModal').then(module => ({ default: module.ExportModal })));
 import { useEditorStore } from './store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
 import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
@@ -619,7 +620,9 @@ function App() {
       <FooterCredit />
 
       {/* Export Modal */}
-      <ExportModal />
+      <Suspense fallback={null}>
+        <ExportModal />
+      </Suspense>
     </div>
   );
 }

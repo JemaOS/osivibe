@@ -252,7 +252,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
   };
 
   const handleScrub = (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     value: number,
     onChange: (val: number, isFinal?: boolean) => void,
     options: { min?: number; max?: number; step?: number } = {}
@@ -263,12 +263,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     const startValue = value;
     const { min, max, step = 1 } = options;
     
-    // Store the last value to save it on mouse up
+    // Store the last value to save it on pointer up
     let lastValue = startValue;
     let rafId: number | null = null;
     let pendingUpdate = false;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const delta = moveEvent.clientX - startX;
       let newValue = startValue + delta * step;
 
@@ -291,22 +291,22 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       }
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       // Cancel any pending animation frame
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
       
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
       document.body.style.cursor = '';
       
       // Trigger final update with history save
       onChange(lastValue, true);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
     document.body.style.cursor = 'ew-resize';
   };
 
@@ -392,7 +392,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               {(cropMode || selectedClip.crop) && (
                 <>
                   <div>
-                    <label className="text-caption text-neutral-500 block mb-2">Position X ({selectedClip.crop?.x || 0}%)</label>
+                    <label 
+                      className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50 })}
+                    >
+                      Position X ({selectedClip.crop?.x || 0}%)
+                    </label>
                     <input
                       type="range"
                       min="0"
@@ -404,7 +409,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     />
                   </div>
                   <div>
-                    <label className="text-caption text-neutral-500 block mb-2">Position Y ({selectedClip.crop?.y || 0}%)</label>
+                    <label 
+                      className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50 })}
+                    >
+                      Position Y ({selectedClip.crop?.y || 0}%)
+                    </label>
                     <input
                       type="range"
                       min="0"
@@ -416,7 +426,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     />
                   </div>
                   <div>
-                    <label className="text-caption text-neutral-500 block mb-2">Largeur ({selectedClip.crop?.width || 100}%)</label>
+                    <label 
+                      className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100 })}
+                    >
+                      Largeur ({selectedClip.crop?.width || 100}%)
+                    </label>
                     <input
                       type="range"
                       min="10"
@@ -428,7 +443,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     />
                   </div>
                   <div>
-                    <label className="text-caption text-neutral-500 block mb-2">Hauteur ({selectedClip.crop?.height || 100}%)</label>
+                    <label 
+                      className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100 })}
+                    >
+                      Hauteur ({selectedClip.crop?.height || 100}%)
+                    </label>
                     <input
                       type="range"
                       min="10"
@@ -559,7 +579,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div className="flex justify-between items-center mb-2">
                     <label
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         handleScrub(e, selectedText.fontSize, (val, isFinal) => {
                           updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
                         }, { min: 1, max: 500 });
@@ -592,7 +612,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <div className="flex justify-between items-center mb-2">
                       <label
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
                             updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
                           }, { min: 0.1, max: 3, step: 0.01 });
@@ -616,7 +636,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <div className="flex justify-between items-center mb-2">
                       <label
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onMouseDown={(e) => {
+                        onPointerDown={(e) => {
                           handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
                             updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
                           }, { min: 0.1, max: 3, step: 0.01 });
@@ -794,7 +814,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             <Section id="text-position" title="Position">
               <div className="space-y-4">
                 <div>
-                  <label className="text-caption text-neutral-500 block mb-2">Position X ({selectedText.x}%)</label>
+                  <label 
+                    className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none hover:text-white transition-colors"
+                    onPointerDown={(e) => {
+                      handleScrub(e, selectedText.x, (val, isFinal) => {
+                        updateTextOverlay(selectedText.id, { x: val }, !isFinal);
+                      }, { min: 0, max: 100 });
+                    }}
+                  >
+                    Position X ({selectedText.x}%)
+                  </label>
                   <input
                     type="range"
                     min="0"
@@ -805,7 +834,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   />
                 </div>
                 <div>
-                  <label className="text-caption text-neutral-500 block mb-2">Position Y ({selectedText.y}%)</label>
+                  <label 
+                    className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none hover:text-white transition-colors"
+                    onPointerDown={(e) => {
+                      handleScrub(e, selectedText.y, (val, isFinal) => {
+                        updateTextOverlay(selectedText.id, { y: val }, !isFinal);
+                      }, { min: 0, max: 100 });
+                    }}
+                  >
+                    Position Y ({selectedText.y}%)
+                  </label>
                   <input
                     type="range"
                     min="0"
@@ -968,7 +1006,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         {currentTransition && currentTransition.type !== 'none' && (
           <div className="mt-4">
-            <label className="text-caption text-neutral-500 block mb-2">
+            <label 
+              className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+              onPointerDown={(e) => handleScrub(e, currentTransition.duration, (val) => setTransition(targetClip!.id, currentTransition.type, val), { min: 0.1, max: 2, step: 0.01 })}
+            >
               Duree ({currentTransition.duration}s)
             </label>
             <input
@@ -1038,7 +1079,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         {/* Sliders */}
         <div>
-          <label className="text-caption text-neutral-500 block mb-2">Luminosite ({filter.brightness})</label>
+          <label 
+            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            onPointerDown={(e) => handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100 })}
+          >
+            Luminosite ({filter.brightness})
+          </label>
           <input
             type="range"
             min="-100"
@@ -1050,7 +1096,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         </div>
 
         <div>
-          <label className="text-caption text-neutral-500 block mb-2">Contraste ({filter.contrast})</label>
+          <label 
+            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            onPointerDown={(e) => handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100 })}
+          >
+            Contraste ({filter.contrast})
+          </label>
           <input
             type="range"
             min="-100"
@@ -1062,7 +1113,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         </div>
 
         <div>
-          <label className="text-caption text-neutral-500 block mb-2">Saturation ({filter.saturation})</label>
+          <label 
+            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            onPointerDown={(e) => handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100 })}
+          >
+            Saturation ({filter.saturation})
+          </label>
           <input
             type="range"
             min="-100"
@@ -1074,7 +1130,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         </div>
 
         <div>
-          <label className="text-caption text-neutral-500 block mb-2">Flou ({filter.blur})</label>
+          <label 
+            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            onPointerDown={(e) => handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20 })}
+          >
+            Flou ({filter.blur})
+          </label>
           <input
             type="range"
             min="0"

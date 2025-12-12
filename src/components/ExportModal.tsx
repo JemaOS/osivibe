@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore';
 import { ExportResolution, ExportFormat, ExportQuality } from '../types';
 import { exportProject, cancelExport } from '../utils/ffmpeg';
 import { downloadBlob } from '../utils/helpers';
+import { getHardwareProfile } from '../utils/previewOptimizer';
 
 // Aspect ratio options for export
 type AspectRatioOption = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
@@ -62,10 +63,18 @@ export const ExportModal: React.FC = () => {
       setExportProgress(0);
       setExportMessage('Préparation de l\'export...');
 
+      const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
+
       // Collect all clips from video tracks in order
       const videoClips = tracks
         .filter(t => t.type === 'video')
         .flatMap(t => t.clips)
+        .sort((a, b) => a.startTime - b.startTime);
+
+      // Collect all clips from audio tracks (WAV/MP3/etc). Muted tracks are ignored.
+      const audioTimelineClips = tracks
+        .filter((t) => t.type === 'audio' && !t.muted)
+        .flatMap((t) => t.clips)
         .sort((a, b) => a.startTime - b.startTime);
 
       if (videoClips.length === 0) {
@@ -132,8 +141,29 @@ export const ExportModal: React.FC = () => {
           trimStart: clip.trimStart,
           trimEnd: clip.trimEnd,
           filter: filters[clip.id],
+          // If the video clip is muted (detached audio deleted) or the whole track is muted,
+          // exclude the source audio from export.
+          audioMuted: !!clip.audioMuted || trackMuteById.get(clip.trackId) === true,
         };
       });
+
+      // Prepare external audio-track clips (WAV, etc.)
+      const audioClipsToExport = audioTimelineClips
+        .map((clip) => {
+          const media = mediaFiles.find((m) => m.id === clip.mediaId);
+          if (!media) throw new Error('Fichier média introuvable');
+          return {
+            id: clip.id,
+            file: media.file,
+            startTime: clip.startTime,
+            duration: clip.duration,
+            trimStart: clip.trimStart,
+            trimEnd: clip.trimEnd,
+          };
+        })
+        // Do not rely on MIME type (some browsers provide empty type for WAV).
+        // ffmpeg will infer format from extension.
+        ;
 
       // Set a timeout for the export (10 minutes max)
       const exportTimeout = setTimeout(() => {
@@ -142,6 +172,10 @@ export const ExportModal: React.FC = () => {
       }, 600000); // 10 minutes
 
       try {
+        // Get hardware profile for optimization
+        const hardwareProfile = getHardwareProfile();
+        console.log('🖥️ Using hardware profile for export:', hardwareProfile);
+
         // Export video with progress callback, including text overlays, transitions, and aspect ratio
         console.log('📐 DEBUG - Exporting with aspect ratio:', selectedAspectRatio);
         const blob = await exportProject(
@@ -154,7 +188,9 @@ export const ExportModal: React.FC = () => {
           },
           textOverlays,
           transitions,
-          selectedAspectRatio
+          selectedAspectRatio,
+          hardwareProfile,
+          audioClipsToExport
         );
 
         clearTimeout(exportTimeout);

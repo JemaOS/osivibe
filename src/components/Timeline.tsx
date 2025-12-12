@@ -476,8 +476,52 @@ export const Timeline: React.FC = () => {
       if (!rect) return;
 
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
-      const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
+      let newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
       
+      // Check for collisions with other text overlays
+      const currentText = textOverlays.find(t => t.id === draggedTextId);
+      if (currentText) {
+        const otherTexts = textOverlays.filter(t => t.id !== draggedTextId).sort((a, b) => a.startTime - b.startTime);
+        
+        // Find previous and next text overlays
+        let prevText = null;
+        let nextText = null;
+        
+        for (const text of otherTexts) {
+          if (text.startTime + text.duration <= newTime) {
+            prevText = text;
+          } else if (text.startTime >= newTime + currentText.duration) {
+            nextText = text;
+            break; // Found the immediate next one
+          }
+        }
+        
+        // Constrain start time based on previous text end
+        if (prevText) {
+          newTime = Math.max(newTime, prevText.startTime + prevText.duration);
+        }
+        
+        // Constrain start time based on next text start
+        if (nextText) {
+          newTime = Math.min(newTime, nextText.startTime - currentText.duration);
+        }
+
+        // Also check if we are overlapping with any text that we might have skipped over
+        // This handles the case where we drag "through" another clip
+        const overlapping = otherTexts.find(t => 
+          (newTime < t.startTime + t.duration) && (newTime + currentText.duration > t.startTime)
+        );
+
+        if (overlapping) {
+           // If overlapping, snap to the closest valid edge
+           if (newTime < overlapping.startTime) {
+             newTime = Math.min(newTime, overlapping.startTime - currentText.duration);
+           } else {
+             newTime = Math.max(newTime, overlapping.startTime + overlapping.duration);
+           }
+        }
+      }
+
       updateTextOverlay(draggedTextId, { startTime: newTime });
     };
 
@@ -493,7 +537,7 @@ export const Timeline: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingText, draggedTextId, dragOffset, ui.timelineZoom, updateTextOverlay]);
+  }, [isDraggingText, draggedTextId, dragOffset, ui.timelineZoom, updateTextOverlay, textOverlays]);
 
   // Handle transition dragging
   const handleTransitionMouseDown = (e: React.MouseEvent, transitionId: string) => {
@@ -1458,7 +1502,7 @@ export const Timeline: React.FC = () => {
           onDrop={handleTimelineDrop}
           onDragOver={handleDragOver}
         >
-          <div style={{ width: timelineWidth }}>
+          <div className="relative min-h-full" style={{ width: timelineWidth }}>
             {/* Time Ruler */}
             <div 
               className="bg-white/5 border-b border-white/10 sticky top-0 z-20" 
@@ -1622,18 +1666,18 @@ export const Timeline: React.FC = () => {
                 );
               })}
             </div>
-          </div>
 
-          {/* Playhead - with larger touch target */}
-          <div
-            className="playhead"
-            style={{ left: `${playheadX}px` }}
-          >
+            {/* Playhead - with larger touch target */}
             <div
-              className={`absolute -top-1 ${isMinimal || isCompact ? '-left-4 w-8 h-8' : '-left-2 w-4 h-4'} cursor-ew-resize touch-target`}
-              onMouseDown={handlePlayheadMouseDown}
-              onTouchStart={handlePlayheadTouchStart}
-            />
+              className="playhead"
+              style={{ left: `${playheadX}px` }}
+            >
+              <div
+                className={`absolute -top-1 ${isMinimal || isCompact ? '-left-4 w-8 h-8' : '-left-2 w-4 h-4'} cursor-ew-resize touch-target`}
+                onMouseDown={handlePlayheadMouseDown}
+                onTouchStart={handlePlayheadTouchStart}
+              />
+            </div>
           </div>
         </div>
       </div>

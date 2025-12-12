@@ -88,9 +88,14 @@ export const VideoPlayer: React.FC = () => {
   const touchTargetSize = responsive.touchTargetSize;
 
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
+  const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const qualityButtonRef = useRef<HTMLButtonElement>(null);
+  const qualityMenuRef = useRef<HTMLDivElement>(null);
+  const speedButtonRef = useRef<HTMLButtonElement>(null);
+  const speedMenuRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
   const frameRateLimiterRef = useRef<FrameRateLimiter | null>(null);
   const performanceMonitorRef = useRef<PerformanceMonitor | null>(null);
@@ -362,6 +367,50 @@ export const VideoPlayer: React.FC = () => {
     return activeClips;
   }, [tracks, mediaFiles, player.currentTime]);
 
+  // Audio preview: get all active audio clips at playhead (supports external audio tracks + detached audio)
+  const getActiveAudioClips = useCallback(() => {
+    const activeAudio: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+
+    tracks.forEach((track, index) => {
+      if (track.type !== 'audio') return;
+
+      const clip = track.clips.find((c) => {
+        const clipStart = c.startTime;
+        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
+      });
+
+      if (clip) {
+        const media = mediaFiles.find((m) => m.id === clip.mediaId);
+        if (media) {
+          activeAudio.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+        }
+      }
+    });
+
+    return activeAudio;
+  }, [tracks, mediaFiles, player.currentTime]);
+
+  // If a video clip has a detached audio clip present, mute the video's audio in preview to avoid double sound.
+  const videoClipsWithDetachedAudio = useMemo(() => {
+    const audioClipIds = new Set(
+      tracks
+        .filter((t) => t.type === 'audio')
+        .flatMap((t) => t.clips)
+        .map((c) => c.id)
+    );
+
+    const set = new Set<string>();
+    tracks
+      .filter((t) => t.type === 'video')
+      .flatMap((t) => t.clips)
+      .forEach((c) => {
+        if (c.detachedAudioClipId && audioClipIds.has(c.detachedAudioClipId)) set.add(c.id);
+      });
+
+    return set;
+  }, [tracks]);
+
   // Get current text overlays
   const getCurrentTextOverlays = useCallback(() => {
     return textOverlays.filter(text => {
@@ -513,7 +562,10 @@ export const VideoPlayer: React.FC = () => {
 
       // Only the main video gets volume, others are muted to prevent echo
       // Also mute if the track is muted OR if the clip's audio is muted
-      const isAudioMuted = item.clip.audioMuted === true || item.trackMuted === true;
+      const isAudioMuted =
+        item.clip.audioMuted === true ||
+        item.trackMuted === true ||
+        videoClipsWithDetachedAudio.has(item.clip.id);
       const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
       
       // Always apply volume immediately
@@ -533,7 +585,59 @@ export const VideoPlayer: React.FC = () => {
         }
       }
     });
-  }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips]);
+  }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, videoClipsWithDetachedAudio]);
+
+  // Sync audio track playback (external audio + detached audio clips)
+  const syncAudioVolumeAndPlayback = useCallback(() => {
+    const activeAudio = getActiveAudioClips();
+    const activeIds = new Set(activeAudio.map((a) => a.clip.id));
+
+    // Pause any non-active audio elements
+    Object.entries(audioRefs.current).forEach(([clipId, el]) => {
+      if (!el) return;
+      if (!activeIds.has(clipId)) {
+        if (!el.paused) el.pause();
+      }
+    });
+
+    activeAudio.forEach((item) => {
+      const audioEl = audioRefs.current[item.clip.id];
+      if (!audioEl) return;
+
+      // Ensure src
+      if (audioEl.src !== item.media.url) {
+        audioEl.src = item.media.url;
+        audioEl.load();
+      }
+
+      // Sync time
+      const clipStart = item.clip.startTime;
+      const localTime = player.currentTime - clipStart + item.clip.trimStart;
+      const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
+      if (timeDiff > 0.15 && Number.isFinite(localTime)) {
+        try {
+          audioEl.currentTime = Math.max(0, localTime);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Playback properties
+      audioEl.playbackRate = player.playbackRate;
+      const mutedByTrack = item.trackMuted === true;
+      const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
+      if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
+      audioEl.muted = targetVol === 0;
+
+      if (player.isPlaying) {
+        if (audioEl.paused) {
+          audioEl.play().catch(() => {});
+        }
+      } else {
+        if (!audioEl.paused) audioEl.pause();
+      }
+    });
+  }, [getActiveAudioClips, player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume]);
 
   // Debounced video sync function to prevent stuttering during rapid navigation
   // This only handles time sync and filters, NOT volume/playback
@@ -580,6 +684,11 @@ export const VideoPlayer: React.FC = () => {
         videoEl.load();
       }
 
+      // Ensure playback rate is applied (especially after load)
+      if (videoEl.playbackRate !== player.playbackRate) {
+        videoEl.playbackRate = player.playbackRate;
+      }
+
       const clipStart = item.clip.startTime;
       const localTime = player.currentTime - clipStart + item.clip.trimStart;
       
@@ -617,12 +726,27 @@ export const VideoPlayer: React.FC = () => {
     
     // Always sync volume and playback state immediately after time sync
     syncVideoVolumeAndPlayback();
-  }, [player.currentTime, player.isPlaying, getActiveClips, filters, syncVideoVolumeAndPlayback]);
+
+    // Also sync audio tracks (not debounced separately for now)
+    syncAudioVolumeAndPlayback();
+  }, [player.currentTime, player.isPlaying, getActiveClips, filters, syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback]);
   
   // Sync volume and playback immediately when these change (no debounce)
   useEffect(() => {
     syncVideoVolumeAndPlayback();
-  }, [syncVideoVolumeAndPlayback, player.volume, player.isMuted, player.playbackRate, audioMutedStates]);
+    syncAudioVolumeAndPlayback();
+  }, [syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback, player.volume, player.isMuted, player.playbackRate, audioMutedStates]);
+
+  const allAudioClips = useMemo(() => {
+    return tracks
+      .filter((t) => t.type === 'audio')
+      .flatMap((t) => t.clips)
+      .map((clip) => ({
+        clip,
+        media: mediaFiles.find((m) => m.id === clip.mediaId) || null,
+      }))
+      .filter((x) => !!x.media) as { clip: TimelineClip; media: MediaFile }[];
+  }, [tracks, mediaFiles]);
 
   // Update video playback with optimized sync
   useEffect(() => {
@@ -704,8 +828,9 @@ export const VideoPlayer: React.FC = () => {
     
     // MOBILE OPTIMIZATION: Use lower update rate on mobile
     const isMobile = isMobileRef.current;
-    const MIN_TIME_STEP = isMobile ? 1000 / 30 : 1000 / 60; // 30fps on mobile, 60fps on desktop
-    const FPS_UPDATE_INTERVAL = isMobile ? 60 : 30; // Update FPS display less often on mobile
+    const isLowEnd = previewSettings.quality === 'low';
+    const MIN_TIME_STEP = (isMobile || isLowEnd) ? 1000 / 30 : 1000 / 60; // 30fps on mobile/low-end, 60fps on desktop
+    const FPS_UPDATE_INTERVAL = (isMobile || isLowEnd) ? 60 : 30; // Update FPS display less often on mobile/low-end
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
@@ -780,7 +905,7 @@ export const VideoPlayer: React.FC = () => {
           // MOBILE OPTIMIZATION: Throttle state updates
           const now = performance.now();
           const timeSinceLastUpdate = now - lastStateUpdateRef.current;
-          const updateThreshold = isMobile ? 50 : 16; // Update less frequently on mobile
+          const updateThreshold = (isMobile || isLowEnd) ? 50 : 16; // Update less frequently on mobile/low-end
           
           if (timeSinceLastUpdate >= updateThreshold) {
             lastStateUpdateRef.current = now;
@@ -1392,6 +1517,55 @@ export const VideoPlayer: React.FC = () => {
   const progressPercentage = projectDuration > 0 ? (player.currentTime / projectDuration) * 100 : 0;
 
   const playbackSpeeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  // Close preview quality menu when clicking outside / pressing Escape
+  useEffect(() => {
+    if (!showQualityMenu) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (qualityMenuRef.current?.contains(target)) return;
+      if (qualityButtonRef.current?.contains(target)) return;
+      setShowQualityMenu(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowQualityMenu(false);
+    };
+
+    // Use capture so we can close before other handlers run.
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showQualityMenu]);
+
+  // Close playback speed menu when clicking outside / pressing Escape
+  useEffect(() => {
+    if (!showSpeedMenu) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (speedMenuRef.current?.contains(target)) return;
+      if (speedButtonRef.current?.contains(target)) return;
+      setShowSpeedMenu(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSpeedMenu(false);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showSpeedMenu]);
   
   // Get aspect ratio value for inline style
   const getAspectRatioValue = () => {
@@ -1531,6 +1705,20 @@ export const VideoPlayer: React.FC = () => {
         ref={videoContainerRef}
         className={`flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-1 fold-cover:p-0.5 fold-open:p-2 sm:p-4 min-h-0 ${responsive.isSpanning ? 'avoid-hinge' : ''}`}
       >
+        {/* Hidden audio elements for timeline audio playback */}
+        <div style={{ display: 'none' }}>
+          {allAudioClips.map(({ clip, media }) => (
+            <audio
+              key={clip.id}
+              ref={(el) => {
+                if (el) audioRefs.current[clip.id] = el;
+                else delete audioRefs.current[clip.id];
+              }}
+              src={media.url}
+              preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
+            />
+          ))}
+        </div>
         {/* Aspect Ratio Indicator - Responsive sizing */}
         <div className={`absolute top-1 fold-cover:top-0.5 fold-open:top-2 right-1 fold-cover:right-0.5 fold-open:right-2 bg-black/70 backdrop-blur-sm px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-3 py-0.5 fold-cover:py-0.5 fold-open:py-1 rounded-full ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-white z-50 border border-white/20`}>
           {aspectRatio}
@@ -2035,7 +2223,7 @@ export const VideoPlayer: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 overflow-hidden ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
         {/* Left Controls */}
         <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
           {/* Skip back - hidden on very small screens */}
@@ -2113,6 +2301,7 @@ export const VideoPlayer: React.FC = () => {
           {/* Preview Quality - Hidden on minimal and compact screens */}
           <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
             <button
+              ref={qualityButtonRef}
               onClick={() => setShowQualityMenu(!showQualityMenu)}
               className={`btn-icon ${isCompact ? 'w-9 h-9' : 'w-9 h-9'} touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
               title="Qualité"
@@ -2121,6 +2310,7 @@ export const VideoPlayer: React.FC = () => {
             </button>
             {showQualityMenu && (
               <div
+                ref={qualityMenuRef}
                 className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
                 style={{
                   width: '280px',
@@ -2224,6 +2414,7 @@ export const VideoPlayer: React.FC = () => {
           {/* Playback Speed - Hidden on minimal and compact screens */}
           <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
             <button
+              ref={speedButtonRef}
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
               className="btn-icon w-9 h-9 text-caption font-mono touch-target"
               title="Vitesse"
@@ -2231,7 +2422,10 @@ export const VideoPlayer: React.FC = () => {
               {player.playbackRate}x
             </button>
             {showSpeedMenu && (
-              <div className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50">
+              <div
+                ref={speedMenuRef}
+                className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50"
+              >
                 {playbackSpeeds.map((speed) => (
                   <button
                     key={speed}

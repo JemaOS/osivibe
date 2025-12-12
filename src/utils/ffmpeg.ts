@@ -4,16 +4,43 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile, TextOverlay, Transition, TransitionType, getResolutionForAspectRatio, AspectRatio } from '../types';
-import type { HardwareProfile, VideoSettings } from './hardwareDetection';
+import type { HardwareProfile as DetectionHardwareProfile, VideoSettings } from './hardwareDetection';
+import type { HardwareProfile as PreviewHardwareProfile } from './previewOptimizer';
+
+// Union type to handle both profile structures
+export type AnyHardwareProfile = DetectionHardwareProfile | PreviewHardwareProfile;
 
 let ffmpeg: FFmpeg | null = null;
 let isLoaded = false;
 let isFontLoaded = false;
 let currentProgressCallback: ((progress: number, message: string) => void) | undefined;
 let currentTotalDuration = 0;
+let isOperationInProgress = false; // Prevent multiple simultaneous FFmpeg operations
+let currentOperationType: string | null = null; // Track what operation is running
+
+// Used to detect stalls (no progress callbacks coming from ffmpeg.wasm)
+let lastProgressUpdateAt = 0;
+let lastProgressPercent = 0;
 
 // Cached hardware profile for encoding optimization
-let cachedHardwareProfile: HardwareProfile | null = null;
+let cachedHardwareProfile: AnyHardwareProfile | null = null;
+
+function isLikelyAudioFile(file: File): boolean {
+  // Some browsers provide empty MIME types for WAV. Fall back to extension.
+  const mime = (file.type || '').toLowerCase();
+  if (mime.startsWith('audio/')) return true;
+
+  const name = (file.name || '').toLowerCase();
+  return (
+    name.endsWith('.wav') ||
+    name.endsWith('.mp3') ||
+    name.endsWith('.m4a') ||
+    name.endsWith('.aac') ||
+    name.endsWith('.ogg') ||
+    name.endsWith('.opus') ||
+    name.endsWith('.flac')
+  );
+}
 
 /**
  * Hardware-optimized encoding settings
@@ -47,9 +74,10 @@ export interface EncodingSettings {
  * @returns Optimized encoding settings
  */
 export function getOptimalEncodingSettings(
-  hardwareProfile: HardwareProfile | null,
+  hardwareProfile: AnyHardwareProfile | null,
   format: 'mp4' | 'webm' = 'mp4',
-  quality: 'high' | 'medium' | 'low' = 'medium'
+  quality: 'high' | 'medium' | 'low' = 'medium',
+  safeMode: boolean = false
 ): EncodingSettings {
   // Get thread count from navigator.hardwareConcurrency for optimal multi-threading
   const availableCores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
@@ -57,15 +85,26 @@ export function getOptimalEncodingSettings(
   // Default settings for unknown hardware - OPTIMIZED FOR SPEED
   const defaultSettings: EncodingSettings = {
     videoCodec: format === 'webm' ? 'libvpx-vp9' : 'libx264',
-    preset: 'fast', // Changed from 'medium' to 'fast' for better speed
+    preset: safeMode ? 'ultrafast' : 'fast', // ultrafast for safe mode to ensure completion
     crf: quality === 'high' ? '20' : quality === 'medium' ? '25' : '30', // Higher CRF = faster encoding
     pixelFormat: 'yuv420p',
-    threads: String(availableCores), // Use all available cores by default
+    threads: safeMode ? String(Math.min(4, availableCores)) : String(Math.min(8, availableCores)), // Use up to 4 threads in safe mode, cap at 8 for normal
     additionalFlags: ['-movflags', '+faststart'], // Always add faststart for web optimization
     maxWidth: 1920,
     maxHeight: 1080,
     targetFps: 30,
   };
+
+  if (safeMode) {
+    console.log('🛡️ FFmpeg: SAFE MODE ACTIVE - Using balanced settings for stability');
+    // In safe mode, we return immediately with conservative settings
+    // We also add -tune fastdecode to ensure decoding is fast
+    defaultSettings.additionalFlags.push('-tune', 'fastdecode');
+    // Keep 1080p in safe mode if possible, only downgrade if strictly necessary
+    // defaultSettings.maxWidth = 1280; 
+    // defaultSettings.maxHeight = 720;
+    return defaultSettings;
+  }
   
   if (!hardwareProfile) {
     console.log('⚡ FFmpeg: No hardware profile, using speed-optimized defaults', {
@@ -77,23 +116,64 @@ export function getOptimalEncodingSettings(
   }
   
   const settings = { ...defaultSettings };
-  const gpuTier = hardwareProfile.gpu.tier;
-  const processorCores = hardwareProfile.processor.cores;
-  const memoryTier = hardwareProfile.memory.tier;
+  
+  // Handle different profile structures safely
+  let gpuTier = 'unknown';
+  let processorCores = 4;
+  let memoryTier = 'unknown';
+  let isAppleSilicon = false;
+  let gpuVendor = 'unknown';
+
+  // Check if it's the DetectionHardwareProfile (has 'gpu' object)
+  if ('gpu' in hardwareProfile && hardwareProfile.gpu && 'processor' in hardwareProfile && hardwareProfile.processor) {
+    gpuTier = hardwareProfile.gpu.tier;
+    processorCores = hardwareProfile.processor.cores;
+    memoryTier = hardwareProfile.memory.tier;
+    isAppleSilicon = hardwareProfile.processor.isAppleSilicon;
+    gpuVendor = hardwareProfile.gpu.vendor;
+  } 
+  // Check if it's the PreviewHardwareProfile (flat structure)
+  else if ('cpuCores' in hardwareProfile) {
+    // Map PreviewHardwareProfile to similar concepts
+    processorCores = hardwareProfile.cpuCores;
+    isAppleSilicon = hardwareProfile.isAppleSilicon;
+    
+    // Infer tiers from performance score if available
+    const score = hardwareProfile.performanceScore || 50;
+    if (score > 70) {
+      gpuTier = 'high';
+      memoryTier = 'high';
+    } else if (score > 40) {
+      gpuTier = 'medium';
+      memoryTier = 'medium';
+    } else {
+      gpuTier = 'low';
+      memoryTier = 'low';
+    }
+    
+    // Try to infer vendor from user agent if needed, or default to unknown
+    // Since PreviewHardwareProfile doesn't have vendor, we rely on generic optimizations
+  }
   
   // SPEED-OPTIMIZED: Adjust based on GPU tier
   // Priority: SPEED over quality (user can choose quality setting if needed)
   switch (gpuTier) {
     case 'high':
-      // High-end GPU: use 'fast' preset (good balance of speed and quality)
-      // Changed from 'slow' to 'fast' for 3x faster encoding
-      settings.preset = quality === 'high' ? 'medium' : 'fast';
-      settings.crf = quality === 'high' ? '18' : quality === 'medium' ? '22' : '26';
+      // High-end GPU: use 'veryfast' preset for maximum speed on powerful hardware
+      // RTX 4090/i9 14th gen can handle this easily with good quality
+      // WASM is CPU bound, so we need faster presets even on high-end hardware
+      // In ffmpeg.wasm, encoding is CPU/WASM bound. Favor ultrafast to avoid stalls.
+      settings.preset = 'ultrafast';
+      settings.crf = quality === 'high' ? '23' : quality === 'medium' ? '26' : '30';
       settings.maxWidth = 3840;
       settings.maxHeight = 2160;
       settings.targetFps = 60;
       // Use zerolatency tune for faster encoding (removes B-frames, reduces latency)
       settings.additionalFlags.push('-tune', 'zerolatency');
+      // Add specific flags for high-end CPUs to maximize throughput
+      settings.additionalFlags.push('-g', '60'); // Keyframe interval (2s at 30fps)
+      // Reduce memory pressure for WASM
+      settings.additionalFlags.push('-max_muxing_queue_size', '1024');
       break;
       
     case 'medium':
@@ -123,20 +203,20 @@ export function getOptimalEncodingSettings(
       break;
   }
   
-  // OPTIMIZED: Use all available CPU cores (up to 16 for efficiency)
-  // Modern CPUs benefit from more threads, especially for video encoding
+  // OPTIMIZED: Use available CPU cores but with safe limits for WASM
+  // WASM environment has memory and thread contention limits even on high-end hardware
+  // EXPERIMENTAL: High thread counts (>8) cause deadlocks in browser. 
+  // We cap at 4 to ensure stability while still providing good performance.
   if (processorCores >= 16) {
-    settings.threads = '16'; // Cap at 16 for efficiency (diminishing returns beyond)
+    settings.threads = '4'; // Cap at 4 for maximum WASM stability
   } else if (processorCores >= 8) {
-    settings.threads = String(processorCores); // Use all cores for 8-15 core CPUs
-  } else if (processorCores >= 4) {
-    settings.threads = String(processorCores);
+    settings.threads = '4'; // Standard high performance
   } else {
     settings.threads = String(Math.max(2, processorCores)); // Minimum 2 threads
   }
   
   // Adjust for Apple Silicon - these are very efficient at video encoding
-  if (hardwareProfile.processor.isAppleSilicon) {
+  if (isAppleSilicon) {
     // Apple Silicon: use 'fast' preset (still excellent quality due to efficient architecture)
     settings.preset = quality === 'high' ? 'medium' : 'fast';
     settings.threads = '0'; // Let FFmpeg auto-optimize for Apple Silicon
@@ -153,7 +233,7 @@ export function getOptimalEncodingSettings(
   }
   
   // GPU-specific optimizations for speed
-  switch (hardwareProfile.gpu.vendor) {
+  switch (gpuVendor) {
     case 'nvidia':
       // NVIDIA GPUs: optimize for speed
       // Note: ffmpeg.wasm is software-only, but we optimize for CPU encoding
@@ -219,15 +299,24 @@ export function getOptimalEncodingSettings(
  * @returns Recommended codec string
  */
 export function getRecommendedCodec(
-  hardwareProfile: HardwareProfile | null,
+  hardwareProfile: AnyHardwareProfile | null,
   useCase: 'streaming' | 'archive' | 'social' | 'general' = 'general'
 ): 'h264' | 'h265' | 'vp9' | 'av1' {
   if (!hardwareProfile) {
     return 'h264'; // Most compatible
   }
   
-  const gpuTier = hardwareProfile.gpu.tier;
-  const supportsWebGPU = hardwareProfile.gpu.supportsWebGPU;
+  // Handle different profile structures
+  let gpuTier = 'unknown';
+  let supportsWebGPU = false;
+  
+  if ('gpu' in hardwareProfile && hardwareProfile.gpu) {
+    gpuTier = hardwareProfile.gpu.tier;
+    supportsWebGPU = hardwareProfile.gpu.supportsWebGPU || false;
+  } else if ('cpuCores' in hardwareProfile) {
+    const score = hardwareProfile.performanceScore || 50;
+    gpuTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
+  }
   
   switch (useCase) {
     case 'streaming':
@@ -259,21 +348,31 @@ export function getRecommendedCodec(
  * Set the hardware profile for encoding optimization
  * @param profile - The hardware profile to use
  */
-export function setHardwareProfile(profile: HardwareProfile): void {
+export function setHardwareProfile(profile: AnyHardwareProfile): void {
   cachedHardwareProfile = profile;
-  console.log('🎬 FFmpeg: Hardware profile set for encoding optimization', {
-    gpu: profile.gpu.vendor,
-    gpuTier: profile.gpu.tier,
-    cores: profile.processor.cores,
-    isAppleSilicon: profile.processor.isAppleSilicon,
-  });
+  
+  // Safe logging for different profile types
+  if ('gpu' in profile && profile.gpu && 'processor' in profile && profile.processor) {
+    console.log('🎬 FFmpeg: Hardware profile set for encoding optimization', {
+      gpu: profile.gpu.vendor,
+      gpuTier: profile.gpu.tier,
+      cores: profile.processor.cores,
+      isAppleSilicon: profile.processor.isAppleSilicon,
+    });
+  } else if ('cpuCores' in profile) {
+    console.log('🎬 FFmpeg: Hardware profile set for encoding optimization', {
+      cpuCores: profile.cpuCores,
+      isAppleSilicon: profile.isAppleSilicon,
+      performanceScore: profile.performanceScore,
+    });
+  }
 }
 
 /**
  * Get the cached hardware profile
  * @returns The cached hardware profile or null
  */
-export function getHardwareProfile(): HardwareProfile | null {
+export function getHardwareProfile(): AnyHardwareProfile | null {
   return cachedHardwareProfile;
 }
 
@@ -329,7 +428,11 @@ export function buildOptimizedArgs(
   // Find and replace frame rate
   const fpsIndex = args.indexOf('-r');
   if (fpsIndex !== -1) {
-    args[fpsIndex + 1] = String(settings.targetFps);
+    // Keep the caller's requested fps if it's lower than the hardware profile target.
+    // Forcing 60fps in wasm can double work (dup frames) and slow exports significantly.
+    const requested = parseInt(args[fpsIndex + 1] || '0', 10);
+    const effective = requested > 0 ? Math.min(requested, settings.targetFps) : settings.targetFps;
+    args[fpsIndex + 1] = String(effective);
   }
   
   // Add additional flags
@@ -362,7 +465,7 @@ export function buildOptimizedArgs(
  * @returns Estimated encoding time in seconds
  */
 export function estimateEncodingTime(
-  hardwareProfile: HardwareProfile | null,
+  hardwareProfile: AnyHardwareProfile | null,
   videoDuration: number,
   resolution: { width: number; height: number }
 ): number {
@@ -376,8 +479,21 @@ export function estimateEncodingTime(
     // Unknown hardware: assume 1x realtime with fast preset
     multiplier = 1.0;
   } else {
-    const gpuTier = hardwareProfile.gpu.tier;
-    const cores = hardwareProfile.processor.cores;
+    let gpuTier = 'unknown';
+    let cores = 4;
+    let isAppleSilicon = false;
+
+    if ('gpu' in hardwareProfile && hardwareProfile.gpu && 'processor' in hardwareProfile && hardwareProfile.processor) {
+      gpuTier = hardwareProfile.gpu.tier;
+      cores = hardwareProfile.processor.cores;
+      isAppleSilicon = hardwareProfile.processor.isAppleSilicon;
+    } else if ('cpuCores' in hardwareProfile) {
+      cores = hardwareProfile.cpuCores;
+      isAppleSilicon = hardwareProfile.isAppleSilicon;
+      // Infer tier
+      const score = hardwareProfile.performanceScore || 50;
+      gpuTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
+    }
     
     // Adjust for GPU tier (with speed-optimized presets)
     switch (gpuTier) {
@@ -406,7 +522,7 @@ export function estimateEncodingTime(
     }
     
     // Adjust for Apple Silicon (very efficient at video encoding)
-    if (hardwareProfile.processor.isAppleSilicon) {
+    if (isAppleSilicon) {
       multiplier *= 0.5; // Apple Silicon is ~2x faster
     }
   }
@@ -446,8 +562,10 @@ export function formatEncodingTime(seconds: number): string {
 const FFMPEG_FONT_PATH = '/fonts/default.ttf';
 
 export async function loadFFmpeg(
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  options?: { safeMode?: boolean }
 ): Promise<FFmpeg> {
+  const safeMode = options?.safeMode ?? false;
   currentProgressCallback = onProgress;
 
   if (ffmpeg && isLoaded) {
@@ -458,8 +576,42 @@ export async function loadFFmpeg(
   console.log('Loading FFmpeg...');
   ffmpeg = new FFmpeg();
 
+  // Track time-based progress from logs (some builds don't emit progress events reliably)
+  let lastTimeSecondsFromLog = 0;
+  let lastPercentFromLog = 0;
+  let lastLogUpdateAt = 0;
+
   ffmpeg.on('log', ({ message }) => {
     console.log('[FFmpeg]', message);
+
+    // Parse ffmpeg stats lines like: "time=00:00:01.23"
+    if (!currentProgressCallback || currentTotalDuration <= 0) return;
+    const now = performance.now();
+    // Throttle to avoid spamming UI
+    if (now - lastLogUpdateAt < 250) return;
+
+    // Prefer -progress key/value if present
+    const prog = /out_time_ms=(\d+)/.exec(message);
+    const tFromProgress = prog ? parseInt(prog[1], 10) / 1_000_000 : null;
+
+    const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);
+    const tFromStats = m
+      ? (parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]))
+      : null;
+
+    const t = (tFromProgress ?? tFromStats);
+    if (t == null) return;
+    if (!(t > lastTimeSecondsFromLog)) return;
+
+    const percent = Math.min(99, Math.max(0, Math.round((t / currentTotalDuration) * 100)));
+    if (percent <= lastPercentFromLog) return;
+
+    lastTimeSecondsFromLog = t;
+    lastPercentFromLog = percent;
+    lastLogUpdateAt = now;
+    lastProgressUpdateAt = now;
+    lastProgressPercent = percent;
+    currentProgressCallback(percent, 'Encodage...');
   });
 
   ffmpeg.on('progress', ({ progress, time }) => {
@@ -480,6 +632,9 @@ export async function loadFFmpeg(
       
       // Clamp percentage
       percentage = Math.min(100, Math.max(0, percentage));
+
+      lastProgressUpdateAt = performance.now();
+      lastProgressPercent = Math.round(percentage);
       
       // Only update if progress has changed significantly to avoid jitter
       // or if it's the final completion
@@ -488,12 +643,24 @@ export async function loadFFmpeg(
   });
 
   try {
-    onProgress?.(0, 'Chargement de FFmpeg...');
-    
+    onProgress?.(0, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
+
     // Load FFmpeg core from CDN
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-    
-    console.log('Fetching FFmpeg core files...');
+    // Prefer multi-threaded core when the page is crossOriginIsolated (SharedArrayBuffer available).
+    // This is usually *much* faster for exports/assemblage.
+    const isCrossOriginIsolated = typeof crossOriginIsolated !== 'undefined' ? crossOriginIsolated : false;
+    const hasSAB = typeof SharedArrayBuffer !== 'undefined';
+    const canUseMultiThread = !safeMode && isCrossOriginIsolated && hasSAB;
+
+    const baseURL = canUseMultiThread
+      ? 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm'
+      : 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+
+    console.log(`Fetching FFmpeg core files (${canUseMultiThread ? 'Multi-threaded' : 'Single-thread'})...`, {
+      safeMode,
+      crossOriginIsolated: isCrossOriginIsolated,
+      sharedArrayBuffer: hasSAB,
+    });
     
     // Add timeout for fetching files
     const timeoutPromise = new Promise((_, reject) => 
@@ -503,11 +670,15 @@ export async function loadFFmpeg(
     const loadPromise = (async () => {
       const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
       const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-      
-      console.log('Loading FFmpeg with core files...');
+      const workerURL = canUseMultiThread
+        ? await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript')
+        : undefined;
+
+      console.log('Loading FFmpeg core files...');
       await ffmpeg!.load({
         coreURL,
         wasmURL,
+        ...(workerURL ? { workerURL } : {}),
       });
     })();
 
@@ -527,6 +698,100 @@ export async function loadFFmpeg(
 
 export function isFFmpegLoaded(): boolean {
   return isLoaded;
+}
+
+/**
+ * Reset FFmpeg instance (useful for recovery from errors)
+ */
+export async function resetFFmpeg() {
+  if (ffmpeg) {
+    try {
+      ffmpeg.terminate();
+    } catch (e) {
+      console.error('Error terminating FFmpeg:', e);
+    }
+    ffmpeg = null;
+  }
+  isLoaded = false;
+  isFontLoaded = false;
+  isOperationInProgress = false;
+  currentOperationType = null;
+  console.log('FFmpeg instance reset');
+}
+
+async function writeFileWithTimeout(ffmpegInstance: FFmpeg, fileName: string, data: Uint8Array | string, timeoutMs: number = 30000): Promise<void> {
+  const startTime = performance.now();
+  console.log(`⏳ Starting write for ${fileName} (${data instanceof Uint8Array ? data.length : data.length} bytes)...`);
+  
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      reject(new Error(`Timeout writing file ${fileName} to FFmpeg FS after ${elapsed}s (stuck at write)`));
+    }, timeoutMs);
+
+    ffmpegInstance.writeFile(fileName, data)
+      .then(() => {
+        clearTimeout(timer);
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ Write completed for ${fileName} in ${elapsed}s`);
+        resolve();
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.error(`❌ Write failed for ${fileName} after ${elapsed}s:`, e);
+        reject(e);
+      });
+  });
+}
+
+async function execWithTimeout(ffmpegInstance: FFmpeg, args: string[], timeoutMs: number = 180000): Promise<void> {
+  const startTime = performance.now();
+  console.log(`⏳ Starting FFmpeg exec (timeout=${timeoutMs}ms):`, args.join(' '));
+
+  // Mark "we have progress" now, so stall detection works from the beginning.
+  lastProgressUpdateAt = startTime;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      reject(new Error(`Timeout running FFmpeg exec after ${elapsed}s`));
+    }, timeoutMs);
+
+    // Some ffmpeg.wasm builds (especially multi-thread) don't emit progress events reliably.
+    // If we haven't received any progress update for a while, simulate a smooth progress ramp
+    // so the UI doesn't look frozen. The hard timeout will still protect against real hangs.
+    const progressTick = setInterval(() => {
+      if (!currentProgressCallback) return;
+      const now = performance.now();
+      if (now - lastProgressUpdateAt < 2000) return; // we are receiving real progress
+
+      const elapsed = now - startTime;
+      // Ramp from 10% -> 98% across the timeout window.
+      const simulated = Math.min(98, Math.max(lastProgressPercent, Math.round(10 + (elapsed / timeoutMs) * 88)));
+      if (simulated > lastProgressPercent) {
+        lastProgressPercent = simulated;
+        lastProgressUpdateAt = now;
+        currentProgressCallback(simulated, 'Encodage...');
+      }
+    }, 750);
+
+    ffmpegInstance.exec(args)
+      .then(() => {
+        clearTimeout(timer);
+        clearInterval(progressTick);
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`✅ FFmpeg exec completed in ${elapsed}s`);
+        resolve();
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        clearInterval(progressTick);
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.error(`❌ FFmpeg exec failed after ${elapsed}s:`, e);
+        reject(e);
+      });
+  });
 }
 
 /**
@@ -677,6 +942,20 @@ function hexToFFmpegColor(hex: string): string {
   // Remove # if present
   const cleanHex = hex.replace('#', '');
   return `0x${cleanHex}`;
+}
+
+/**
+ * Escape FFmpeg filter option expressions for use inside -filter_complex.
+ *
+ * In filtergraphs, ',' and ':' are structural separators, so expressions like
+ * if(a,b,c) MUST escape commas (\,) or the whole graph breaks.
+ */
+function escapeFilterComplexExpr(expr: string): string {
+  return expr
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/,/g, '\\,')
+    .replace(/'/g, "\\'");
 }
 
 /**
@@ -975,44 +1254,141 @@ export async function generateThumbnail(
   inputFile: File,
   timeInSeconds: number = 0
 ): Promise<string> {
-  const ffmpegInstance = await loadFFmpeg();
+  // Prefer native (video element + canvas) thumbnail generation.
+  // This avoids loading FFmpeg and prevents export/thumbnail contention.
+  if (typeof document !== 'undefined' && inputFile.type.startsWith('video/')) {
+    try {
+      const url = URL.createObjectURL(inputFile);
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = url;
+
+      await new Promise<void>((resolve, reject) => {
+        const onLoaded = () => resolve();
+        const onErr = () => reject(new Error('Failed to load video for thumbnail'));
+        video.addEventListener('loadedmetadata', onLoaded, { once: true });
+        video.addEventListener('error', onErr, { once: true });
+      });
+
+      const seekTime = Math.max(0, Math.min(timeInSeconds, Math.max(0, (video.duration || 0) - 0.05)));
+      if (Number.isFinite(seekTime)) {
+        try {
+          video.currentTime = seekTime;
+        } catch {
+          // ignore
+        }
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const onSeeked = () => resolve();
+        const onErr = () => reject(new Error('Failed to seek video for thumbnail'));
+        video.addEventListener('seeked', onSeeked, { once: true });
+        video.addEventListener('error', onErr, { once: true });
+        // Some browsers may not fire seeked if already at time 0
+        setTimeout(() => resolve(), 250);
+      });
+
+      const targetW = 160;
+      const aspect = video.videoWidth > 0 ? video.videoHeight / video.videoWidth : 9 / 16;
+      const targetH = Math.max(1, Math.round(targetW * aspect));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No canvas context');
+      ctx.drawImage(video, 0, 0, targetW, targetH);
+
+      const blob: Blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.8);
+      });
+
+      URL.revokeObjectURL(url);
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      console.warn('Native thumbnail generation failed, falling back to FFmpeg:', e);
+    }
+  }
+
+  // Check if another operation is in progress
+  if (isOperationInProgress) {
+    console.log('⏳ Thumbnail generation skipped - another FFmpeg operation is in progress:', currentOperationType);
+    // Return a placeholder or empty string instead of blocking
+    return '';
+  }
   
-  const inputFileName = 'input' + getFileExtension(inputFile.name);
-  const outputFileName = 'thumbnail.jpg';
-
-  await ffmpegInstance.writeFile(inputFileName, await fetchFile(inputFile));
-
-  await ffmpegInstance.exec([
-    '-i', inputFileName,
-    '-ss', timeInSeconds.toString(),
-    '-vframes', '1',
-    '-vf', 'scale=160:-1',
-    outputFileName
-  ]);
-
-  const data = await ffmpegInstance.readFile(outputFileName);
+  isOperationInProgress = true;
+  currentOperationType = 'thumbnail';
   
-  await ffmpegInstance.deleteFile(inputFileName);
-  await ffmpegInstance.deleteFile(outputFileName);
+  try {
+    const ffmpegInstance = await loadFFmpeg();
+    
+    const inputFileName = 'input' + getFileExtension(inputFile.name);
+    const outputFileName = 'thumbnail.jpg';
 
-  const blob = new Blob([data as any], { type: 'image/jpeg' });
-  return URL.createObjectURL(blob);
+    await ffmpegInstance.writeFile(inputFileName, await fetchFile(inputFile));
+
+    await ffmpegInstance.exec([
+      '-i', inputFileName,
+      '-ss', timeInSeconds.toString(),
+      '-vframes', '1',
+      '-vf', 'scale=160:-1',
+      outputFileName
+    ]);
+
+    const data = await ffmpegInstance.readFile(outputFileName);
+    
+    await ffmpegInstance.deleteFile(inputFileName);
+    await ffmpegInstance.deleteFile(outputFileName);
+
+    const blob = new Blob([data as any], { type: 'image/jpeg' });
+    return URL.createObjectURL(blob);
+  } finally {
+    isOperationInProgress = false;
+    currentOperationType = null;
+  }
 }
 
-export async function exportProject(
-  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string }[],
+async function _exportProjectInternal(
+  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean }[],
   settings: ExportSettings,
   onProgress?: (progress: number, message: string) => void,
   textOverlays?: TextOverlay[],
   transitions?: Transition[],
   aspectRatio?: AspectRatio,
-  hardwareProfile?: HardwareProfile
+  hardwareProfile?: AnyHardwareProfile,
+  safeMode: boolean = false,
+  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
 ): Promise<Blob> {
+  // Prevent concurrent exports (they will terminate each other in ffmpeg.wasm)
+  if (isOperationInProgress && currentOperationType === 'export') {
+    throw new Error('Un export est déjà en cours. Veuillez patienter.');
+  }
+
+  // If a thumbnail (or other lightweight op) is running, wait briefly instead of terminating FFmpeg.
+  if (isOperationInProgress && currentOperationType && currentOperationType !== 'export') {
+    console.log('⏳ Waiting for FFmpeg operation to finish:', currentOperationType);
+    const start = performance.now();
+    const timeoutMs = 4000;
+    while (isOperationInProgress && performance.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (isOperationInProgress) {
+      console.warn('⚠️ Previous FFmpeg operation did not finish in time, resetting instance...');
+      await resetFFmpeg();
+    }
+  }
+  
+  isOperationInProgress = true;
+  currentOperationType = 'export';
+  
   try {
     // Calculate total duration for progress normalization
     currentTotalDuration = clips.reduce((acc, clip) => acc + (clip.duration - clip.trimStart - clip.trimEnd), 0);
     
-    onProgress?.(1, 'Chargement de FFmpeg...');
+    onProgress?.(1, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
     
     // Define a specific progress handler for export
     const exportProgressHandler = (percent: number, msg: string) => {
@@ -1021,7 +1397,7 @@ export async function exportProject(
       onProgress?.(safePercent, `Traitement en cours...`);
     };
 
-    const ffmpegInstance = await loadFFmpeg(exportProgressHandler);
+    const ffmpegInstance = await loadFFmpeg(exportProgressHandler, { safeMode });
     
     // Load font for text overlays if there are any text overlays
     if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
@@ -1041,7 +1417,8 @@ export async function exportProject(
     const encodingSettings = getOptimalEncodingSettings(
       effectiveHardwareProfile,
       outputFormat as 'mp4' | 'webm',
-      settings.quality
+      settings.quality,
+      safeMode
     );
     
     // Log encoding optimization info with detailed performance metrics
@@ -1050,15 +1427,46 @@ export async function exportProject(
       currentTotalDuration,
       resolution
     );
+
+    // Dynamic timeout: short exports should fail fast if the wasm core deadlocks.
+    // Longer exports get more headroom, and safeMode is more conservative.
+    // NOTE: ffmpeg.wasm can run far slower than our heuristic estimate depending on filters.
+    // Use generous minimums to avoid false timeouts (especially in SAFE MODE which is single-thread).
+    const execTimeoutMs = safeMode
+      ? Math.max(600_000, estimatedTime * 1000 * 60) // >= 10 minutes
+      : Math.max(240_000, estimatedTime * 1000 * 30); // >= 4 minutes
     
-    console.log('🚀 EXPORT SPEED OPTIMIZATION ACTIVE');
+    console.log(safeMode ? '🛡️ EXPORT SAFE MODE ACTIVE' : '🚀 EXPORT SPEED OPTIMIZATION ACTIVE');
     console.log('═══════════════════════════════════════════════════════════');
+    
+    // Safe logging for different profile types
+    const gpuVendor = effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile && effectiveHardwareProfile.gpu ? effectiveHardwareProfile.gpu.vendor : 'unknown';
+    const gpuTier = effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile && effectiveHardwareProfile.gpu ? effectiveHardwareProfile.gpu.tier : 'unknown';
+    
+    let cpuCores: number | string = 'unknown';
+    let isAppleSilicon = false;
+    let memoryTier = 'unknown';
+
+    if (effectiveHardwareProfile) {
+      if ('processor' in effectiveHardwareProfile && effectiveHardwareProfile.processor) {
+        cpuCores = effectiveHardwareProfile.processor.cores;
+        isAppleSilicon = effectiveHardwareProfile.processor.isAppleSilicon;
+        memoryTier = effectiveHardwareProfile.memory?.tier || 'unknown';
+      } else if ('cpuCores' in effectiveHardwareProfile) {
+        cpuCores = effectiveHardwareProfile.cpuCores;
+        isAppleSilicon = effectiveHardwareProfile.isAppleSilicon;
+        // Infer memory tier from score if available
+        const score = effectiveHardwareProfile.performanceScore || 50;
+        memoryTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
+      }
+    }
+
     console.log('📊 Hardware Profile:', {
-      gpu: effectiveHardwareProfile?.gpu.vendor || 'unknown',
-      gpuTier: effectiveHardwareProfile?.gpu.tier || 'unknown',
-      cpuCores: effectiveHardwareProfile?.processor.cores || navigator.hardwareConcurrency || 'unknown',
-      isAppleSilicon: effectiveHardwareProfile?.processor.isAppleSilicon || false,
-      memoryTier: effectiveHardwareProfile?.memory.tier || 'unknown',
+      gpu: gpuVendor,
+      gpuTier: gpuTier,
+      cpuCores: cpuCores || navigator.hardwareConcurrency || 'unknown',
+      isAppleSilicon: isAppleSilicon,
+      memoryTier: memoryTier,
     });
     console.log('⚡ Speed-Optimized Encoding Settings:', {
       preset: encodingSettings.preset,
@@ -1092,108 +1500,257 @@ export async function exportProject(
       const inputFileName = 'input' + getFileExtension(clip.file.name);
       const outputFileName = `output.${outputFormat}`;
 
-      await ffmpegInstance.writeFile(inputFileName, await fetchFile(clip.file));
+      console.log('📂 Writing file to FFmpeg FS:', inputFileName, 'Size:', clip.file.size);
+      const fileData = await fetchFile(clip.file);
+      console.log('📂 File data fetched, writing to FS...');
+      
+      // Try to delete file if it exists to prevent issues
+      try {
+        await ffmpegInstance.deleteFile(inputFileName);
+        console.log('🗑️ Deleted existing file from FS');
+      } catch (e) {
+        // Ignore error if file doesn't exist
+      }
+
+      // Explicitly cast to Uint8Array to ensure compatibility
+      const dataArray = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
+      await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray);
+      console.log('✅ File written to FS');
 
       onProgress?.(5, 'Traitement de la vidéo...');
-      
-      const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
-      
-      // Build video filter chain
-      let videoFilterChain = `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
-      
-      // Add clip filter if present
-      if (clip.filter) {
-        const filterString = getFilterString(clip.filter);
-        if (filterString) {
-          videoFilterChain += ',' + filterString;
-        }
-      }
-      
-      // Apply transitions for single clip (fade in/out effects)
-      if (transitions && transitions.length > 0) {
-        console.log('🔀 DEBUG - Processing transitions for single clip export');
-        const clipId = clip.id;
-        
-        // Find transitions for this clip
-        const clipTransitions = transitions.filter(t => t.clipId === clipId && t.type !== 'none');
-        console.log(`🔀 DEBUG - Found ${clipTransitions.length} transitions for single clip`);
-        
-        for (const transition of clipTransitions) {
-          console.log(`🔀 DEBUG - Single clip transition:`, {
-            type: transition.type,
-            position: transition.position,
-            duration: transition.duration
-          });
-          
-          const transitionFilter = getSingleClipTransitionFilter(transition, clipDuration);
-          if (transitionFilter) {
-            videoFilterChain += ',' + transitionFilter;
-            console.log(`🔀 DEBUG - Applied single clip transition filter: ${transitionFilter}`);
-          }
-        }
-      }
-      
-      // Add text overlays for single clip export
-      if (textOverlays && textOverlays.length > 0) {
-        console.log('🔤 DEBUG - Processing text overlays for single clip export');
-        console.log('🔤 DEBUG - isFontLoaded:', isFontLoaded);
-        
-        console.log('🔤 DEBUG - Clip duration:', clipDuration);
-        
-        const relevantTexts = textOverlays.filter(text => {
-          const textEnd = text.startTime + text.duration;
-          const isRelevant = text.startTime < clipDuration && textEnd > 0;
-          console.log(`🔤 DEBUG - Text "${text.text}" (${text.startTime}s - ${textEnd}s): ${isRelevant ? 'INCLUDED' : 'EXCLUDED'}`);
-          return isRelevant;
-        });
-        
-        console.log('🔤 DEBUG - Relevant texts count:', relevantTexts.length);
-        
-        for (const text of relevantTexts) {
-          // Adjust text timing relative to clip
-          const adjustedText = {
-            ...text,
-            startTime: Math.max(0, text.startTime - clip.trimStart),
-            duration: text.duration,
-          };
-          // Ensure endTime doesn't exceed clip duration
-          const endTime = adjustedText.startTime + adjustedText.duration;
-          if (endTime > clipDuration) {
-            adjustedText.duration = clipDuration - adjustedText.startTime;
-          }
-          if (adjustedText.duration > 0) {
-            const textFilter = getTextFilterString(adjustedText, resolution.width, resolution.height);
-            console.log(`🔤 DEBUG - Text filter for "${text.text}":`, textFilter);
-            videoFilterChain += ',' + textFilter;
-          } else {
-            console.log(`🔤 DEBUG - Text "${text.text}" skipped: duration <= 0 after adjustment`);
-          }
-        }
-        
-        console.log('🔤 DEBUG - Final video filter chain:', videoFilterChain);
-      }
-      
-      // Build base args with hardware-optimized settings
-      let args = [
-        '-i', inputFileName,
-        '-ss', clip.trimStart.toString(),
-        '-t', clipDuration.toString(),
-        '-vf', videoFilterChain,
-        '-c:v', encodingSettings.videoCodec,
-        '-crf', quality,
-        '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
-        '-preset', encodingSettings.preset,
-        '-r', String(Math.min(parseInt(settings.fps || '30'), encodingSettings.targetFps)),
-        '-pix_fmt', encodingSettings.pixelFormat,
-        '-threads', encodingSettings.threads,
-        outputFileName
-      ];
-      
-      // Apply hardware-optimized additional flags
-      args = buildOptimizedArgs(args, encodingSettings);
 
-      console.log('FFmpeg command:', args.join(' '));
-      await ffmpegInstance.exec(args);
+      const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+      const requestedFps = parseInt(settings.fps || '30', 10);
+      const effectiveFps = Math.min(requestedFps, encodingSettings.targetFps);
+
+      // Audio clips placed on timeline audio tracks (WAV/MP3/etc)
+      // NOTE: do not rely on MIME type (can be empty for WAV)
+      const externalAudioClipsSingle = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
+      // Export pipeline ignores initial gap; align audio to the first video clip start.
+      const timeOriginSingle = clip.startTime;
+
+      // Detect transitions for this clip
+      const clipId = clip.id;
+      const clipTransitions = (transitions || []).filter((t) => t.clipId === clipId && t.type !== 'none');
+      const hasClipTransitions = clipTransitions.length > 0;
+
+      // FAST PATH: no transitions AND no external audio override AND clip audio not muted
+      // -> keep -vf pipeline (cheapest)
+      if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted) {
+        // Build video filter chain
+        let videoFilterChain = `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+
+        // Add clip filter if present
+        if (clip.filter) {
+          const filterString = getFilterString(clip.filter);
+          if (filterString) {
+            videoFilterChain += ',' + filterString;
+          }
+        }
+
+        // Add text overlays for single clip export
+        if (textOverlays && textOverlays.length > 0) {
+          const relevantTexts = textOverlays.filter((text) => {
+            const textEnd = text.startTime + text.duration;
+            return text.text.trim() && text.startTime < clipDuration && textEnd > 0;
+          });
+
+          for (const text of relevantTexts) {
+            // Adjust text timing relative to clip
+            const adjustedText = {
+              ...text,
+              startTime: Math.max(0, text.startTime - clip.trimStart),
+              duration: text.duration,
+            };
+
+            const endTime = adjustedText.startTime + adjustedText.duration;
+            if (endTime > clipDuration) {
+              adjustedText.duration = clipDuration - adjustedText.startTime;
+            }
+
+            if (adjustedText.duration > 0) {
+              const textFilter = getTextFilterString(adjustedText, resolution.width, resolution.height);
+              videoFilterChain += ',' + textFilter;
+            }
+          }
+        }
+
+        // Build base args with hardware-optimized settings
+        let args = [
+          '-i', inputFileName,
+          '-ss', clip.trimStart.toString(),
+          '-t', clipDuration.toString(),
+          '-vf', videoFilterChain,
+          '-c:v', encodingSettings.videoCodec,
+          '-crf', quality,
+          '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
+          '-preset', encodingSettings.preset,
+          '-r', String(effectiveFps),
+          '-pix_fmt', encodingSettings.pixelFormat,
+          '-threads', encodingSettings.threads,
+          outputFileName
+        ];
+
+        // Apply hardware-optimized additional flags
+        args = buildOptimizedArgs(args, encodingSettings);
+
+        console.log('FFmpeg command:', args.join(' '));
+        await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
+      } else {
+        // filter_complex path: transitions and/or external audio override
+        const startTransition = clipTransitions.find((t) => t.position === 'start');
+        const endTransition = clipTransitions.find((t) => t.position === 'end');
+        const needsBg = hasClipTransitions;
+
+        // Extra audio inputs (WAV/etc) different from the video input
+        const extraAudioFiles: File[] = [];
+        for (const ac of externalAudioClipsSingle) {
+          if (ac.file === clip.file) continue;
+          if (!extraAudioFiles.includes(ac.file)) extraAudioFiles.push(ac.file);
+        }
+
+        const extraAudioInputNames: string[] = [];
+        for (let i = 0; i < extraAudioFiles.length; i++) {
+          const file = extraAudioFiles[i];
+          const name = `audio_input${i}${getFileExtension(file.name)}`;
+          extraAudioInputNames.push(name);
+          try {
+            await ffmpegInstance.deleteFile(name);
+          } catch {}
+          const buf = new Uint8Array(await file.arrayBuffer());
+          await writeFileWithTimeout(ffmpegInstance, name, buf, safeMode ? 60000 : 45000);
+        }
+
+        const bgInputIndex = 1 + extraAudioInputNames.length;
+        const fc: string[] = [];
+
+        // Video base => [v0]
+        let vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=${effectiveFps}`;
+        if (clip.filter) {
+          const filterString = getFilterString(clip.filter);
+          if (filterString) vBase += `,${filterString}`;
+        }
+        fc.push(`${vBase}[v0]`);
+
+        if (needsBg) {
+          fc.push(`[${bgInputIndex}:v]setpts=PTS-STARTPTS[bg]`);
+        }
+
+        // Build audio output => [a0]
+        if (externalAudioClipsSingle.length > 0) {
+          const sortedAudio = [...externalAudioClipsSingle].sort((a, b) => a.startTime - b.startTime);
+          const parts: string[] = [];
+          let cursor = 0;
+          let seg = 0;
+
+          for (const ac of sortedAudio) {
+            const dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
+            if (dur <= 0.001) continue;
+
+            // Align to export origin (video initial gap is removed)
+            const requestedStart = Math.max(0, ac.startTime - timeOriginSingle);
+            const start = Math.max(requestedStart, cursor);
+            const gap = start - cursor;
+            if (gap > 0.01) {
+              const gl = `agap0_${seg++}`;
+              fc.push(`aevalsrc=0:d=${gap}:s=48000:c=stereo[${gl}]`);
+              parts.push(`[${gl}]`);
+              cursor += gap;
+            }
+
+            const inputIndex = ac.file === clip.file ? 0 : 1 + extraAudioFiles.findIndex((f) => f === ac.file);
+            const al = `aext0_${seg++}`;
+            fc.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[${al}]`);
+            parts.push(`[${al}]`);
+            cursor += dur;
+          }
+
+          const tail = clipDuration - cursor;
+          if (tail > 0.01) {
+            const tl = `atail0_${seg++}`;
+            fc.push(`aevalsrc=0:d=${tail}:s=48000:c=stereo[${tl}]`);
+            parts.push(`[${tl}]`);
+          }
+
+          if (parts.length === 0) {
+            fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[a0]`);
+          } else {
+            fc.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[a0]`);
+          }
+        } else if (clip.audioMuted) {
+          fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[a0]`);
+        } else {
+          fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS[a0]`);
+        }
+
+        // Apply transitions on video only
+        let vLabel = 'v0';
+        if (needsBg && startTransition && startTransition.type !== 'none') {
+          const d = Math.max(0.1, Math.min(startTransition.duration, clipDuration * 0.5));
+          const transName = mapTransitionTypeToFFmpeg(startTransition.type);
+          fc.push(`[bg][${vLabel}]xfade=transition=${transName}:duration=${d}:offset=0[vstart]`);
+          vLabel = 'vstart';
+        }
+
+        if (needsBg && endTransition && endTransition.type !== 'none') {
+          const d = Math.max(0.1, Math.min(endTransition.duration, clipDuration * 0.5));
+          const st = Math.max(0, clipDuration - d);
+          const transName = mapTransitionTypeToFFmpeg(endTransition.type);
+          fc.push(`[${vLabel}][bg]xfade=transition=${transName}:duration=${d}:offset=${st}[vend]`);
+          vLabel = 'vend';
+        }
+
+        // Text overlays (on final video)
+        if (textOverlays && textOverlays.length > 0 && textOverlays.some((t) => t.text.trim())) {
+          const validTexts = textOverlays.filter((t) => t.text.trim());
+          let inV = vLabel;
+          for (let i = 0; i < validTexts.length; i++) {
+            const text = validTexts[i];
+            const textFilter = getTextFilterString(text, resolution.width, resolution.height);
+            const outV = i === validTexts.length - 1 ? 'vfinal' : `vtext${i}`;
+            fc.push(`[${inV}]${textFilter}[${outV}]`);
+            inV = outV;
+          }
+          vLabel = 'vfinal';
+        }
+
+        const baseArgs: string[] = ['-i', inputFileName];
+        for (const n of extraAudioInputNames) baseArgs.push('-i', n);
+        if (needsBg) {
+          const bgLavfi = `color=c=black:s=${resolution.width}x${resolution.height}:r=${effectiveFps}:d=${clipDuration}`;
+          baseArgs.push('-f', 'lavfi', '-i', bgLavfi);
+        }
+
+        let args = [
+          ...baseArgs,
+          '-progress', 'pipe:1',
+          '-nostats',
+          '-filter_complex', fc.join(';'),
+          '-map', `[${vLabel}]`,
+          '-map', '[a0]',
+          '-c:v', encodingSettings.videoCodec,
+          '-crf', quality,
+          '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
+          '-preset', encodingSettings.preset,
+          '-r', String(effectiveFps),
+          '-pix_fmt', encodingSettings.pixelFormat,
+          '-threads', encodingSettings.threads,
+          '-shortest',
+          '-movflags', '+faststart',
+          outputFileName
+        ];
+
+        args = buildOptimizedArgs(args, encodingSettings);
+        console.log('FFmpeg command:', args.join(' '));
+        await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
+
+        // Cleanup extra audio FS files
+        for (const n of extraAudioInputNames) {
+          try {
+            await ffmpegInstance.deleteFile(n);
+          } catch {}
+        }
+      }
 
       onProgress?.(98, 'Finalisation...');
       const data = await ffmpegInstance.readFile(outputFileName);
@@ -1211,125 +1768,240 @@ export async function exportProject(
       return new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
     }
 
-    // For multiple clips, concatenate
+    // For multiple clips, concatenate - OPTIMIZED VERSION
     onProgress?.(5, 'Chargement des fichiers...');
     const inputFiles: string[] = [];
     const filterComplex: string[] = [];
+
+    // External audio track clips (WAV/MP3/etc) passed from the timeline.
+    // If present, we will override the exported audio with these clips.
+    const externalAudioClips = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
+    const externalAudioFileToInputIndex = new Map<File, number>();
+
+    // Timeline start alignment: export pipeline ignores initial gaps for video.
+    // We align audio-track clips to the same origin so they sync with exported video.
+    const timeOrigin = clips.length > 0 ? Math.min(...clips.map((c) => c.startTime)) : 0;
     
-    // Separate video/image clips from audio clips if needed, but current structure assumes clips have both or are video
-    // We need to handle cases where clips might not have audio stream
+    // OPTIMIZATION: Simplified approach - avoid complex intermediate processing
+    // 1. Load all files first
+    // 2. Build a single optimized filter chain
+    // 3. Use direct concat when no transitions, xfade only when needed
     
     // Track gaps between clips based on their startTime positions
-    // A gap exists when clip[i].startTime > (clip[i-1].startTime + clip[i-1].effectiveDuration)
+    // OPTIMIZATION: We ignore the initial gap (before first clip) as it's usually not needed in export
+    // This significantly speeds up export by avoiding black frame generation
     interface GapInfo {
-      beforeClipIndex: number; // Gap appears before this clip index
-      duration: number; // Gap duration in seconds
+      beforeClipIndex: number;
+      duration: number;
     }
     const gaps: GapInfo[] = [];
     
     // Calculate effective durations and detect gaps
-    console.log('🕳️ DEBUG - Detecting gaps between clips based on startTime positions');
+    console.log('🕳️ DEBUG - Detecting gaps between clips (ignoring initial gap for speed)');
     
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       const effectiveDuration = clip.duration - clip.trimStart - clip.trimEnd;
       const clipStartTime = clip.startTime;
       
-      // For the first clip, check if it starts after time 0 (gap at the beginning)
       if (i === 0) {
-        if (clipStartTime > 0.01) { // Only consider gaps > 10ms to avoid floating point issues
-          console.log(`🕳️ DEBUG - Gap detected at the beginning: ${clipStartTime}s`);
-          gaps.push({
-            beforeClipIndex: 0,
-            duration: clipStartTime
-          });
+        // OPTIMIZATION: Skip initial gap - it's just empty space before the first clip
+        // Users rarely want black frames at the start of their exported video
+        if (clipStartTime > 0.01) {
+          console.log(`🕳️ DEBUG - Ignoring initial gap of ${clipStartTime.toFixed(2)}s (optimization)`);
         }
-        console.log(`🕳️ DEBUG - Clip ${i}: startTime=${clipStartTime}, effectiveDuration=${effectiveDuration}`);
       } else {
-        // For subsequent clips, calculate expected start time based on previous clip
         const prevClip = clips[i - 1];
         const prevEffectiveDuration = prevClip.duration - prevClip.trimStart - prevClip.trimEnd;
         const expectedStartTime = prevClip.startTime + prevEffectiveDuration;
-        
-        console.log(`🕳️ DEBUG - Clip ${i}: startTime=${clipStartTime}, effectiveDuration=${effectiveDuration}, expectedStartTime=${expectedStartTime}`);
-        
-        // Check for gap before this clip
         const gapDuration = clipStartTime - expectedStartTime;
-        if (gapDuration > 0.01) { // Only consider gaps > 10ms to avoid floating point issues
-          console.log(`🕳️ DEBUG - Gap detected before clip ${i}: ${gapDuration}s`);
-          gaps.push({
-            beforeClipIndex: i,
-            duration: gapDuration
-          });
+        if (gapDuration > 0.01) {
+          gaps.push({ beforeClipIndex: i, duration: gapDuration });
         }
       }
     }
     
-    console.log(`🕳️ DEBUG - Total gaps detected: ${gaps.length}`);
-    gaps.forEach((gap, idx) => {
-      console.log(`🕳️ DEBUG - Gap ${idx + 1}: before clip ${gap.beforeClipIndex}, duration=${gap.duration}s`);
-    });
+    console.log(`🕳️ DEBUG - Total gaps detected (excluding initial): ${gaps.length}`);
     
-    // Create a map for quick gap lookup
-    const gapMap = new Map<number, number>(); // clipIndex -> gap duration before this clip
+    const gapMap = new Map<number, number>();
     for (const gap of gaps) {
       gapMap.set(gap.beforeClipIndex, gap.duration);
     }
     
-    // Track video/audio segment labels including gaps
-    // We'll use: v0, v1, v2... for clips and vgap0, vgap1... for gaps
-    // Similarly: a0, a1, a2... for clip audio and agap0, agap1... for gap audio
-    let gapCounter = 0;
-    const videoSegments: string[] = []; // Labels in order: v0, vgap0, v1, vgap1, v2...
-    const audioSegments: string[] = []; // Labels in order: a0, agap0, a1, agap1, a2...
+    // OPTIMIZATION: Deduplicate files - when clips are split from the same source, load only once
+    const clipToInputIndex = new Map<number, number>(); // Maps clip index to input file index
     
+    // First pass: identify unique files
+    const uniqueFiles: { file: File; originalIndex: number }[] = [];
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
-      const inputFileName = `input${i}${getFileExtension(clip.file.name)}`;
-      await ffmpegInstance.writeFile(inputFileName, await fetchFile(clip.file));
+      // Check if this exact File object was already seen
+      let found = false;
+      for (let j = 0; j < uniqueFiles.length; j++) {
+        if (uniqueFiles[j].file === clip.file) {
+          clipToInputIndex.set(i, j);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        clipToInputIndex.set(i, uniqueFiles.length);
+        uniqueFiles.push({ file: clip.file, originalIndex: i });
+      }
+    }
+    
+    console.log(`📂 OPTIMIZATION: ${clips.length} clips use ${uniqueFiles.length} unique file(s)`);
+    
+    // Load only unique files - SEQUENTIAL to avoid memory issues
+    // FFmpeg.wasm can have issues with parallel writes
+    console.log(`📂 Loading ${uniqueFiles.length} unique file(s)...`);
+
+    // Metadata cache (used for smart scaling decisions)
+    const inputVideoMeta = new Map<number, { width: number; height: number }>();
+    
+    for (let i = 0; i < uniqueFiles.length; i++) {
+      const { file } = uniqueFiles[i];
+      const inputFileName = `input${i}${getFileExtension(file.name)}`;
       inputFiles.push(inputFileName);
-      
-      // Check if there's a gap before this clip
-      const gapDuration = gapMap.get(i);
-      if (gapDuration && gapDuration > 0) {
-        // Generate black video segment for the gap
-        const gapVideoLabel = `vgap${gapCounter}`;
-        const gapAudioLabel = `agap${gapCounter}`;
-        
-        // color filter generates a solid color video
-        // Format: color=c=black:s=WIDTHxHEIGHT:d=DURATION:r=FPS
-        // Add fps and settb to normalize timebase for xfade compatibility
-        filterComplex.push(`color=c=black:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${settings.fps || 30},format=yuv420p,fps=30,settb=1/30,setsar=1[${gapVideoLabel}]`);
-        
-        // aevalsrc generates silence
-        // Format: aevalsrc=0:d=DURATION:s=SAMPLE_RATE:c=stereo
-        filterComplex.push(`aevalsrc=0:d=${gapDuration}:s=48000:c=stereo[${gapAudioLabel}]`);
-        
-        videoSegments.push(gapVideoLabel);
-        audioSegments.push(gapAudioLabel);
-        gapCounter++;
-        
-        console.log(`🕳️ DEBUG - Generated gap segment before clip ${i}: video=[${gapVideoLabel}], audio=[${gapAudioLabel}], duration=${gapDuration}s`);
+
+      // Read basic metadata once per unique file (lets us skip scale/pad when unnecessary)
+      if (file.type.startsWith('video/')) {
+        try {
+          const meta = await getVideoMetadata(file);
+          inputVideoMeta.set(i, { width: meta.width, height: meta.height });
+        } catch {
+          // Non-blocking
+        }
       }
       
-      // Video filter chain for the clip
-      // Ensure we have a video stream. If it's an image, loop it.
-      // If it's a video, trim it.
+      // Keep the UI alive during long load stages
+      onProgress?.(5, `Chargement des fichiers... (${i + 1}/${uniqueFiles.length})`);
+
+      console.log(`📂 [${i + 1}/${uniqueFiles.length}] Reading file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+      const fetchStart = performance.now();
+      
+      // Use arrayBuffer directly instead of fetchFile for better performance with local files
+      const arrayBuffer = await file.arrayBuffer();
+      const dataArray = new Uint8Array(arrayBuffer);
+      
+      const fetchTime = ((performance.now() - fetchStart) / 1000).toFixed(2);
+      console.log(`📂 [${i + 1}/${uniqueFiles.length}] File read in ${fetchTime}s, writing to FFmpeg FS...`);
+      
+      // Delete existing file if any
+      try {
+        await ffmpegInstance.deleteFile(inputFileName);
+        console.log(`🗑️ Deleted existing ${inputFileName}`);
+      } catch (e) {
+        // File doesn't exist, that's fine
+      }
+      
+      // Write to FFmpeg FS with a timeout to avoid indefinite hangs (common on large/many inputs)
+      console.log(`📝 Writing to FFmpeg FS: ${inputFileName}...`);
+      await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray, safeMode ? 60000 : 45000);
+      console.log(`✅ [${i + 1}/${uniqueFiles.length}] File written to FFmpeg FS: ${inputFileName}`);
+    }
+    
+    console.log(`✅ All ${uniqueFiles.length} unique file(s) loaded successfully`);
+
+    // Load external audio inputs that are not already part of the unique video inputs.
+    if (externalAudioClips.length > 0) {
+      const extraAudioFiles: File[] = [];
+
+      for (const ac of externalAudioClips) {
+        const f = ac.file;
+        const existingVideoIdx = uniqueFiles.findIndex((u) => u.file === f);
+        if (existingVideoIdx !== -1) {
+          externalAudioFileToInputIndex.set(f, existingVideoIdx);
+          continue;
+        }
+        if (!extraAudioFiles.includes(f)) extraAudioFiles.push(f);
+      }
+
+      console.log(`🔊 Loading ${extraAudioFiles.length} external audio file(s)...`);
+      for (let i = 0; i < extraAudioFiles.length; i++) {
+        const file = extraAudioFiles[i];
+        const inputIndex = uniqueFiles.length + i;
+        externalAudioFileToInputIndex.set(file, inputIndex);
+
+        const inputFileName = `audio_input${i}${getFileExtension(file.name)}`;
+        inputFiles.push(inputFileName);
+
+        onProgress?.(5, `Chargement des fichiers audio... (${i + 1}/${extraAudioFiles.length})`);
+        try {
+          await ffmpegInstance.deleteFile(inputFileName);
+        } catch {}
+        const dataArray = new Uint8Array(await file.arrayBuffer());
+        await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray, safeMode ? 60000 : 45000);
+      }
+      console.log('✅ External audio inputs loaded');
+    }
+    
+    // OPTIMIZATION: Build simplified filter chain
+    const targetFps = parseInt(settings.fps || '30');
+
+    const hasImages = clips.some((c) => c.file.type.startsWith('image/'));
+    const hasAnyTransitionMarkers = !!(transitions && transitions.some((t) => t.type !== 'none'));
+    // IMPORTANT:
+    // - For xfade stability, inputs MUST have matching timebases.
+    // - Single-file projects often have timebase 1/15360; without normalization xfade fails.
+    // So when transitions exist we force fps+settb on each clip stream.
+    const needsPerClipTimebaseNormalization = hasAnyTransitionMarkers;
+    const needsFpsNormalization = uniqueFiles.length > 1 || hasImages || needsPerClipTimebaseNormalization;
+    
+    // Generate gap segments (black video + silence)
+    let gapCounter = 0;
+    for (const gap of gaps) {
+      const gapVideoLabel = `vgap${gapCounter}`;
+      const gapAudioLabel = `agap${gapCounter}`;
+      // Simplified: generate at target fps directly, no extra normalization
+      filterComplex.push(`color=c=black:s=${resolution.width}x${resolution.height}:d=${gap.duration}:r=${targetFps},format=yuv420p[${gapVideoLabel}]`);
+      filterComplex.push(`aevalsrc=0:d=${gap.duration}:s=48000:c=stereo[${gapAudioLabel}]`);
+      gapCounter++;
+    }
+    
+    // Generate video/audio filters for each clip - SIMPLIFIED
+    // Use clipToInputIndex to reference the correct input file
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      const inputIndex = clipToInputIndex.get(i) ?? i; // Get the actual input file index
       const isImage = clip.file.type.startsWith('image/');
       const duration = clip.duration - clip.trimStart - clip.trimEnd;
+
+      const meta = inputVideoMeta.get(inputIndex);
+      const needsScalePad = !isImage && meta ? (meta.width !== resolution.width || meta.height !== resolution.height) : true;
       
+      // OPTIMIZATION: Simplified video filter - only essential operations
+      // Use inputIndex to reference the correct input file (handles deduplicated files)
       let videoFilter = '';
       if (isImage) {
-        // For images: loop 1, trim to duration, scale/pad
-        // Note: images don't have [i:v], they are just input i. But ffmpeg treats image input as video stream.
-        // Add fps=30,settb=1/30 to normalize framerate and timebase for xfade compatibility
-        videoFilter = `[${i}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=30,settb=1/30,setsar=1`;
+        videoFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+
+        if (needsFpsNormalization) {
+          videoFilter += `,fps=${targetFps}`;
+        }
+
+        // Normalize timebase for transitions/xfade stability
+        if (needsPerClipTimebaseNormalization) {
+          videoFilter += `,settb=1/${targetFps}`;
+        }
       } else {
-        // For video: trim, scale/pad, setsar to avoid aspect ratio issues
-        // Add fps=30,settb=1/30 to normalize framerate and timebase for xfade compatibility
-        // This fixes "First input link main timebase do not match second input link xfade timebase" errors
-        // when mixing videos from different sources (e.g., Clipchamp 30fps vs Google 24fps)
-        videoFilter = `[${i}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=30,settb=1/30,setsar=1`;
+        // OPTIMIZATION: Use trim with correct input index
+        // For split clips from the same source, scaling/fps normalization is often redundant.
+        // We keep them only when necessary (different input resolution or mixed sources/images).
+        videoFilter = `[${inputIndex}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS`;
+
+        if (needsScalePad) {
+          videoFilter += `,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+        }
+
+        if (needsFpsNormalization) {
+          videoFilter += `,fps=${targetFps}`;
+        }
+
+        // Normalize timebase for transitions/xfade stability
+        if (needsPerClipTimebaseNormalization) {
+          videoFilter += `,settb=1/${targetFps}`;
+        }
       }
       
       if (clip.filter) {
@@ -1340,402 +2012,255 @@ export async function exportProject(
       }
       
       filterComplex.push(`${videoFilter}[v${i}]`);
-      videoSegments.push(`v${i}`);
-      audioSegments.push(`a${i}`); // Audio will be added later
-    }
-    
-    console.log(`🕳️ DEBUG - Video segments in order: ${videoSegments.join(', ')}`);
-    console.log(`🕳️ DEBUG - Audio segments in order: ${audioSegments.join(', ')}`);
-    
-    // Calculate cumulative durations for transition offsets and text timing
-    // Now we need to account for gaps in the timeline
-    const clipDurations: number[] = clips.map(clip => clip.duration - clip.trimStart - clip.trimEnd);
-    const clipStartTimes: number[] = [];
-    let cumulativeTime = 0;
-    for (let i = 0; i < clips.length; i++) {
-      // Add gap duration before this clip if any
-      const gapDuration = gapMap.get(i);
-      if (gapDuration && gapDuration > 0) {
-        cumulativeTime += gapDuration;
+      
+      // Audio filter - simplified, use inputIndex for correct input reference
+      if (isImage) {
+        filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
+      } else {
+        if (clip.audioMuted) {
+          // Video clip audio explicitly muted (e.g. detached audio deleted) => silence
+          filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
+        } else {
+          filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[a${i}]`);
+        }
       }
-      clipStartTimes.push(cumulativeTime);
-      cumulativeTime += clipDurations[i];
     }
     
-    console.log(`🕳️ DEBUG - Clip start times (with gaps): ${clipStartTimes.join(', ')}`);
-    console.log(`🕳️ DEBUG - Total duration (with gaps): ${cumulativeTime}s`);
+    // Calculate clip durations for transition offsets
+    const clipDurations: number[] = clips.map(clip => clip.duration - clip.trimStart - clip.trimEnd);
     
-    // Build transition maps for clips that have transitions
-    // We need to map transitions by SORTED INDEX, not by clipId
-    // This is because clips are sorted by startTime, but transitions reference clipId
-    //
-    // Strategy:
-    // 1. Create a clipId -> sorted index mapping
-    // 2. Build transition maps using sorted indices as keys
-    //
-    // startTransitionByIndex: Key: sorted index, Value: transition (for 'start' position transitions)
-    // endTransitionByIndex: Key: sorted index, Value: transition (for 'end' position transitions)
-    
-    // Step 1: Create clipId to sorted index mapping
+    // Build transition maps
     const clipIdToSortedIndex = new Map<string, number>();
     clips.forEach((clip, index) => {
-      if (clip.id) {
-        clipIdToSortedIndex.set(clip.id, index);
-      }
+      if (clip.id) clipIdToSortedIndex.set(clip.id, index);
     });
     
-    // DEBUG: Log the clip order and IDs for troubleshooting transition matching
-    console.log('🎬 DEBUG - Clips in export order (sorted by startTime):');
-    clips.forEach((clip, index) => {
-      console.log(`🎬 DEBUG - Clip ${index}: id=${clip.id}, startTime=${clip.startTime}, duration=${clip.duration}`);
-    });
-    console.log('🎬 DEBUG - clipIdToSortedIndex mapping:', Object.fromEntries(clipIdToSortedIndex));
-    
-    // Step 2: Build transition maps using sorted indices
     const startTransitionByIndex = new Map<number, Transition>();
     const endTransitionByIndex = new Map<number, Transition>();
     
     if (transitions && transitions.length > 0) {
-      console.log('🔀 DEBUG - Building transition maps from', transitions.length, 'transitions');
       for (const transition of transitions) {
         const sortedIndex = clipIdToSortedIndex.get(transition.clipId);
-        console.log(`🔀 DEBUG - Transition:`, {
-          id: transition.id,
-          type: transition.type,
-          clipId: transition.clipId,
-          position: transition.position,
-          duration: transition.duration,
-          sortedIndex: sortedIndex
-        });
         if (transition.type !== 'none' && sortedIndex !== undefined) {
           if (transition.position === 'start') {
             startTransitionByIndex.set(sortedIndex, transition);
-            console.log(`🔀 DEBUG - Start transition mapped: sortedIndex=${sortedIndex}, clipId=${transition.clipId}, type=${transition.type}`);
           } else if (transition.position === 'end') {
             endTransitionByIndex.set(sortedIndex, transition);
-            console.log(`🔀 DEBUG - End transition mapped: sortedIndex=${sortedIndex}, clipId=${transition.clipId}, type=${transition.type}`);
           }
-        } else if (transition.type === 'none') {
-          console.log(`🔀 DEBUG - Transition skipped (type=none): clipId=${transition.clipId}`);
-        } else {
-          console.log(`🔀 DEBUG - Transition skipped (clipId not found in sorted clips): clipId=${transition.clipId}`);
         }
       }
-      console.log('🔀 DEBUG - Start transition map size:', startTransitionByIndex.size);
-      console.log('🔀 DEBUG - End transition map size:', endTransitionByIndex.size);
-    } else {
-      console.log('🔀 DEBUG - No transitions to process');
     }
     
-    // Apply transitions between clips using xfade
-    // xfade merges two video streams with a transition effect
-    // Format: [input1][input2]xfade=transition=type:duration=d:offset=o[output]
-    // The offset is when the transition starts (relative to the beginning of the combined output)
-    //
-    // Transition logic:
-    // - 'start' position on clip N: transition FROM clip N-1 TO clip N (applied between N-1 and N)
-    // - 'end' position on clip N: transition FROM clip N TO clip N+1 (applied between N and N+1)
-    // Both are equivalent for the same pair of clips, just different UI perspectives
-    
-    let hasTransitions = false;
-    
-    // When we have gaps, we need to handle the video merging differently
-    // First, we need to merge all segments (clips + gaps) in order
-    // Then apply transitions between actual clips (not gaps)
-    
-    // If there are gaps, we need to handle transitions differently
-    // We can still apply xfade between ADJACENT clips (no gap between them)
-    // but we need to use concat for gap segments
+    // OPTIMIZATION: Determine if we have any transitions at all
+    const hasAnyTransitions = startTransitionByIndex.size > 0 || endTransitionByIndex.size > 0;
     const hasGaps = gaps.length > 0;
+    
     let currentVideoLabel = '';
-    let cumulativeOffset = 0;
     
-    console.log('Starting transition processing with', clips.length, 'clips and', gaps.length, 'gaps');
-    console.log('Clip durations:', clipDurations);
-    console.log('Has gaps:', hasGaps);
-    
-    // NEW HYBRID APPROACH: Apply xfade between adjacent clips, use concat for gaps
-    //
-    // Strategy:
-    // 1. Identify "groups" of adjacent clips (clips without gaps between them)
-    // 2. Within each group, apply xfade transitions between clips
-    // 3. Use concat to join: gap segments + processed clip groups
-    //
-    // Example: [Clip A] [Gap] [Clip B] [Clip C with transition to D] [Clip D]
-    // Groups: Group1=[A], Group2=[B, C, D]
-    // Process:
-    //   - Group1: just [vA]
-    //   - Group2: [vB] concat [vC][vD]xfade -> [vBCD]
-    // Final: [vA][vgap0][vBCD]concat
-    
-    // Build adjacency information: which clips are adjacent (no gap between them)?
-    // A clip at index i is adjacent to clip at index i+1 if there's no gap before clip i+1
-    const isAdjacentToNext: boolean[] = [];
-    for (let i = 0; i < clips.length - 1; i++) {
-      // Clip i is adjacent to clip i+1 if there's no gap before clip i+1
-      const hasGapBeforeNext = gapMap.has(i + 1);
-      isAdjacentToNext.push(!hasGapBeforeNext);
-    }
-    isAdjacentToNext.push(false); // Last clip has no next
-    
-    console.log('🔀 DEBUG - Adjacency info:', isAdjacentToNext);
-    
-    // Process clips and apply xfade between adjacent clips with transitions
-    // We'll build "processed segments" that will be concatenated at the end
-    // Each processed segment is either:
-    // - A gap segment (vgapX)
-    // - A single clip (vX)
-    // - A group of clips merged with xfade (vtX)
-    
-    interface ProcessedSegment {
-      label: string;
-      type: 'gap' | 'clip' | 'merged';
-      clipIndices?: number[]; // For merged segments, track which clips are included
-    }
-    const processedVideoSegments: ProcessedSegment[] = [];
-    const processedAudioSegments: ProcessedSegment[] = []; // Parallel array for audio
-    
-    // Track which clips have been processed (merged into a previous group)
-    const processedClips = new Set<number>();
-    
-    // Counter for merged audio segments
-    let audioMergeCounter = 0;
-    
-    // First, add gap at the beginning if exists
-    if (gapMap.has(0)) {
-      processedVideoSegments.push({ label: 'vgap0', type: 'gap' });
-      processedAudioSegments.push({ label: 'agap0', type: 'gap' });
-      console.log('🔀 DEBUG - Added initial gap segment: vgap0, agap0');
+    // FAST PATH: No transitions (with or without gaps) - single concat in filter_complex.
+    // In ffmpeg.wasm, pre-processing to intermediate files can hang and is often slower than
+    // doing one final encode. This keeps the graph simple and avoids multi-encode pipelines.
+    if (!hasAnyTransitions && clips.length > 1) {
+      console.log('🚀 FAST PATH: Simple concat (no transitions)');
+      console.log(`📊 Clips: ${clips.length}, Gaps: ${gaps.length}`);
+
+      const orderedVideoLabels: string[] = [];
+      const orderedAudioLabels: string[] = [];
+      let gapIdx = 0;
+
+      for (let i = 0; i < clips.length; i++) {
+        if (gapMap.has(i)) {
+          orderedVideoLabels.push(`[vgap${gapIdx}]`);
+          orderedAudioLabels.push(`[agap${gapIdx}]`);
+          gapIdx++;
+        }
+        orderedVideoLabels.push(`[v${i}]`);
+        orderedAudioLabels.push(`[a${i}]`);
+      }
+
+      filterComplex.push(`${orderedVideoLabels.join('')}concat=n=${orderedVideoLabels.length}:v=1:a=0[outv]`);
+      filterComplex.push(`${orderedAudioLabels.join('')}concat=n=${orderedAudioLabels.length}:v=0:a=1[outa]`);
+      currentVideoLabel = 'outv';
     }
     
-    let mergeCounter = 0;
-    
-    for (let i = 0; i < clips.length; i++) {
-      // Skip if already processed as part of a previous group
-      if (processedClips.has(i)) {
-        continue;
+    // STANDARD PATH with filter_complex: Only used when transitions are needed
+    if (hasAnyTransitions) {
+      // STANDARD PATH: Handle gaps and/or transitions
+      console.log('📦 STANDARD PATH: Processing with gaps/transitions');
+      
+      // Build adjacency info
+      const isAdjacentToNext: boolean[] = [];
+      for (let i = 0; i < clips.length - 1; i++) {
+        isAdjacentToNext.push(!gapMap.has(i + 1));
       }
+      isAdjacentToNext.push(false);
       
-      const clip = clips[i];
-      const clipId = clip.id;
+      // Collect all segments in order (gaps + clips)
+      const allVideoSegments: string[] = [];
+      const allAudioSegments: string[] = [];
       
-      // Check if this clip should be merged with the next clip(s) via xfade
-      // We look ahead to find all adjacent clips that have transitions between them
-      let currentGroupLabel = `v${i}`;
-      let groupEndIndex = i;
-      let groupCumulativeOffset = clipDurations[i];
-      
-      // Look ahead for adjacent clips with transitions
-      while (groupEndIndex < clips.length - 1 && isAdjacentToNext[groupEndIndex]) {
-        const nextIndex = groupEndIndex + 1;
-        const currentIndex = groupEndIndex;
-        
-        // Check for transition between current and next clip using SORTED INDICES
-        // A 'start' transition on the NEXT clip means: transition FROM current TO next
-        // An 'end' transition on the CURRENT clip means: transition FROM current TO next
-        let transition = startTransitionByIndex.get(nextIndex);
-        let transitionSource = 'start';
-        
-        if (!transition) {
-          transition = endTransitionByIndex.get(currentIndex);
-          transitionSource = 'end';
+      let gapIdx = 0;
+      for (let i = 0; i < clips.length; i++) {
+        // Add gap before this clip if exists
+        if (gapMap.has(i)) {
+          allVideoSegments.push(`vgap${gapIdx}`);
+          allAudioSegments.push(`agap${gapIdx}`);
+          gapIdx++;
         }
-        
-        // DEBUG: Log transition lookup using sorted indices
-        console.log(`🔀 DEBUG - Checking transition between clip ${currentIndex} and ${nextIndex}:`);
-        console.log(`🔀 DEBUG - Looking for: startTransitionByIndex[${nextIndex}] or endTransitionByIndex[${currentIndex}]`);
-        console.log(`🔀 DEBUG - startTransitionByIndex keys:`, Array.from(startTransitionByIndex.keys()));
-        console.log(`🔀 DEBUG - endTransitionByIndex keys:`, Array.from(endTransitionByIndex.keys()));
-        console.log(`🔀 DEBUG - Result:`, {
-          hasTransition: !!transition,
-          transitionType: transition?.type,
-          transitionSource
-        });
-        
-        if (transition && transition.type !== 'none') {
-          hasTransitions = true;
-          console.log(`🔀 DEBUG - ✅ Applying xfade ${transition.type} between clips ${groupEndIndex} and ${nextIndex}`);
-          
-          // Transition duration should not exceed either clip's duration
-          const transitionDuration = Math.min(
-            transition.duration,
-            clipDurations[groupEndIndex] * 0.9,
-            clipDurations[nextIndex] * 0.9
-          );
-          
-          // The offset is where the transition starts in the merged output
-          const offset = Math.max(0, groupCumulativeOffset - transitionDuration);
-          
-          const outputLabel = `vm${mergeCounter}`;
-          const xfadeFilter = getTransitionFilter(transition, offset);
-          
-          console.log(`🔀 DEBUG - xfade: [${currentGroupLabel}][v${nextIndex}] offset=${offset}, duration=${transitionDuration}`);
-          
-          if (xfadeFilter) {
-            filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]${xfadeFilter}[${outputLabel}]`);
-            currentGroupLabel = outputLabel;
-            mergeCounter++;
-            
-            // Update cumulative offset for the group
-            groupCumulativeOffset = offset + clipDurations[nextIndex];
-          }
-          
-          processedClips.add(nextIndex);
-          groupEndIndex = nextIndex;
-        } else {
-          // No transition - check if we should still merge (adjacent but no transition)
-          // In this case, we use concat instead of xfade
-          console.log(`🔀 DEBUG - No transition between adjacent clips ${groupEndIndex} and ${nextIndex}, using concat`);
-          
-          const outputLabel = `vm${mergeCounter}`;
-          // Add fps=30,settb=1/30 after concat to normalize timebase for xfade compatibility
-          // This fixes "First input link main timebase do not match second input link xfade timebase" errors
-          filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]concat=n=2:v=1:a=0,fps=30,settb=1/30[${outputLabel}]`);
-          currentGroupLabel = outputLabel;
-          mergeCounter++;
-          
-          groupCumulativeOffset += clipDurations[nextIndex];
-          
-          processedClips.add(nextIndex);
-          groupEndIndex = nextIndex;
-        }
+        allVideoSegments.push(`v${i}`);
+        allAudioSegments.push(`a${i}`);
       }
       
-      // Add the processed group/clip to segments
-      const isMerged = groupEndIndex > i;
-      const clipIndicesInGroup: number[] = [];
-      for (let ci = i; ci <= groupEndIndex; ci++) {
-        clipIndicesInGroup.push(ci);
-      }
-      
-      processedVideoSegments.push({
-        label: currentGroupLabel,
-        type: isMerged ? 'merged' : 'clip',
-        clipIndices: clipIndicesInGroup
-      });
-      
-      // Add corresponding audio segment(s)
-      if (isMerged) {
-        // For merged video segments, we need to merge the corresponding audio segments
-        // Create a merged audio segment by concatenating the audio of all clips in the group
-        const audioLabelsToMerge = clipIndicesInGroup.map(ci => `a${ci}`);
-        const mergedAudioLabel = `am${audioMergeCounter}`;
-        
-        // Build the audio concat filter for this merged group
-        const audioMergeLabels = audioLabelsToMerge.map(l => `[${l}]`).join('');
-        filterComplex.push(`${audioMergeLabels}concat=n=${audioLabelsToMerge.length}:v=0:a=1[${mergedAudioLabel}]`);
-        
-        processedAudioSegments.push({
-          label: mergedAudioLabel,
-          type: 'merged',
-          clipIndices: clipIndicesInGroup
-        });
-        
-        console.log(`🔀 DEBUG - Created merged audio segment: ${mergedAudioLabel} from clips ${clipIndicesInGroup.join(', ')}`);
-        audioMergeCounter++;
-      } else {
-        // Single clip, just use its audio directly
-        processedAudioSegments.push({
-          label: `a${i}`,
-          type: 'clip',
-          clipIndices: [i]
-        });
-      }
-      
-      console.log(`🔀 DEBUG - Added segment: ${currentGroupLabel} (type: ${isMerged ? 'merged' : 'clip'})`);
-      
-      // Add gap after this group if there's one before the next unprocessed clip
-      // Find the next unprocessed clip
-      let nextUnprocessedIndex = groupEndIndex + 1;
-      while (nextUnprocessedIndex < clips.length && processedClips.has(nextUnprocessedIndex)) {
-        nextUnprocessedIndex++;
-      }
-      
-      if (nextUnprocessedIndex < clips.length && gapMap.has(nextUnprocessedIndex)) {
-        // Find the gap index for this position
-        let gapIndex = 0;
-        for (let g = 0; g < nextUnprocessedIndex; g++) {
-          if (gapMap.has(g)) gapIndex++;
-        }
-        // Adjust: we need to find which vgapX corresponds to the gap before nextUnprocessedIndex
-        // The gaps are numbered in order of their beforeClipIndex
-        let actualGapIndex = 0;
-        for (const gap of gaps) {
-          if (gap.beforeClipIndex === nextUnprocessedIndex) {
-            processedVideoSegments.push({ label: `vgap${actualGapIndex}`, type: 'gap' });
-            processedAudioSegments.push({ label: `agap${actualGapIndex}`, type: 'gap' });
-            console.log(`🔀 DEBUG - Added gap segment: vgap${actualGapIndex}, agap${actualGapIndex} (before clip ${nextUnprocessedIndex})`);
+      // OPTIMIZATION: Check if we need xfade at all
+      let needsXfade = false;
+      for (let i = 0; i < clips.length - 1; i++) {
+        if (isAdjacentToNext[i]) {
+          const transition = startTransitionByIndex.get(i + 1) || endTransitionByIndex.get(i);
+          if (transition && transition.type !== 'none') {
+            needsXfade = true;
             break;
           }
-          actualGapIndex++;
         }
       }
-    }
-    
-    console.log('🔀 DEBUG - Processed video segments:', processedVideoSegments.map(s => s.label));
-    console.log('🔀 DEBUG - Processed audio segments:', processedAudioSegments.map(s => s.label));
-    
-    // Now concatenate all processed segments
-    if (processedVideoSegments.length === 1) {
-      // Only one segment, just rename it
-      currentVideoLabel = processedVideoSegments[0].label;
-      filterComplex.push(`[${currentVideoLabel}]copy[vmerged]`);
-      currentVideoLabel = 'vmerged';
-    } else if (processedVideoSegments.length > 1) {
-      // Multiple segments, concatenate them
-      const allLabels = processedVideoSegments.map(s => `[${s.label}]`).join('');
-      // Add fps=30,settb=1/30 after concat to normalize timebase for subsequent filters
-      // This fixes "First input link main timebase do not match second input link xfade timebase" errors
-      filterComplex.push(`${allLabels}concat=n=${processedVideoSegments.length}:v=1:a=0,fps=30,settb=1/30[vmerged]`);
-      currentVideoLabel = 'vmerged';
-      console.log(`🔀 DEBUG - Final concat: ${processedVideoSegments.length} segments into [vmerged]`);
-    } else {
-      // No segments? This shouldn't happen, but handle it
-      currentVideoLabel = 'v0';
-      filterComplex.push(`[v0]copy[vmerged]`);
-      currentVideoLabel = 'vmerged';
-    }
-    
-    console.log('Transition processing complete. hasTransitions:', hasTransitions, 'finalLabel:', currentVideoLabel);
-    
-    // Generate audio filters for all clips (gap audio was already generated above)
-    for (let i = 0; i < clips.length; i++) {
-      const clip = clips[i];
-      const isImage = clip.file.type.startsWith('image/');
-      const duration = clip.duration - clip.trimStart - clip.trimEnd;
       
-      if (isImage) {
-        // Generate silence for image duration
-        filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
+      if (!needsXfade) {
+        // No xfade needed - simple concat of all segments
+        console.log('🚀 No xfade needed - simple concat');
+        const allVideoLabelsStr = allVideoSegments.map(s => `[${s}]`).join('');
+        const allAudioLabelsStr = allAudioSegments.map(s => `[${s}]`).join('');
+        filterComplex.push(`${allVideoLabelsStr}concat=n=${allVideoSegments.length}:v=1:a=0[outv]`);
+        filterComplex.push(`${allAudioLabelsStr}concat=n=${allAudioSegments.length}:v=0:a=1[outa]`);
+        currentVideoLabel = 'outv';
       } else {
-        // For video, use its audio
-        filterComplex.push(`[${i}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[a${i}]`);
+        // Need xfade - process with transitions
+        console.log('🔀 Processing with xfade transitions');
+        
+        // Process video segments with xfade where needed
+        let mergeCounter = 0;
+        const processedVideoSegments: string[] = [];
+        const processedAudioSegments: string[] = [];
+        const processedClips = new Set<number>();
+        
+        // Add initial gap if exists
+        if (gapMap.has(0)) {
+          processedVideoSegments.push('vgap0');
+          processedAudioSegments.push('agap0');
+        }
+        
+        for (let i = 0; i < clips.length; i++) {
+          if (processedClips.has(i)) continue;
+          
+          let currentGroupLabel = `v${i}`;
+          let groupEndIndex = i;
+          let groupCumulativeOffset = clipDurations[i];
+          const clipIndicesInGroup: number[] = [i];
+          
+          // Look ahead for adjacent clips with transitions
+          while (groupEndIndex < clips.length - 1 && isAdjacentToNext[groupEndIndex]) {
+            const nextIndex = groupEndIndex + 1;
+            const transition = startTransitionByIndex.get(nextIndex) || endTransitionByIndex.get(groupEndIndex);
+            
+            if (transition && transition.type !== 'none') {
+              // Apply xfade
+              const transitionDuration = Math.min(
+                transition.duration,
+                clipDurations[groupEndIndex] * 0.9,
+                clipDurations[nextIndex] * 0.9
+              );
+              const offset = Math.max(0, groupCumulativeOffset - transitionDuration);
+              const outputLabel = `vm${mergeCounter}`;
+
+              // PERFORMANCE NOTE: custom per-pixel blend masks are extremely slow in ffmpeg.wasm.
+              // Always use xfade for stability/speed (diamond-wipe maps to rectcrop; circle-wipe maps to circleopen).
+              const xfadeFilter = getTransitionFilter(transition, offset);
+              
+              if (xfadeFilter) {
+                // OPTIMIZATION: Add settb only for xfade compatibility
+                filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]${xfadeFilter},settb=1/${targetFps}[${outputLabel}]`);
+                currentGroupLabel = outputLabel;
+                mergeCounter++;
+                groupCumulativeOffset = offset + clipDurations[nextIndex];
+              }
+              
+              processedClips.add(nextIndex);
+              clipIndicesInGroup.push(nextIndex);
+              groupEndIndex = nextIndex;
+            } else {
+              // No transition - concat
+              const outputLabel = `vm${mergeCounter}`;
+              // IMPORTANT: concat outputs a different timebase (often 1/1000000). Normalize it so a later xfade won't fail.
+              filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]concat=n=2:v=1:a=0,settb=1/${targetFps}[${outputLabel}]`);
+              currentGroupLabel = outputLabel;
+              mergeCounter++;
+              groupCumulativeOffset += clipDurations[nextIndex];
+              
+              processedClips.add(nextIndex);
+              clipIndicesInGroup.push(nextIndex);
+              groupEndIndex = nextIndex;
+            }
+          }
+          
+          processedVideoSegments.push(currentGroupLabel);
+          
+          // Handle audio for this group
+          if (clipIndicesInGroup.length > 1) {
+            const audioLabels = clipIndicesInGroup.map(ci => `[a${ci}]`).join('');
+            const mergedAudioLabel = `am${mergeCounter}`;
+            filterComplex.push(`${audioLabels}concat=n=${clipIndicesInGroup.length}:v=0:a=1[${mergedAudioLabel}]`);
+            processedAudioSegments.push(mergedAudioLabel);
+          } else {
+            processedAudioSegments.push(`a${i}`);
+          }
+          
+          // Add gap after this group if needed
+          let nextUnprocessedIndex = groupEndIndex + 1;
+          while (nextUnprocessedIndex < clips.length && processedClips.has(nextUnprocessedIndex)) {
+            nextUnprocessedIndex++;
+          }
+          
+          if (nextUnprocessedIndex < clips.length && gapMap.has(nextUnprocessedIndex)) {
+            let actualGapIndex = 0;
+            for (const gap of gaps) {
+              if (gap.beforeClipIndex === nextUnprocessedIndex) {
+                processedVideoSegments.push(`vgap${actualGapIndex}`);
+                processedAudioSegments.push(`agap${actualGapIndex}`);
+                break;
+              }
+              actualGapIndex++;
+            }
+          }
+        }
+        
+        // Final concat of all processed segments
+        if (processedVideoSegments.length === 1) {
+          filterComplex.push(`[${processedVideoSegments[0]}]null[outv]`);
+        } else {
+          const allLabels = processedVideoSegments.map(s => `[${s}]`).join('');
+          // Keep a stable timebase on the final merged stream
+          filterComplex.push(`${allLabels}concat=n=${processedVideoSegments.length}:v=1:a=0,settb=1/${targetFps}[outv]`);
+        }
+        
+        if (processedAudioSegments.length === 1) {
+          filterComplex.push(`[${processedAudioSegments[0]}]anull[outa]`);
+        } else {
+          const allAudioLabels = processedAudioSegments.map(s => `[${s}]`).join('');
+          filterComplex.push(`${allAudioLabels}concat=n=${processedAudioSegments.length}:v=0:a=1[outa]`);
+        }
+        
+        currentVideoLabel = 'outv';
       }
     }
+    
+    console.log('Transition processing complete. finalLabel:', currentVideoLabel);
       
     onProgress?.(5, 'Assemblage des clips...');
-
-    // Audio concatenation - use processedAudioSegments which is synchronized with processedVideoSegments
-    // This ensures gaps and merged clips are in the correct order
-    const allProcessedAudioLabels = processedAudioSegments.map(s => `[${s.label}]`).join('');
-    const totalProcessedAudioSegments = processedAudioSegments.length;
-    filterComplex.push(`${allProcessedAudioLabels}concat=n=${totalProcessedAudioSegments}:v=0:a=1[outa]`);
-    
-    console.log(`🕳️ DEBUG - Audio concatenation: ${totalProcessedAudioSegments} segments (synchronized with video)`);
-    console.log(`🕳️ DEBUG - Audio labels: ${processedAudioSegments.map(s => s.label).join(', ')}`);
-    
-    // Video is already merged in currentVideoLabel (vmerged), just rename to outv
-    filterComplex.push(`[${currentVideoLabel}]copy[outv]`);
     
     // Add text overlays to the final merged video
     if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
       console.log('🔤 DEBUG - Processing text overlays for multi-clip export');
       console.log('🔤 DEBUG - isFontLoaded:', isFontLoaded);
       
-      // Remove the last filter that outputs to [outv] - we'll chain text filters instead
-      filterComplex.pop();
-      
-      // Apply text filters to the merged video (currentVideoLabel = vmerged)
+      // Apply text filters to the merged video
       let textInputLabel = currentVideoLabel;
       let textOutputLabel = 'vtext0';
       
@@ -1746,7 +2271,7 @@ export async function exportProject(
         const text = validTexts[i];
         const textFilter = getTextFilterString(text, resolution.width, resolution.height);
         const isLast = i === validTexts.length - 1;
-        textOutputLabel = isLast ? 'outv' : `vtext${i}`;
+        textOutputLabel = isLast ? 'finalv' : `vtext${i}`;
         
         console.log(`🔤 DEBUG - Text ${i + 1}/${validTexts.length}:`, {
           text: text.text,
@@ -1759,19 +2284,92 @@ export async function exportProject(
         textInputLabel = textOutputLabel;
       }
       
+      // Update the video label to the final text output
+      currentVideoLabel = 'finalv';
       console.log('🔤 DEBUG - Text filters added to filter complex');
-    } else {
-      console.log('🔤 DEBUG - No text overlays to process (count:', textOverlays?.length, ', hasValidText:', textOverlays?.some(t => t.text.trim()), ')');
     }
 
     const outputFileName = `output.${outputFormat}`;
     
+    // Determine the final video label (outv or finalv if text overlays were added)
+    const finalVideoLabel = currentVideoLabel;
+
+    // Determine final audio label: use external audio-track clips if provided.
+    const finalAudioLabel = externalAudioClips.length > 0 ? 'outa_ext' : 'outa';
+
+    if (externalAudioClips.length > 0) {
+      // Compute exported video duration (includes gaps, but ignores initial gap by design)
+      const outputTimelineDuration = Math.max(
+        0,
+        ...clips.map((c) => {
+          const d = c.duration - c.trimStart - c.trimEnd;
+          return Math.max(0, c.startTime - timeOrigin) + Math.max(0, d);
+        })
+      );
+
+      console.log('🔊 Export audio override: using audio-track clips', {
+        count: externalAudioClips.length,
+        outputTimelineDuration,
+      });
+
+      const sortedAudio = [...externalAudioClips].sort((a, b) => a.startTime - b.startTime);
+      const parts: string[] = [];
+      let cursor = 0;
+      let seg = 0;
+
+      for (const ac of sortedAudio) {
+        const inputIndex = externalAudioFileToInputIndex.get(ac.file);
+        if (inputIndex == null) {
+          console.warn('External audio clip has no input index, skipping', ac.file.name);
+          continue;
+        }
+
+        const dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
+        if (dur <= 0.001) continue;
+
+        // Align to export origin (video ignores initial gap)
+        const requestedStart = Math.max(0, ac.startTime - timeOrigin);
+
+        // concat cannot represent overlaps; enforce monotonic cursor
+        const start = Math.max(requestedStart, cursor);
+        const gap = start - cursor;
+        if (gap > 0.01) {
+          const gl = `agape${seg++}`;
+          filterComplex.push(`aevalsrc=0:d=${gap}:s=48000:c=stereo[${gl}]`);
+          parts.push(`[${gl}]`);
+          cursor += gap;
+        }
+
+        const al = `aext${seg++}`;
+        filterComplex.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[${al}]`);
+        parts.push(`[${al}]`);
+        cursor += dur;
+      }
+
+      // Trailing silence to avoid -shortest truncating the video when external audio ends early.
+      const tail = outputTimelineDuration - cursor;
+      if (tail > 0.01) {
+        const tl = `atail${seg++}`;
+        filterComplex.push(`aevalsrc=0:d=${tail}:s=48000:c=stereo[${tl}]`);
+        parts.push(`[${tl}]`);
+      }
+
+      if (parts.length === 0) {
+        filterComplex.push(`aevalsrc=0:d=${outputTimelineDuration}:s=48000:c=stereo[${finalAudioLabel}]`);
+      } else {
+        filterComplex.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[${finalAudioLabel}]`);
+      }
+    }
+    
     // Build base args for multi-clip export with hardware-optimized settings
     let args = [
       ...inputFiles.flatMap(f => ['-i', f]),
+      // Emit periodic progress key/value logs (parsed in loadFFmpeg log handler)
+      '-progress', 'pipe:1',
+      '-nostats',
       '-filter_complex', filterComplex.join(';'),
-      '-map', '[outv]',
-      '-map', '[outa]',
+      '-map', `[${finalVideoLabel}]`,
+      '-map', `[${finalAudioLabel}]`,
       '-c:v', encodingSettings.videoCodec,
       '-crf', quality,
       '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
@@ -1793,7 +2391,8 @@ export async function exportProject(
     args = buildOptimizedArgs(args, encodingSettings);
 
     console.log('FFmpeg command:', args.join(' '));
-    await ffmpegInstance.exec(args);
+    onProgress?.(10, 'Encodage...');
+    await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
 
     onProgress?.(98, 'Finalisation...');
     const data = await ffmpegInstance.readFile(outputFileName);
@@ -1815,7 +2414,25 @@ export async function exportProject(
     return new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
   } catch (error) {
     console.error('Error in exportProject:', error);
+    // If FFmpeg was terminated/aborted or got stuck, the instance is usually unusable.
+    // Reset so the next attempt can reload cleanly (and potentially fall back to single-thread safe mode).
+    if (
+      error instanceof Error &&
+      (
+        error.message.includes('Timeout') ||
+        error.message.includes('stuck') ||
+        error.message.includes('FFmpeg.terminate') ||
+        error.message.includes('FS error')
+      )
+    ) {
+      console.warn('FFmpeg error detected, resetting instance...');
+      await resetFFmpeg();
+    }
     throw error;
+  } finally {
+    // Always release the operation lock
+    isOperationInProgress = false;
+    currentOperationType = null;
   }
 }
 
@@ -1951,4 +2568,56 @@ export async function getAudioDuration(file: File): Promise<number> {
       handleError();
     }
   });
+}
+
+/**
+ * Wrapper for exportProject with automatic retry logic for timeout/stuck errors
+ */
+export async function exportProject(
+  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean }[],
+  settings: ExportSettings,
+  onProgress?: (progress: number, message: string) => void,
+  textOverlays?: TextOverlay[],
+  transitions?: Transition[],
+  aspectRatio?: AspectRatio,
+  hardwareProfile?: AnyHardwareProfile,
+  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
+): Promise<Blob> {
+  const MAX_RETRIES = 1;
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const safeMode = attempt > 0;
+      return await _exportProjectInternal(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
+    } catch (error) {
+      console.error(`Export attempt ${attempt + 1} failed:`, error);
+      
+      const isRecoverable =
+        error instanceof Error &&
+        (
+          error.message.includes('Timeout') ||
+          error.message.includes('stuck') ||
+          error.message.includes('FFmpeg.terminate') ||
+          error.message.includes('FS error')
+        );
+      
+      if (attempt < MAX_RETRIES && isRecoverable) {
+        console.warn('FFmpeg seems stuck, resetting instance and retrying in SAFE MODE...');
+        onProgress?.(0, 'Redémarrage du moteur d\'export en mode sans échec (tentative 2/2)...');
+        
+        // Force reset
+        await resetFFmpeg();
+        
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        attempt++;
+        continue;
+      }
+      
+      // If we're here, we either ran out of retries or it's a non-recoverable error
+      throw error;
+    }
+  }
 }

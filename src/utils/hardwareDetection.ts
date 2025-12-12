@@ -121,7 +121,7 @@ const GPU_TIER_PATTERNS = {
   low: {
     nvidia: /gtx\s*(1[0-5]\d{2}|9\d{2}|7\d{2})|mx\d{3}/i,
     amd: /rx\s*(5[0-4]0|4\d{2})|vega\s*[38]/i,
-    intel: /uhd\s*(6[0-3]0|7[0-3]0)|hd\s*(5\d{2}|6\d{2})/i,
+    intel: /uhd\s*(6[0-3]0|7[0-3]0)|hd\s*(5\d{2}|6\d{2})|hd\s*graphics\s*([2-4]\d{3})/i,
     apple: /m1(?!\s*(pro|max|ultra))/i,
     qualcomm: /adreno\s*([0-5]\d{2}|6[0-3]0)/i,
     arm: /mali-g[0-5]\d|mali-t\d{3}/i,
