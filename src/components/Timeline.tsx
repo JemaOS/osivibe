@@ -483,42 +483,37 @@ export const Timeline: React.FC = () => {
       if (currentText) {
         const otherTexts = textOverlays.filter(t => t.id !== draggedTextId).sort((a, b) => a.startTime - b.startTime);
         
-        // Find previous and next text overlays
-        let prevText = null;
-        let nextText = null;
-        
-        for (const text of otherTexts) {
-          if (text.startTime + text.duration <= newTime) {
-            prevText = text;
-          } else if (text.startTime >= newTime + currentText.duration) {
-            nextText = text;
-            break; // Found the immediate next one
-          }
-        }
-        
-        // Constrain start time based on previous text end
-        if (prevText) {
-          newTime = Math.max(newTime, prevText.startTime + prevText.duration);
-        }
-        
-        // Constrain start time based on next text start
-        if (nextText) {
-          newTime = Math.min(newTime, nextText.startTime - currentText.duration);
-        }
-
-        // Also check if we are overlapping with any text that we might have skipped over
-        // This handles the case where we drag "through" another clip
-        const overlapping = otherTexts.find(t => 
-          (newTime < t.startTime + t.duration) && (newTime + currentText.duration > t.startTime)
+        // Check if we have a collision at the preferred position
+        const hasCollision = otherTexts.some(t => 
+            (newTime < t.startTime + t.duration) && (newTime + currentText.duration > t.startTime)
         );
-
-        if (overlapping) {
-           // If overlapping, snap to the closest valid edge
-           if (newTime < overlapping.startTime) {
-             newTime = Math.min(newTime, overlapping.startTime - currentText.duration);
-           } else {
-             newTime = Math.max(newTime, overlapping.startTime + overlapping.duration);
-           }
+        
+        if (hasCollision) {
+            // Find the closest valid position (gap)
+            let bestTime = newTime;
+            let minDistance = Infinity;
+            
+            for (let i = 0; i <= otherTexts.length; i++) {
+                const t1End = (i === 0) ? 0 : (otherTexts[i-1].startTime + otherTexts[i-1].duration);
+                const t2Start = (i < otherTexts.length) ? otherTexts[i].startTime : Infinity;
+                
+                const gapSize = t2Start - t1End;
+                if (gapSize >= currentText.duration) {
+                    // Valid range for startTime: [t1End, t2Start - duration]
+                    const minValid = t1End;
+                    const maxValid = t2Start - currentText.duration;
+                    
+                    const clamped = Math.max(minValid, Math.min(maxValid, newTime));
+                    const dist = Math.abs(clamped - newTime);
+                    
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        bestTime = clamped;
+                    }
+                }
+            }
+            
+            newTime = bestTime;
         }
       }
 
@@ -985,17 +980,46 @@ export const Timeline: React.FC = () => {
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
       const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
+      // Calculate constraints to prevent overlap
+      const otherTexts = textOverlays.filter(t => t.id !== resizingText.id);
+
       if (resizingText.edge === 'start') {
-        const maxDuration = text.duration + text.startTime;
-        const newStartTime = Math.min(maxDuration - 0.1, Math.max(0, time));
-        const newDuration = maxDuration - newStartTime;
+        const currentEndTime = text.startTime + text.duration;
+        
+        // Find the closest neighbor to the left (limit for start time)
+        let limit = 0;
+        for (const t of otherTexts) {
+          const tEnd = t.startTime + t.duration;
+          // Check if this clip is to our left (or overlapping us from left)
+          if (tEnd <= currentEndTime) {
+            if (tEnd > limit) limit = tEnd;
+          }
+        }
+
+        const newStartTime = Math.max(limit, Math.min(currentEndTime - 0.1, Math.max(0, time)));
+        const newDuration = currentEndTime - newStartTime;
         
         updateTextOverlay(text.id, { 
           startTime: newStartTime,
           duration: newDuration
         });
       } else {
-        const newDuration = Math.max(0.1, time - text.startTime);
+        const currentStartTime = text.startTime;
+        
+        // Find closest neighbor to the right (limit for end time)
+        let limit = Infinity;
+        for (const t of otherTexts) {
+          // Check if this clip is to our right (or overlapping us from right)
+          if (t.startTime >= currentStartTime) {
+            if (t.startTime < limit) limit = t.startTime;
+          }
+        }
+
+        // Calculate new duration, constrained by the limit
+        // time is the new end time cursor position
+        const maxDuration = limit - currentStartTime;
+        const newDuration = Math.max(0.1, Math.min(maxDuration, time - currentStartTime));
+        
         updateTextOverlay(text.id, { duration: newDuration });
       }
     };

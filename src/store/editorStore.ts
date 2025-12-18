@@ -2,6 +2,8 @@
 // Distributed under the license specified in the root directory of this project.
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { indexedDBStorage } from '../utils/storage';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   MediaFile,
@@ -17,6 +19,32 @@ import type {
   TransitionType,
 } from '../types';
 import { DEFAULT_FILTER } from '../types';
+
+// Helper to resolve overlaps by shifting clips to the right
+const resolveOverlaps = (clips: TimelineClip[]): TimelineClip[] => {
+  if (clips.length <= 1) return clips;
+  
+  // Sort by start time
+  const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
+  
+  const resolvedClips: TimelineClip[] = [];
+  let previousEnd = 0;
+  
+  for (const clip of sortedClips) {
+    const duration = clip.duration - clip.trimStart - clip.trimEnd;
+    let startTime = clip.startTime;
+    
+    // If this clip starts before the previous one ended, shift it
+    if (startTime < previousEnd - 0.001) { // Use small epsilon for float comparison
+      startTime = previousEnd;
+    }
+    
+    resolvedClips.push({ ...clip, startTime });
+    previousEnd = startTime + duration;
+  }
+  
+  return resolvedClips;
+};
 
 interface EditorState {
   // Project data
@@ -164,7 +192,7 @@ const defaultExportSettings: ExportSettings = {
 
 const initialProjectId = uuidv4();
 
-export const useEditorStore = create<EditorState>((set, get) => ({
+export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   // Initial state
   projectName: 'Nouveau Projet',
   mediaFiles: [],
@@ -574,7 +602,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => ({
       tracks: state.tracks.map((track) =>
         track.id === trackId
-          ? { ...track, clips: [...track.clips, newClip] }
+          ? { ...track, clips: resolveOverlaps([...track.clips, newClip]) }
           : track
       ),
     }));
@@ -690,12 +718,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!skipHistory) get().saveState(); // Save state before action
     
     set((state) => ({
-      tracks: state.tracks.map((track) => ({
-        ...track,
-        clips: track.clips.map((clip) =>
+      tracks: state.tracks.map((track) => {
+        const hasClip = track.clips.some(c => c.id === clipId);
+        if (!hasClip) return track;
+        
+        const updatedClips = track.clips.map((clip) =>
           clip.id === clipId ? { ...clip, ...updates } : clip
-        ),
-      })),
+        );
+        
+        // Only resolve overlaps if position or duration changed
+        if (updates.startTime !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
+             return { ...track, clips: resolveOverlaps(updatedClips) };
+        }
+        
+        return { ...track, clips: updatedClips };
+      }),
     }));
     get().calculateProjectDuration();
   },
@@ -723,7 +760,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return {
           tracks: tracksWithoutClip.map((track) =>
             track.id === newTrackId
-              ? { ...track, clips: [...track.clips, clipToMove!] }
+              ? { ...track, clips: resolveOverlaps([...track.clips, clipToMove!]) }
               : track
           ),
         };
@@ -804,7 +841,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         const newClips = [...track.clips];
         newClips.splice(clipIndex, 1, firstClip, secondClip);
         
-        return { ...track, clips: newClips };
+        return { ...track, clips: resolveOverlaps(newClips) };
       });
       
       return { tracks: newTracks };
@@ -826,6 +863,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addTextOverlay: (text) => {
     get().saveState(); // Save state before action
     
+    const state = get();
+    let startTime = text.startTime ?? state.player.currentTime;
+    const duration = text.duration ?? 5;
+    
+    // Check for collision and find next available spot
+    const sortedTexts = [...state.textOverlays].sort((a, b) => a.startTime - b.startTime);
+    let isColliding = true;
+    
+    // Iteratively find a free spot
+    while (isColliding) {
+      const collider = sortedTexts.find(t => 
+        (startTime < t.startTime + t.duration) && (startTime + duration > t.startTime)
+      );
+      
+      if (collider) {
+        // Move to the end of the colliding clip
+        startTime = collider.startTime + collider.duration;
+      } else {
+        isColliding = false;
+      }
+    }
+    
     const newText: TextOverlay = {
       id: uuidv4(),
       text: text.text || 'Nouveau texte',
@@ -835,8 +894,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       fontFamily: text.fontFamily ?? 'Inter',
       color: text.color ?? '#FFFFFF',
       backgroundColor: text.backgroundColor,
-      startTime: text.startTime ?? get().player.currentTime,
-      duration: text.duration ?? 5,
+      startTime: startTime,
+      duration: duration,
       bold: text.bold ?? false,
       italic: text.italic ?? false,
     };
@@ -1098,5 +1157,71 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ui: defaultUIState,
       history: { past: [], future: [] },
     });
+  },
+}), {
+  name: 'editor-storage',
+  storage: indexedDBStorage,
+  // Disable JSON serialization because IndexedDB handles objects (including Files) natively
+  serialize: (state) => state as any,
+  deserialize: (state) => state as any,
+  partialize: (state) => ({
+    // Only persist data fields, exclude functions/actions
+    projectName: state.projectName,
+    mediaFiles: state.mediaFiles,
+    tracks: state.tracks,
+    textOverlays: state.textOverlays,
+    transitions: state.transitions,
+    filters: state.filters,
+    projectDuration: state.projectDuration,
+    aspectRatio: state.aspectRatio,
+    projects: state.projects,
+    currentProjectId: state.currentProjectId,
+    exportSettings: state.exportSettings,
+    
+    // Persist specific parts of player state
+    player: {
+      ...state.player,
+      isPlaying: false,
+      currentTime: 0, // Reset time on reload
+    },
+    
+    // Persist specific parts of UI state
+    ui: {
+      ...state.ui,
+      isProcessing: false,
+      processingProgress: 0,
+      processingMessage: '',
+      isExportModalOpen: false,
+      isMobileSidebarOpen: false,
+    }
+  }),
+  onRehydrateStorage: () => (state) => {
+    if (state) {
+      console.log('🔄 Rehydrating state from IndexedDB...');
+      
+      // Regenerate Blob URLs for active media files
+      state.mediaFiles.forEach(media => {
+        if (media.file instanceof File) {
+          if (media.url && media.url.startsWith('blob:')) {
+            URL.revokeObjectURL(media.url);
+          }
+          media.url = URL.createObjectURL(media.file);
+        }
+      });
+
+      // Regenerate Blob URLs for projects history
+      state.projects.forEach(project => {
+        project.mediaFiles.forEach(media => {
+          if (media.file instanceof File) {
+            if (media.url && media.url.startsWith('blob:')) {
+              URL.revokeObjectURL(media.url);
+            }
+            media.url = URL.createObjectURL(media.file);
+          }
+        });
+      });
+      
+      console.log('✅ State rehydration complete');
+    }
   },
 }));

@@ -31,6 +31,7 @@ export interface HardwareProfile {
   isHighEndMobile: boolean; // Snapdragon 8 Gen 1+, Apple Silicon, etc.
   isAppleSilicon: boolean; // M1, M2, M3, M4, M5
   supportsHardwareAcceleration: boolean;
+  supportsWebCodecs: boolean;
   recommendedQuality: PreviewSettings['quality'];
   maxSafeResolution: number;
   deviceType: 'desktop' | 'mobile' | 'tablet';
@@ -331,6 +332,9 @@ export function detectHardware(): HardwareProfile {
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
   const supportsHardwareAcceleration = !!gl;
+
+  // Check WebCodecs support
+  const supportsWebCodecs = typeof window.VideoDecoder !== 'undefined' && typeof window.VideoEncoder !== 'undefined';
   
   // Run performance benchmark
   const performanceScore = runQuickBenchmark();
@@ -444,6 +448,7 @@ export function detectHardware(): HardwareProfile {
     isHighEndMobile,
     isAppleSilicon,
     supportsHardwareAcceleration,
+    supportsWebCodecs,
     recommendedQuality,
     maxSafeResolution,
     deviceType,
@@ -504,7 +509,9 @@ export function getOptimalSettings(
       break;
     case 'original':
       settings.maxResolution = videoHeight;
-      settings.targetFps = isChromeOnMobile ? 30 : 60;
+      // Use 30fps even for original quality to ensure stability with 4K decoding
+      // 60fps decoding of 4K content in browser is often unstable even on high-end hardware
+      settings.targetFps = 30; 
       settings.frameSkipping = isChromeOnMobile;
       settings.useProxy = false;
       settings.bufferSize = 'large';
@@ -631,6 +638,9 @@ export function applyVideoOptimizations(
   settings: PreviewSettings,
   profile?: HardwareProfile
 ): void {
+  // Avoid re-applying optimizations if already applied
+  if (videoElement.dataset.optimized === 'true') return;
+  
   // Get current hardware profile if not provided
   const hwProfile = profile || hardwareProfile;
   const isHighEnd = hwProfile?.isHighEndMobile || hwProfile?.isAppleSilicon ||
@@ -737,6 +747,9 @@ export function applyVideoOptimizations(
       videoElement.style.imageRendering = 'optimizeSpeed';
     }
   }
+  
+  // Mark as optimized
+  videoElement.dataset.optimized = 'true';
 }
 
 /**

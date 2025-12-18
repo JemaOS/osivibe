@@ -32,6 +32,7 @@ export interface GPUProfile {
   supportsHardwareAcceleration: boolean;
   supportsWebGL2: boolean;
   supportsWebGPU: boolean;
+  supportsWebCodecs: boolean;
   maxTextureSize: number;
   renderer: string;
   unmaskedVendor: string;
@@ -560,6 +561,10 @@ export async function detectHardware(): Promise<HardwareProfile> {
   // Check WebGPU support
   const webgpuSupport = await checkWebGPUSupport();
   console.log('🎮 WebGPU Support:', webgpuSupport);
+
+  // Check WebCodecs support
+  const webcodecsSupport = typeof window.VideoDecoder !== 'undefined' && typeof window.VideoEncoder !== 'undefined';
+  console.log('🎥 WebCodecs Support:', webcodecsSupport);
   
   // Detect GPU
   const gpuVendor = detectGPUVendor(webglInfo.renderer, webglInfo.vendor);
@@ -573,6 +578,7 @@ export async function detectHardware(): Promise<HardwareProfile> {
     supportsHardwareAcceleration: webglInfo.webgl2 || gpuVendor !== 'unknown',
     supportsWebGL2: webglInfo.webgl2,
     supportsWebGPU: webgpuSupport,
+    supportsWebCodecs: webcodecsSupport,
     maxTextureSize: webglInfo.maxTextureSize,
     renderer: webglInfo.renderer,
     unmaskedVendor: webglInfo.vendor,

@@ -6,6 +6,7 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFile, TextOverlay, Transition, TransitionType, getResolutionForAspectRatio, AspectRatio } from '../types';
 import type { HardwareProfile as DetectionHardwareProfile, VideoSettings } from './hardwareDetection';
 import type { HardwareProfile as PreviewHardwareProfile } from './previewOptimizer';
+import { exportProjectWithMediaBunny, cancelMediaBunnyExport } from './mediaBunny';
 
 // Union type to handle both profile structures
 export type AnyHardwareProfile = DetectionHardwareProfile | PreviewHardwareProfile;
@@ -89,7 +90,7 @@ export function getOptimalEncodingSettings(
     crf: quality === 'high' ? '20' : quality === 'medium' ? '25' : '30', // Higher CRF = faster encoding
     pixelFormat: 'yuv420p',
     threads: safeMode ? String(Math.min(4, availableCores)) : String(Math.min(8, availableCores)), // Use up to 4 threads in safe mode, cap at 8 for normal
-    additionalFlags: ['-movflags', '+faststart'], // Always add faststart for web optimization
+    additionalFlags: [], // Removed faststart to prevent blocking at 95%
     maxWidth: 1920,
     maxHeight: 1080,
     targetFps: 30,
@@ -276,9 +277,12 @@ export function getOptimalEncodingSettings(
   }
   
   // Always ensure faststart is present for web optimization
+  // REMOVED: faststart causes "stuck at 95%" issue on large files
+  /*
   if (!settings.additionalFlags.includes('-movflags')) {
     settings.additionalFlags.push('-movflags', '+faststart');
   }
+  */
   
   console.log('⚡ FFmpeg: Speed-optimized encoding settings', {
     gpuTier,
@@ -881,6 +885,9 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> 
 }
 
 export function cancelExport() {
+  // Cancel MediaBunny export if running
+  cancelMediaBunnyExport();
+
   if (ffmpeg) {
     try {
       ffmpeg.terminate();
@@ -1362,6 +1369,53 @@ async function _exportProjectInternal(
   safeMode: boolean = false,
   audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
 ): Promise<Blob> {
+  // Check for complex features that MediaBunny implementation doesn't support yet
+  // Update: MediaBunny now supports Filters, Text, and basic Transitions (Fades)
+  // We only fallback if there are features we absolutely cannot handle efficiently yet
+  // For now, we let MediaBunny try everything. If it fails, the catch block will handle fallback.
+  
+  /* 
+  const hasTextOverlays = textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim().length > 0);
+  const hasTransitions = transitions && transitions.length > 0 && transitions.some(t => t.type !== 'none');
+  const hasFilters = clips.some(c => c.filter && (
+    c.filter.brightness !== 0 || 
+    c.filter.contrast !== 0 || 
+    c.filter.saturation !== 0 || 
+    c.filter.grayscale || 
+    c.filter.sepia || 
+    c.filter.blur > 0
+  ));
+  
+  // If complex features are present, skip MediaBunny and use FFmpeg
+  if (hasTextOverlays || hasTransitions || hasFilters) {
+    console.log('⚠️ Complex features detected (Text/Transitions/Filters), falling back to FFmpeg for full support.');
+    // Fallthrough to FFmpeg implementation below
+  } else {
+  */
+    try {
+        // Try MediaBunny for fast export
+        return await exportProjectWithMediaBunny(
+            clips,
+            settings,
+            onProgress,
+            textOverlays,
+            transitions,
+            aspectRatio,
+            hardwareProfile,
+            safeMode,
+            audioClips
+        );
+    } catch (error) {
+        console.error('MediaBunny export failed:', error);
+        throw error;
+    }
+    
+    // FFmpeg logic disabled
+    return new Blob([]); 
+
+
+  // Prevent concurrent exports (they will terminate each other in ffmpeg.wasm)
+
   // Prevent concurrent exports (they will terminate each other in ffmpeg.wasm)
   if (isOperationInProgress && currentOperationType === 'export') {
     throw new Error('Un export est déjà en cours. Veuillez patienter.');
@@ -1393,7 +1447,9 @@ async function _exportProjectInternal(
     // Define a specific progress handler for export
     const exportProgressHandler = (percent: number, msg: string) => {
       // Ensure progress is strictly increasing and within bounds
-      const safePercent = Math.min(99, Math.max(0, Math.round(percent)));
+      // Map 0-100 from FFmpeg to 0-95 for the UI to reserve space for finalization
+      const scaledPercent = Math.round(percent * 0.95);
+      const safePercent = Math.min(95, Math.max(0, scaledPercent));
       onProgress?.(safePercent, `Traitement en cours...`);
     };
 
@@ -1440,23 +1496,31 @@ async function _exportProjectInternal(
     console.log('═══════════════════════════════════════════════════════════');
     
     // Safe logging for different profile types
-    const gpuVendor = effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile && effectiveHardwareProfile.gpu ? effectiveHardwareProfile.gpu.vendor : 'unknown';
-    const gpuTier = effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile && effectiveHardwareProfile.gpu ? effectiveHardwareProfile.gpu.tier : 'unknown';
+    let gpuVendor = 'unknown';
+    let gpuTier = 'unknown';
+
+    if (effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile) {
+      const profile = effectiveHardwareProfile as DetectionHardwareProfile;
+      gpuVendor = profile.gpu?.vendor || 'unknown';
+      gpuTier = profile.gpu?.tier || 'unknown';
+    }
     
     let cpuCores: number | string = 'unknown';
     let isAppleSilicon = false;
     let memoryTier = 'unknown';
 
     if (effectiveHardwareProfile) {
-      if ('processor' in effectiveHardwareProfile && effectiveHardwareProfile.processor) {
-        cpuCores = effectiveHardwareProfile.processor.cores;
-        isAppleSilicon = effectiveHardwareProfile.processor.isAppleSilicon;
-        memoryTier = effectiveHardwareProfile.memory?.tier || 'unknown';
+      if ('processor' in effectiveHardwareProfile) {
+        const profile = effectiveHardwareProfile as DetectionHardwareProfile;
+        cpuCores = profile.processor?.cores || 'unknown';
+        isAppleSilicon = profile.processor?.isAppleSilicon || false;
+        memoryTier = profile.memory?.tier || 'unknown';
       } else if ('cpuCores' in effectiveHardwareProfile) {
-        cpuCores = effectiveHardwareProfile.cpuCores;
-        isAppleSilicon = effectiveHardwareProfile.isAppleSilicon;
+        const profile = effectiveHardwareProfile as PreviewHardwareProfile;
+        cpuCores = profile.cpuCores;
+        isAppleSilicon = profile.isAppleSilicon;
         // Infer memory tier from score if available
-        const score = effectiveHardwareProfile.performanceScore || 50;
+        const score = profile.performanceScore || 50;
         memoryTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
       }
     }
@@ -1596,6 +1660,8 @@ async function _exportProjectInternal(
 
         console.log('FFmpeg command:', args.join(' '));
         await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
+        
+        onProgress?.(96, 'Finalisation...');
       } else {
         // filter_complex path: transitions and/or external audio override
         const startTransition = clipTransitions.find((t) => t.position === 'start');
@@ -1736,13 +1802,15 @@ async function _exportProjectInternal(
           '-pix_fmt', encodingSettings.pixelFormat,
           '-threads', encodingSettings.threads,
           '-shortest',
-          '-movflags', '+faststart',
+          // '-movflags', '+faststart', // Removed to prevent blocking
           outputFileName
         ];
 
         args = buildOptimizedArgs(args, encodingSettings);
         console.log('FFmpeg command:', args.join(' '));
         await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
+        
+        onProgress?.(96, 'Finalisation...');
 
         // Cleanup extra audio FS files
         for (const n of extraAudioInputNames) {
@@ -2383,7 +2451,7 @@ async function _exportProjectInternal(
       // Add shortest to prevent infinite loops if something goes wrong with duration
       '-shortest',
       // Optimize for web playback
-      '-movflags', '+faststart',
+      // '-movflags', '+faststart', // Removed to prevent blocking
       outputFileName
     ];
     
@@ -2394,14 +2462,17 @@ async function _exportProjectInternal(
     onProgress?.(10, 'Encodage...');
     await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
 
-    onProgress?.(98, 'Finalisation...');
+    onProgress?.(96, 'Finalisation...');
     const data = await ffmpegInstance.readFile(outputFileName);
     
+    onProgress?.(98, 'Nettoyage...');
     // Clean up
     for (const fileName of inputFiles) {
       await ffmpegInstance.deleteFile(fileName);
     }
     await ffmpegInstance.deleteFile(outputFileName);
+    
+    onProgress?.(99, 'Préparation du téléchargement...');
 
     // Log actual encoding time for multi-clip export
     const actualEncodingTime = (performance.now() - encodingStartTime) / 1000;

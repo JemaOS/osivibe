@@ -16,7 +16,7 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { MediaFile, MediaType } from '../types';
 import { formatTime, formatFileSize, getFileType } from '../utils/helpers';
-import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/ffmpeg';
+import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/mediaBunny';
 import { v4 as uuidv4 } from 'uuid';
 
 export const MediaLibrary: React.FC = () => {

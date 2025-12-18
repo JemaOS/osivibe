@@ -46,6 +46,7 @@ import {
   getOptimalVideoSettings as getEnhancedVideoSettings,
   formatHardwareProfileForDisplay,
 } from '../utils/hardwareDetection';
+import { useMediaBunnyPreview } from '../hooks/use-mediabunny-preview';
 
 export const VideoPlayer: React.FC = () => {
   const {
@@ -142,10 +143,25 @@ export const VideoPlayer: React.FC = () => {
   // Preview container dimensions for text scaling
   const [previewDimensions, setPreviewDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   
+  // MediaBunny integration
+  const [useMediaBunny, setUseMediaBunny] = useState(false);
+  const { render: renderMediaBunny, isReady: isMediaBunnyReady } = useMediaBunnyPreview(canvasRef, useMediaBunny);
+
   // Initialize preview optimizer on mount - AUTO QUALITY FROM START
   useEffect(() => {
     const profile = initializePreviewOptimizer();
     setHardwareProfile(profile);
+    
+    // Enable MediaBunny for high-end desktop GPUs with WebCodecs support
+    // DISABLED: User reported performance regression compared to standard playback.
+    // Reverting to standard HTML5 video engine for stability.
+    /*
+    if (profile.supportsHardwareAcceleration && profile.supportsWebCodecs && !profile.isMobile && !profile.isLowEnd) {
+      console.log('🚀 Enabling MediaBunny preview engine for high-end hardware');
+      setUseMediaBunny(true);
+    }
+    */
+    setUseMediaBunny(false);
     
     // Store mobile status in ref for performance
     isMobileRef.current = profile.isMobile;
@@ -312,7 +328,9 @@ export const VideoPlayer: React.FC = () => {
         break;
       case 'original':
         newSettings.maxResolution = -1;
-        newSettings.targetFps = 60;
+        // Cap at 30fps for stability even in original quality
+        // 60fps decoding of 4K content is often unstable in browser
+        newSettings.targetFps = 30;
         newSettings.frameSkipping = false;
         break;
       case 'auto':
@@ -724,6 +742,13 @@ export const VideoPlayer: React.FC = () => {
       }
     });
     
+    // Sync MediaBunny if enabled
+    // CRITICAL OPTIMIZATION: Only sync here if PAUSED. 
+    // If playing, the animation loop handles rendering to avoid double-calls and resource contention.
+    if (useMediaBunny && isMediaBunnyReady && canvasRef.current && (!player.isPlaying || forceSync)) {
+      renderMediaBunny(player.currentTime, canvasRef.current.width, canvasRef.current.height).catch(console.error);
+    }
+    
     // Always sync volume and playback state immediately after time sync
     syncVideoVolumeAndPlayback();
 
@@ -829,7 +854,9 @@ export const VideoPlayer: React.FC = () => {
     // MOBILE OPTIMIZATION: Use lower update rate on mobile
     const isMobile = isMobileRef.current;
     const isLowEnd = previewSettings.quality === 'low';
-    const MIN_TIME_STEP = (isMobile || isLowEnd) ? 1000 / 30 : 1000 / 60; // 30fps on mobile/low-end, 60fps on desktop
+    // Use targetFps from settings to determine time step
+    const targetFps = previewSettings.targetFps || 30;
+    const MIN_TIME_STEP = 1000 / targetFps;
     const FPS_UPDATE_INTERVAL = (isMobile || isLowEnd) ? 60 : 30; // Update FPS display less often on mobile/low-end
 
     const animate = (currentTime: number) => {
@@ -905,13 +932,30 @@ export const VideoPlayer: React.FC = () => {
           // MOBILE OPTIMIZATION: Throttle state updates
           const now = performance.now();
           const timeSinceLastUpdate = now - lastStateUpdateRef.current;
-          const updateThreshold = (isMobile || isLowEnd) ? 50 : 16; // Update less frequently on mobile/low-end
+          // On high-end PC, we want smooth UI updates (slider moving), so 16ms (60fps) is good.
+          // But if we are struggling, maybe relax it slightly to 32ms (30fps) for the UI update
+          // while keeping the render loop fast.
+          const updateThreshold = (isMobile || isLowEnd) ? 50 : 16; 
           
           if (timeSinceLastUpdate >= updateThreshold) {
             lastStateUpdateRef.current = now;
+            // Use a non-blocking state update if possible, or just accept this triggers a re-render of components subscribed to currentTime
             state.seek(newTime);
           }
         }
+      }
+
+      // Render MediaBunny frame if enabled
+      // Pass the CALCULATED newTime (or current state time) to renderMediaBunny
+      // Using state.player.currentTime might be one frame behind if the seek() above hasn't propagated yet
+      // But for visual smoothness, we should use the time we just calculated.
+      if (useMediaBunny && isMediaBunnyReady && canvasRef.current) {
+        const state = useEditorStore.getState();
+        // Use the time we just calculated for the most accurate sync
+        const renderTime = state.player.currentTime; 
+        renderMediaBunny(renderTime, canvasRef.current.width, canvasRef.current.height).catch(e => {
+          console.error('MediaBunny render error:', e);
+        });
       }
 
       if (useEditorStore.getState().player.isPlaying && isActive) {
@@ -1607,6 +1651,10 @@ export const VideoPlayer: React.FC = () => {
   const setVideoRef = useCallback((id: string, el: HTMLVideoElement | null) => {
     if (el) {
       videoRefs.current[id] = el;
+      
+      // Avoid re-applying optimizations if already done
+      if (el.dataset.optimized === 'true') return;
+      
       // Apply video optimizations for smooth playback with hardware profile
       applyVideoOptimizations(el, previewSettings, hardwareProfile || undefined);
       
@@ -1742,6 +1790,17 @@ export const VideoPlayer: React.FC = () => {
             justifyContent: 'center'
           }}
         >
+          {/* MediaBunny Canvas for high-performance preview */}
+          {useMediaBunny && (
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+              width={previewDimensions.width || 1920}
+              height={previewDimensions.height || 1080}
+              style={{ zIndex: 5 }}
+            />
+          )}
+
           {activeClips.length > 0 ? (
             <>
               {/* Render all active clips (videos and images) layered */}
@@ -1751,6 +1810,24 @@ export const VideoPlayer: React.FC = () => {
                 const transitionStyle = getTransitionStyle(item.clip, player.currentTime);
 
                 if (item.media.type === 'video') {
+                  // If MediaBunny is enabled, use it for video rendering
+                  // But render an audio element for the sound
+                  if (useMediaBunny) {
+                    return (
+                      <audio
+                        key={item.clip.id}
+                        ref={(el) => {
+                          // Cast to any/VideoElement to satisfy the ref type
+                          // Audio and Video elements share the HTMLMediaElement interface which is what we mostly use
+                          if (el) videoRefs.current[item.clip.id] = el as unknown as HTMLVideoElement;
+                        }}
+                        src={item.media.url}
+                        preload="auto"
+                        onError={(e) => console.error('Audio error:', e.currentTarget.error, item.media.url)}
+                      />
+                    );
+                  }
+
                   // Get optimized video style for preview performance
                   const videoStyle = getVideoStyle(item.media);
                   

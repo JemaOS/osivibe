@@ -51,6 +51,29 @@ interface PropertiesPanelProps {
   activeTab?: TabType;
 }
 
+const Section: React.FC<{ id: string; title: string; children: React.ReactNode; isExpanded: boolean; onToggle: () => void }> = ({ id, title, children, isExpanded, onToggle }) => {
+  const layoutMode = useLayoutMode();
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+
+  return (
+    <div className="border-b border-white/10 last:border-0">
+      <button
+        onClick={onToggle}
+        className={`w-full ${isMinimal ? 'px-3 py-2.5' : isCompact ? 'px-3 py-3' : 'px-4 py-3'} flex items-center justify-between ${isMinimal ? 'text-sm' : 'text-body'} font-medium text-white hover:bg-white/10 transition-colors touch-target`}
+      >
+        {title}
+        {isExpanded ? <ChevronUp className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} /> : <ChevronDown className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />}
+      </button>
+      {isExpanded && (
+        <div className={`${isMinimal ? 'px-3 pb-3' : isCompact ? 'px-3 pb-4' : 'px-4 pb-4'}`}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
   const {
     tracks,
@@ -205,24 +228,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     { id: 'filters' as TabType, label: 'Filtres', icon: Sliders },
   ];
 
-  // Section component with touch-friendly sizing
-  const Section: React.FC<{ id: string; title: string; children: React.ReactNode }> = ({ id, title, children }) => (
-    <div className="border-b border-white/10 last:border-0">
-      <button
-        onClick={() => setExpandedSection(expandedSection === id ? null : id)}
-        className={`w-full ${isMinimal ? 'px-3 py-2.5' : isCompact ? 'px-3 py-3' : 'px-4 py-3'} flex items-center justify-between ${isMinimal ? 'text-sm' : 'text-body'} font-medium text-white hover:bg-white/10 transition-colors touch-target`}
-      >
-        {title}
-        {expandedSection === id ? <ChevronUp className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} /> : <ChevronDown className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />}
-      </button>
-      {expandedSection === id && (
-        <div className={`${isMinimal ? 'px-3 pb-3' : isCompact ? 'px-3 pb-4' : 'px-4 pb-4'}`}>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-
   const handleDetachAudio = () => {
     if (selectedClip && selectedClip.type === 'video') {
       detachAudioFromVideo(selectedClip.id);
@@ -257,19 +262,32 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     onChange: (val: number, isFinal?: boolean) => void,
     options: { min?: number; max?: number; step?: number } = {}
   ) => {
+    const target = e.target as HTMLElement;
+    const isInput = target.tagName === 'INPUT';
+
     e.preventDefault();
     e.stopPropagation();
+    
     const startX = e.clientX;
     const startValue = value;
     const { min, max, step = 1 } = options;
     
-    // Store the last value to save it on pointer up
     let lastValue = startValue;
     let rafId: number | null = null;
     let pendingUpdate = false;
+    let hasMoved = false;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const delta = moveEvent.clientX - startX;
+      
+      if (!hasMoved && Math.abs(delta) > 3) {
+        hasMoved = true;
+        document.body.style.cursor = 'ew-resize';
+        if (isInput) target.blur();
+      }
+
+      if (!hasMoved) return;
+
       let newValue = startValue + delta * step;
 
       if (min !== undefined) newValue = Math.max(newValue, min);
@@ -281,7 +299,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         lastValue = Math.round(newValue);
       }
       
-      // Use requestAnimationFrame to batch updates and ensure smooth rendering
       if (!pendingUpdate) {
         pendingUpdate = true;
         rafId = requestAnimationFrame(() => {
@@ -292,7 +309,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     };
 
     const handlePointerUp = () => {
-      // Cancel any pending animation frame
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
@@ -301,13 +317,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       window.removeEventListener('pointerup', handlePointerUp);
       document.body.style.cursor = '';
       
-      // Trigger final update with history save
-      onChange(lastValue, true);
+      if (hasMoved) {
+        onChange(lastValue, true);
+      } else {
+        if (isInput) {
+          target.focus();
+        }
+      }
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-    document.body.style.cursor = 'ew-resize';
   };
 
   const aspectRatios: Array<{ value: '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; description: string }> = [
@@ -333,7 +353,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
     return (
       <>
-        <Section id="basic" title="Informations">
+        <Section 
+          id="basic" 
+          title="Informations" 
+          isExpanded={expandedSection === 'basic'} 
+          onToggle={() => setExpandedSection(expandedSection === 'basic' ? null : 'basic')}
+        >
           <div className="space-y-3">
             <div>
               <label className="text-caption text-neutral-400 block mb-1">Nom</label>
@@ -377,7 +402,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         {/* Crop Tool for images and videos */}
         {(selectedClip.type === 'image' || selectedClip.type === 'video') && (
-          <Section id="crop" title="Rognage / Crop">
+          <Section 
+            id="crop" 
+            title="Rognage / Crop" 
+            isExpanded={expandedSection === 'crop'} 
+            onToggle={() => setExpandedSection(expandedSection === 'crop' ? null : 'crop')}
+          >
             <div className="space-y-4">
               {!cropMode && !selectedClip.crop && (
                 <button
@@ -405,7 +435,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="1"
                       value={selectedClip.crop?.x || 0}
                       onChange={(e) => handleUpdateCrop({ x: parseInt(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                   <div>
@@ -422,7 +455,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="1"
                       value={selectedClip.crop?.y || 0}
                       onChange={(e) => handleUpdateCrop({ y: parseInt(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                   <div>
@@ -439,7 +475,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="1"
                       value={selectedClip.crop?.width || 100}
                       onChange={(e) => handleUpdateCrop({ width: parseInt(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                   <div>
@@ -456,7 +495,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="1"
                       value={selectedClip.crop?.height || 100}
                       onChange={(e) => handleUpdateCrop({ height: parseInt(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -483,7 +525,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
           </Section>
         )}
 
-        <Section id="trim" title="Decoupe">
+        <Section 
+          id="trim" 
+          title="Decoupe" 
+          isExpanded={expandedSection === 'trim'} 
+          onToggle={() => setExpandedSection(expandedSection === 'trim' ? null : 'trim')}
+        >
           <div className="space-y-4">
             <div>
               <label className="text-caption text-neutral-500 block mb-2">Debut (trim)</label>
@@ -549,7 +596,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         {selectedText ? (
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <Section id="text-content" title="Contenu">
+            <Section 
+              id="text-content" 
+              title="Contenu" 
+              isExpanded={expandedSection === 'text-content'} 
+              onToggle={() => setExpandedSection(expandedSection === 'text-content' ? null : 'text-content')}
+            >
               <textarea
                 value={selectedText.text}
                 onChange={(e) => updateTextOverlay(selectedText.id, { text: e.target.value })}
@@ -558,7 +610,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               />
             </Section>
 
-            <Section id="text-style" title="Style">
+            <Section 
+              id="text-style" 
+              title="Style" 
+              isExpanded={expandedSection === 'text-style'} 
+              onToggle={() => setExpandedSection(expandedSection === 'text-style' ? null : 'text-style')}
+            >
               <div className="space-y-4">
                 <div>
                   <label className="text-caption text-neutral-500 block mb-2">Police</label>
@@ -593,7 +650,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       max="500"
                       value={selectedText.fontSize}
                       onChange={(e) => updateTextOverlay(selectedText.id, { fontSize: parseInt(e.target.value) })}
-                      className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.fontSize, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
+                        }, { min: 1, max: 500 });
+                      }}
+                      className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
                     />
                   </div>
                   <input
@@ -602,7 +664,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     max="200"
                     value={selectedText.fontSize}
                     onChange={(e) => updateTextOverlay(selectedText.id, { fontSize: parseInt(e.target.value) })}
-                    className="w-full"
+                    onPointerDown={(e) => {
+                      handleScrub(e, selectedText.fontSize, (val, isFinal) => {
+                        updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
+                      }, { min: 1, max: 500 });
+                    }}
+                    className="w-full cursor-ew-resize"
                   />
                 </div>
 
@@ -620,7 +687,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       >
                         Echelle X
                       </label>
-                      <span className="text-[10px] text-neutral-400">{((selectedText.scaleX ?? 1) * 100).toFixed(0)}%</span>
+                      <span 
+                        className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
+                        onPointerDown={(e) => {
+                          handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
+                            updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
+                          }, { min: 0.1, max: 3, step: 0.01 });
+                        }}
+                      >
+                        {((selectedText.scaleX ?? 1) * 100).toFixed(0)}%
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -629,7 +705,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="0.1"
                       value={selectedText.scaleX ?? 1}
                       onChange={(e) => updateTextOverlay(selectedText.id, { scaleX: parseFloat(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
+                        }, { min: 0.1, max: 3, step: 0.01 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                   <div>
@@ -644,7 +725,16 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       >
                         Echelle Y
                       </label>
-                      <span className="text-[10px] text-neutral-400">{((selectedText.scaleY ?? 1) * 100).toFixed(0)}%</span>
+                      <span 
+                        className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
+                        onPointerDown={(e) => {
+                          handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
+                            updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
+                          }, { min: 0.1, max: 3, step: 0.01 });
+                        }}
+                      >
+                        {((selectedText.scaleY ?? 1) * 100).toFixed(0)}%
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -653,7 +743,12 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="0.1"
                       value={selectedText.scaleY ?? 1}
                       onChange={(e) => updateTextOverlay(selectedText.id, { scaleY: parseFloat(e.target.value) })}
-                      className="w-full"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
+                        }, { min: 0.1, max: 3, step: 0.01 });
+                      }}
+                      className="w-full cursor-ew-resize"
                     />
                   </div>
                 </div>
@@ -811,52 +906,102 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               </div>
             </Section>
 
-            <Section id="text-position" title="Position">
+            <Section 
+              id="text-position" 
+              title="Position" 
+              isExpanded={expandedSection === 'text-position'} 
+              onToggle={() => setExpandedSection(expandedSection === 'text-position' ? null : 'text-position')}
+            >
               <div className="space-y-4">
                 <div>
-                  <label 
-                    className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none hover:text-white transition-colors"
-                    onPointerDown={(e) => {
-                      handleScrub(e, selectedText.x, (val, isFinal) => {
-                        updateTextOverlay(selectedText.id, { x: val }, !isFinal);
-                      }, { min: 0, max: 100 });
-                    }}
-                  >
-                    Position X ({selectedText.x}%)
-                  </label>
+                  <div className="flex justify-between items-center mb-2">
+                    <label 
+                      className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.x, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { x: val }, !isFinal);
+                        }, { min: 0, max: 100 });
+                      }}
+                    >
+                      Position X
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={selectedText.x}
+                      onChange={(e) => updateTextOverlay(selectedText.id, { x: parseInt(e.target.value) })}
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.x, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { x: val }, !isFinal);
+                        }, { min: 0, max: 100 });
+                      }}
+                      className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
+                    />
+                  </div>
                   <input
                     type="range"
                     min="0"
                     max="100"
                     value={selectedText.x}
                     onChange={(e) => updateTextOverlay(selectedText.id, { x: parseInt(e.target.value) })}
-                    className="w-full"
+                    onPointerDown={(e) => {
+                      handleScrub(e, selectedText.x, (val, isFinal) => {
+                        updateTextOverlay(selectedText.id, { x: val }, !isFinal);
+                      }, { min: 0, max: 100 });
+                    }}
+                    className="w-full cursor-ew-resize"
                   />
                 </div>
                 <div>
-                  <label 
-                    className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none hover:text-white transition-colors"
-                    onPointerDown={(e) => {
-                      handleScrub(e, selectedText.y, (val, isFinal) => {
-                        updateTextOverlay(selectedText.id, { y: val }, !isFinal);
-                      }, { min: 0, max: 100 });
-                    }}
-                  >
-                    Position Y ({selectedText.y}%)
-                  </label>
+                  <div className="flex justify-between items-center mb-2">
+                    <label 
+                      className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.y, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { y: val }, !isFinal);
+                        }, { min: 0, max: 100 });
+                      }}
+                    >
+                      Position Y
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={selectedText.y}
+                      onChange={(e) => updateTextOverlay(selectedText.id, { y: parseInt(e.target.value) })}
+                      onPointerDown={(e) => {
+                        handleScrub(e, selectedText.y, (val, isFinal) => {
+                          updateTextOverlay(selectedText.id, { y: val }, !isFinal);
+                        }, { min: 0, max: 100 });
+                      }}
+                      className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
+                    />
+                  </div>
                   <input
                     type="range"
                     min="0"
                     max="100"
                     value={selectedText.y}
                     onChange={(e) => updateTextOverlay(selectedText.id, { y: parseInt(e.target.value) })}
-                    className="w-full"
+                    onPointerDown={(e) => {
+                      handleScrub(e, selectedText.y, (val, isFinal) => {
+                        updateTextOverlay(selectedText.id, { y: val }, !isFinal);
+                      }, { min: 0, max: 100 });
+                    }}
+                    className="w-full cursor-ew-resize"
                   />
                 </div>
               </div>
             </Section>
 
-            <Section id="text-timing" title="Timing">
+            <Section 
+              id="text-timing" 
+              title="Timing" 
+              isExpanded={expandedSection === 'text-timing'} 
+              onToggle={() => setExpandedSection(expandedSection === 'text-timing' ? null : 'text-timing')}
+            >
               <div className="space-y-4">
                 <div>
                   <label className="text-caption text-neutral-500 block mb-2">Apparition</label>
@@ -1019,7 +1164,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               step="0.1"
               value={currentTransition.duration}
               onChange={(e) => setTransition(targetClip!.id, currentTransition.type, parseFloat(e.target.value))}
-              className="w-full"
+              onPointerDown={(e) => {
+                handleScrub(e, currentTransition.duration, (val) => setTransition(targetClip!.id, currentTransition.type, val), { min: 0.1, max: 2, step: 0.01 });
+              }}
+              className="w-full cursor-ew-resize"
             />
           </div>
         )}
@@ -1091,7 +1239,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             max="100"
             value={filter.brightness}
             onChange={(e) => updateFilter({ brightness: parseInt(e.target.value) })}
-            className="w-full"
+            onPointerDown={(e) => {
+              handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100 });
+            }}
+            className="w-full cursor-ew-resize"
           />
         </div>
 
@@ -1108,7 +1259,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             max="100"
             value={filter.contrast}
             onChange={(e) => updateFilter({ contrast: parseInt(e.target.value) })}
-            className="w-full"
+            onPointerDown={(e) => {
+              handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100 });
+            }}
+            className="w-full cursor-ew-resize"
           />
         </div>
 
@@ -1125,7 +1279,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             max="100"
             value={filter.saturation}
             onChange={(e) => updateFilter({ saturation: parseInt(e.target.value) })}
-            className="w-full"
+            onPointerDown={(e) => {
+              handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100 });
+            }}
+            className="w-full cursor-ew-resize"
           />
         </div>
 
@@ -1142,7 +1299,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             max="20"
             value={filter.blur}
             onChange={(e) => updateFilter({ blur: parseInt(e.target.value) })}
-            className="w-full"
+            onPointerDown={(e) => {
+              handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20 });
+            }}
+            className="w-full cursor-ew-resize"
           />
         </div>
 

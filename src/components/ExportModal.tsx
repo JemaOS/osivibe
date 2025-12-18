@@ -183,7 +183,7 @@ export const ExportModal: React.FC = () => {
           exportSettings,
           (progress, message) => {
             console.log('Export progress:', progress, message);
-            setExportProgress(Math.min(99, Math.max(0, progress)));
+            setExportProgress(Math.round(Math.min(99, Math.max(0, progress))));
             setExportMessage(message || 'Traitement en cours...');
           },
           textOverlays,
@@ -218,7 +218,7 @@ export const ExportModal: React.FC = () => {
       const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
       
       // Don't show alert if the error is due to user cancellation
-      if (errorMessage.includes('called FFmpeg.terminate()')) {
+      if (errorMessage.includes('called FFmpeg.terminate()') || errorMessage === 'Export cancelled') {
         console.log('Export cancelled by user');
       } else {
         alert('Erreur lors de l\'export: ' + errorMessage);
