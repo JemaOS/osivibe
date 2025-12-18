@@ -1160,10 +1160,8 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   },
 }), {
   name: 'editor-storage',
-  storage: indexedDBStorage,
+  storage: indexedDBStorage as any,
   // Disable JSON serialization because IndexedDB handles objects (including Files) natively
-  serialize: (state) => state as any,
-  deserialize: (state) => state as any,
   partialize: (state) => ({
     // Only persist data fields, exclude functions/actions
     projectName: state.projectName,
@@ -1194,7 +1192,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       isExportModalOpen: false,
       isMobileSidebarOpen: false,
     }
-  }),
+  }) as any,
   onRehydrateStorage: () => (state) => {
     if (state) {
       console.log('🔄 Rehydrating state from IndexedDB...');
