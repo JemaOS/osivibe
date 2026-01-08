@@ -18,6 +18,7 @@ OsiVibe is a modern, browser-based video editor built with performance and acces
 - 🌐 **Browser-Based** — No installation required
 - 📱 **Responsive Design** — Optimized for foldable devices, phones, tablets, and desktops
 - ⚡ **Hardware-Optimized** — GPU/CPU detection for optimal encoding performance
+- 🐇 **Media Bunny** — Delivers insane performance with instant media loading, zero-latency playback, and optimized stream handling for a butter-smooth editing experience
 
 ---
 
