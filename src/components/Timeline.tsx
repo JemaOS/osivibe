@@ -788,7 +788,7 @@ export const Timeline: React.FC = () => {
       if (!rect) return;
 
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
-      let newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
+      const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
 
       // Determine target track based on mouse position
       const trackIndex = Math.floor((e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
@@ -834,7 +834,7 @@ export const Timeline: React.FC = () => {
 
       const touch = e.touches[0];
       const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
-      let newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
+      const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
 
       // Determine target track based on touch position
       const trackIndex = Math.floor((touch.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);

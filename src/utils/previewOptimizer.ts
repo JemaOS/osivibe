@@ -299,8 +299,8 @@ function runQuickBenchmark(): number {
   // - Mid-range: CPU 20-50ms, GPU 10-30ms
   // - Low-end: CPU > 50ms, GPU > 30ms
   
-  let cpuScore = Math.max(0, Math.min(50, 50 - (cpuTime - 10)));
-  let gpuScore = Math.max(0, Math.min(50, 50 - (gpuTime - 5) * 2));
+  const cpuScore = Math.max(0, Math.min(50, 50 - (cpuTime - 10)));
+  const gpuScore = Math.max(0, Math.min(50, 50 - (gpuTime - 5) * 2));
   
   const totalScore = Math.round(cpuScore + gpuScore);
   

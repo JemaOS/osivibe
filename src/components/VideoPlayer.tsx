@@ -108,10 +108,20 @@ export const VideoPlayer: React.FC = () => {
   const pendingSeekRef = useRef<number | null>(null);
   const preloadedClipsRef = useRef<Set<string>>(new Set());
   
+  // DEBUG: Diagnostic logging refs
+  const debugLogCounterRef = useRef<number>(0);
+  const debugLastFrameTimeRef = useRef<number>(0);
+  const debugFrameTimesRef = useRef<number[]>([]);
+  const debugLastLogTimeRef = useRef<number>(0);
+  
   // Mobile optimization refs
   const isMobileRef = useRef<boolean>(false);
   const lastStateUpdateRef = useRef<number>(0);
+  const lastAutoQualityChangeRef = useRef<number>(0);
+  const AUTO_QUALITY_COOLDOWN = 5000; // 5 secondes entre les changements auto
   const rafIdRef = useRef<number | null>(null);
+  // OPTIMISATION: Flag pour désactiver ResizeObserver pendant le scrubbing
+  const isScrubbingRef = useRef<boolean>(false);
   const [showControls, setShowControls] = useState(true);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
@@ -229,6 +239,10 @@ export const VideoPlayer: React.FC = () => {
   // Track preview container dimensions for text scaling
   useEffect(() => {
     const updateDimensions = () => {
+      // OPTIMISATION: Ignorer les mises à jour de resize pendant le scrubbing
+      // pour éviter les re-renders additionnels qui causent des saccades
+      if (isScrubbingRef.current) return;
+      
       if (videoContainerRef.current) {
         const rect = videoContainerRef.current.getBoundingClientRect();
         // Find the actual video display area within the container
@@ -354,11 +368,12 @@ export const VideoPlayer: React.FC = () => {
     console.log('🎬 Preview quality changed to:', quality, newSettings);
   }, [hardwareProfile]);
   
-  // Get all active clips at playhead position, sorted by track index (bottom to top)
+  // OPTIMISATION: Utiliser useMemo au lieu de useCallback pour getActiveClips
+  // Cela évite les recalculs à chaque render quand les clips n'ont pas changé
   // NOTE: track.muted should only affect AUDIO playback, not video display
   // Video clips should always be visible regardless of mute state
-  const getActiveClips = useCallback(() => {
-    const activeClips: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+  const activeClipsData = useMemo(() => {
+    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
     
     tracks.forEach((track, index) => {
       // Only filter by track type, NOT by muted state
@@ -377,13 +392,16 @@ export const VideoPlayer: React.FC = () => {
         const media = mediaFiles.find(m => m.id === clip.mediaId);
         if (media) {
           // Include trackMuted state so audio can be properly controlled
-          activeClips.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
         }
       }
     });
     
-    return activeClips;
+    return result;
   }, [tracks, mediaFiles, player.currentTime]);
+  
+  // Fonction wrapper pour compatibilité avec le code existant
+  const getActiveClips = useCallback(() => activeClipsData, [activeClipsData]);
 
   // Audio preview: get all active audio clips at playhead (supports external audio tracks + detached audio)
   const getActiveAudioClips = useCallback(() => {
@@ -443,7 +461,7 @@ export const VideoPlayer: React.FC = () => {
     const clipTransitions = transitions.filter(t => t.clipId === clip.id);
     if (clipTransitions.length === 0) return {};
 
-    let style: React.CSSProperties = {};
+    const style: React.CSSProperties = {};
 
     clipTransitions.forEach(transition => {
       if (transition.type === 'none') return;
@@ -569,6 +587,15 @@ export const VideoPlayer: React.FC = () => {
   const syncVideoVolumeAndPlayback = useCallback(() => {
     const activeClips = getActiveClips();
     
+    // DEBUG: Log audio sync for video elements
+    console.log('[DEBUG syncVideoVolumeAndPlayback] Called:', {
+      activeClipCount: activeClips.length,
+      isPlaying: player.isPlaying,
+      volume: player.volume,
+      isMuted: player.isMuted,
+      playbackRate: player.playbackRate
+    });
+    
     activeClips.forEach((item) => {
       if (item.media.type !== 'video') return;
       
@@ -586,19 +613,37 @@ export const VideoPlayer: React.FC = () => {
         videoClipsWithDetachedAudio.has(item.clip.id);
       const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
       
-      // Always apply volume immediately
+      // DEBUG: Log volume changes
       if (videoEl.volume !== targetVolume) {
+        console.log('[DEBUG syncVideoVolumeAndPlayback] Volume change:', {
+          clipId: item.clip.id,
+          isMainVideo,
+          isAudioMuted,
+          oldVolume: videoEl.volume.toFixed(2),
+          newVolume: targetVolume.toFixed(2)
+        });
         videoEl.volume = targetVolume;
       }
       
+      if (videoEl.playbackRate !== player.playbackRate) {
+        console.log('[DEBUG syncVideoVolumeAndPlayback] PlaybackRate change:', {
+          clipId: item.clip.id,
+          oldRate: videoEl.playbackRate,
+          newRate: player.playbackRate
+        });
+      }
       videoEl.playbackRate = player.playbackRate;
 
       if (player.isPlaying) {
         if (videoEl.paused) {
-          videoEl.play().catch(() => {});
+          console.log('[DEBUG syncVideoVolumeAndPlayback] Playing video:', item.clip.id);
+          videoEl.play().catch((err) => {
+            console.error('[DEBUG syncVideoVolumeAndPlayback] Play error:', err);
+          });
         }
       } else {
         if (!videoEl.paused) {
+          console.log('[DEBUG syncVideoVolumeAndPlayback] Pausing video:', item.clip.id);
           videoEl.pause();
         }
       }
@@ -609,21 +654,41 @@ export const VideoPlayer: React.FC = () => {
   const syncAudioVolumeAndPlayback = useCallback(() => {
     const activeAudio = getActiveAudioClips();
     const activeIds = new Set(activeAudio.map((a) => a.clip.id));
+    
+    // DEBUG: Log audio track sync
+    console.log('[DEBUG syncAudioVolumeAndPlayback] Called:', {
+      activeAudioCount: activeAudio.length,
+      activeIds: Array.from(activeIds),
+      isPlaying: player.isPlaying,
+      volume: player.volume,
+      isMuted: player.isMuted,
+      playbackRate: player.playbackRate
+    });
 
     // Pause any non-active audio elements
     Object.entries(audioRefs.current).forEach(([clipId, el]) => {
       if (!el) return;
       if (!activeIds.has(clipId)) {
-        if (!el.paused) el.pause();
+        if (!el.paused) {
+          console.log('[DEBUG syncAudioVolumeAndPlayback] Pausing non-active audio:', clipId);
+          el.pause();
+        }
       }
     });
 
     activeAudio.forEach((item) => {
       const audioEl = audioRefs.current[item.clip.id];
-      if (!audioEl) return;
+      if (!audioEl) {
+        console.log('[DEBUG syncAudioVolumeAndPlayback] No audio element for clip:', item.clip.id);
+        return;
+      }
 
       // Ensure src
       if (audioEl.src !== item.media.url) {
+        console.log('[DEBUG syncAudioVolumeAndPlayback] Setting src:', {
+          clipId: item.clip.id,
+          src: item.media.url
+        });
         audioEl.src = item.media.url;
         audioEl.load();
       }
@@ -632,11 +697,27 @@ export const VideoPlayer: React.FC = () => {
       const clipStart = item.clip.startTime;
       const localTime = player.currentTime - clipStart + item.clip.trimStart;
       const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
+      
+      // DEBUG: Log audio time sync
+      if (timeDiff > 0.01) {
+        console.log('[DEBUG syncAudioVolumeAndPlayback] Audio time check:', {
+          clipId: item.clip.id,
+          audioTime: (audioEl.currentTime || 0).toFixed(3),
+          localTime: localTime.toFixed(3),
+          timeDiff: timeDiff.toFixed(3),
+          willSeek: timeDiff > 0.15
+        });
+      }
+      
       if (timeDiff > 0.15 && Number.isFinite(localTime)) {
         try {
+          console.log('[DEBUG syncAudioVolumeAndPlayback] Seeking audio:', {
+            clipId: item.clip.id,
+            to: localTime.toFixed(3)
+          });
           audioEl.currentTime = Math.max(0, localTime);
-        } catch {
-          // ignore
+        } catch (err) {
+          console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
         }
       }
 
@@ -644,29 +725,71 @@ export const VideoPlayer: React.FC = () => {
       audioEl.playbackRate = player.playbackRate;
       const mutedByTrack = item.trackMuted === true;
       const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
+      
+      // DEBUG: Log volume changes
+      if (audioEl.volume !== targetVol) {
+        console.log('[DEBUG syncAudioVolumeAndPlayback] Audio volume change:', {
+          clipId: item.clip.id,
+          oldVolume: audioEl.volume.toFixed(2),
+          newVolume: targetVol.toFixed(2),
+          mutedByTrack,
+          isMuted: player.isMuted
+        });
+      }
+      
       if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
       audioEl.muted = targetVol === 0;
 
       if (player.isPlaying) {
         if (audioEl.paused) {
-          audioEl.play().catch(() => {});
+          console.log('[DEBUG syncAudioVolumeAndPlayback] Playing audio:', item.clip.id);
+          audioEl.play().catch((err) => {
+            console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
+          });
         }
       } else {
-        if (!audioEl.paused) audioEl.pause();
+        if (!audioEl.paused) {
+          console.log('[DEBUG syncAudioVolumeAndPlayback] Pausing audio:', item.clip.id);
+          audioEl.pause();
+        }
       }
     });
   }, [getActiveAudioClips, player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume]);
 
   // Debounced video sync function to prevent stuttering during rapid navigation
   // This only handles time sync and filters, NOT volume/playback
+  // OPTIMISATION: Seuils adaptatifs - bas pour lecture fluide, haut pour scrubbing
   const syncVideosDebounced = useCallback((forceSync: boolean = false) => {
     const now = performance.now();
     const timeSinceLastSync = now - lastSyncTimeRef.current;
     
-    // MOBILE OPTIMIZATION: Use longer intervals on mobile to reduce CPU load
+    // DEBUG: Log syncVideosDebounced calls
+    if (forceSync || timeSinceLastSync > 100) {
+      console.log('[DEBUG syncVideosDebounced] Called:', {
+        forceSync,
+        timeSinceLastSync: timeSinceLastSync.toFixed(2) + 'ms',
+        isPlaying: player.isPlaying,
+        isScrubbing: isScrubbingRef.current
+      });
+    }
+    
+    // OPTIMISATION: Seuils adaptatifs selon le contexte
+    // Pendant la lecture: seuils bas pour synchronisation fluide (60fps)
+    // Pendant le scrubbing: seuils hauts pour réduire la charge CPU
     const isMobile = isMobileRef.current;
-    const MIN_SYNC_INTERVAL = isMobile ? 33 : 16; // ~30fps on mobile, ~60fps on desktop
-    const PAUSED_SYNC_INTERVAL = isMobile ? 100 : 50; // Longer debounce when paused on mobile
+    const isScrubbing = isScrubbingRef.current;
+    
+    // Seuils pour la LECTURE (fluide, 60fps)
+    const PLAYING_SYNC_INTERVAL = isMobile ? 16 : 16; // ~60fps pour synchronisation fluide
+    const PLAYING_SEEK_THRESHOLD = isMobile ? 0.05 : 0.03; // Seuil bas pendant lecture
+    
+    // Seuils pour le SCRUBBING (économie CPU)
+    const SCRUBBING_SYNC_INTERVAL = isMobile ? 100 : 50; // Moins fréquent pendant scrubbing
+    const SCRUBBING_SEEK_THRESHOLD = isMobile ? 0.25 : 0.15; // Seuil haut pendant scrubbing
+    
+    // Choisir les seuils selon le contexte
+    const MIN_SYNC_INTERVAL = isScrubbing ? SCRUBBING_SYNC_INTERVAL : PLAYING_SYNC_INTERVAL;
+    const PAUSED_SYNC_INTERVAL = isMobile ? 50 : 33; // Debounce en pause
     
     // If we're playing, sync immediately but throttled
     // If we're seeking (not playing), debounce more aggressively
@@ -687,7 +810,21 @@ export const VideoPlayer: React.FC = () => {
     
     lastSyncTimeRef.current = now;
     
+    // OPTIMISATION: Lire currentTime depuis le store dans le callback
+    // au lieu de l'utiliser comme dépendance du useCallback
+    const currentTime = useEditorStore.getState().player.currentTime;
+    
     const activeClips = getActiveClips();
+    
+    // DEBUG: Log active clips being synced
+    if (forceSync || activeClips.length > 0) {
+      console.log('[DEBUG syncVideosDebounced] Syncing clips:', {
+        clipCount: activeClips.length,
+        currentTime: currentTime.toFixed(3),
+        isMobile,
+        seekThreshold: isScrubbing ? SCRUBBING_SEEK_THRESHOLD : PLAYING_SEEK_THRESHOLD
+      });
+    }
     
     // Sync all active video clips - time and filters only
     activeClips.forEach((item) => {
@@ -708,25 +845,57 @@ export const VideoPlayer: React.FC = () => {
       }
 
       const clipStart = item.clip.startTime;
-      const localTime = player.currentTime - clipStart + item.clip.trimStart;
+      const localTime = currentTime - clipStart + item.clip.trimStart;
       
-      // MOBILE OPTIMIZATION: Use larger seek threshold on mobile
-      // This prevents micro-seeks that cause stuttering
-      const seekThreshold = isMobile
-        ? (player.isPlaying ? 0.25 : 0.1) // Larger threshold on mobile
-        : (player.isPlaying ? 0.15 : 0.05);
+      // OPTIMISATION CRITIQUE: Ne pas seek pendant la lecture
+      // Pendant la lecture, la vidéo HTML5 avance naturellement
+      // Seeker constamment crée des saccades (interruption du flux vidéo)
+      // On ne seek que quand on est en pause ou pendant le scrubbing
+      const isScrubbing = isScrubbingRef.current;
+      
+      // Seuil pour le scrubbing (haut pour éviter les seeks excessifs)
+      const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
+      // Seuil quand on est en pause (bas pour précision)
+      const pausedSeekThreshold = 0.05;
+      
+      const seekThreshold = isScrubbing
+        ? scrubbingSeekThreshold
+        : (player.isPlaying ? Infinity : pausedSeekThreshold); // Infinity = pas de seek pendant lecture
+      
       const timeDiff = Math.abs(videoEl.currentTime - localTime);
       
-      if (timeDiff > seekThreshold) {
-        // Mark as seeking to prevent race conditions
-        if (!isSeekingRef.current) {
-          isSeekingRef.current = true;
-          videoEl.currentTime = localTime;
-          
-          // Reset seeking flag after a short delay (longer on mobile)
-          setTimeout(() => {
-            isSeekingRef.current = false;
-          }, isMobile ? 100 : 50);
+      // DEBUG: Log timeDiff for each clip (moins fréquent pour éviter le spam)
+      if ((timeDiff > 0.05 || forceSync) && !player.isPlaying) {
+        console.log('[DEBUG syncVideosDebounced] Clip time check:', {
+          clipId: item.clip.id,
+          videoTime: videoEl.currentTime.toFixed(3),
+          localTime: localTime.toFixed(3),
+          timeDiff: timeDiff.toFixed(3),
+          seekThreshold: seekThreshold === Infinity ? 'NO_SEEK (playing)' : seekThreshold.toFixed(3),
+          willSeek: timeDiff > seekThreshold && seekThreshold !== Infinity
+        });
+      }
+      
+      // Ne seek que si on n'est PAS en train de jouer (sauf scrubbing)
+      if (!player.isPlaying || isScrubbing) {
+        if (timeDiff > seekThreshold) {
+          // Mark as seeking to prevent race conditions
+          if (!isSeekingRef.current) {
+            isSeekingRef.current = true;
+            console.log('[DEBUG syncVideosDebounced] SEEKING video:', {
+              clipId: item.clip.id,
+              from: videoEl.currentTime.toFixed(3),
+              to: localTime.toFixed(3),
+              diff: timeDiff.toFixed(3),
+              reason: isScrubbing ? 'scrubbing' : 'paused'
+            });
+            videoEl.currentTime = localTime;
+            
+            // Reset seeking flag after a short delay (longer on mobile)
+            setTimeout(() => {
+              isSeekingRef.current = false;
+            }, isMobile ? 100 : 50);
+          }
         }
       }
 
@@ -743,10 +912,10 @@ export const VideoPlayer: React.FC = () => {
     });
     
     // Sync MediaBunny if enabled
-    // CRITICAL OPTIMIZATION: Only sync here if PAUSED. 
+    // CRITICAL OPTIMIZATION: Only sync here if PAUSED.
     // If playing, the animation loop handles rendering to avoid double-calls and resource contention.
     if (useMediaBunny && isMediaBunnyReady && canvasRef.current && (!player.isPlaying || forceSync)) {
-      renderMediaBunny(player.currentTime, canvasRef.current.width, canvasRef.current.height).catch(console.error);
+      renderMediaBunny(currentTime, canvasRef.current.width, canvasRef.current.height).catch(console.error);
     }
     
     // Always sync volume and playback state immediately after time sync
@@ -754,7 +923,10 @@ export const VideoPlayer: React.FC = () => {
 
     // Also sync audio tracks (not debounced separately for now)
     syncAudioVolumeAndPlayback();
-  }, [player.currentTime, player.isPlaying, getActiveClips, filters, syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback]);
+    // OPTIMISATION: Ne pas inclure player.currentTime dans les dépendances
+    // Le callback lit currentTime depuis le store, pas comme dépendance
+    // Cela évite les re-renders en cascade lors du scrubbing
+  }, [player.isPlaying, filters, syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback]);
   
   // Sync volume and playback immediately when these change (no debounce)
   useEffect(() => {
@@ -858,13 +1030,53 @@ export const VideoPlayer: React.FC = () => {
     const targetFps = previewSettings.targetFps || 30;
     const MIN_TIME_STEP = 1000 / targetFps;
     const FPS_UPDATE_INTERVAL = (isMobile || isLowEnd) ? 60 : 30; // Update FPS display less often on mobile/low-end
+    
+    // DEBUG: Reset diagnostic counters
+    debugLogCounterRef.current = 0;
+    debugLastFrameTimeRef.current = performance.now();
+    debugFrameTimesRef.current = [];
+    debugLastLogTimeRef.current = performance.now();
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
       
+      // DEBUG: Calculate frame time and log every 60 frames
+      const frameTime = currentTime - debugLastFrameTimeRef.current;
+      debugLastFrameTimeRef.current = currentTime;
+      debugFrameTimesRef.current.push(frameTime);
+      if (debugFrameTimesRef.current.length > 10) debugFrameTimesRef.current.shift();
+      
+      debugLogCounterRef.current++;
+      const now = performance.now();
+      const timeSinceLastLog = now - debugLastLogTimeRef.current;
+      
+      // Log every 60 frames (~1 second at 60fps) or every 500ms
+      if (debugLogCounterRef.current >= 60 || timeSinceLastLog > 500) {
+        debugLogCounterRef.current = 0;
+        debugLastLogTimeRef.current = now;
+        const avgFrameTime = debugFrameTimesRef.current.reduce((a, b) => a + b, 0) / debugFrameTimesRef.current.length;
+        const effectiveFps = 1000 / avgFrameTime;
+        
+        console.log('[DEBUG Animation Loop]', {
+          frameTime: frameTime.toFixed(2) + 'ms',
+          avgFrameTime: avgFrameTime.toFixed(2) + 'ms',
+          effectiveFps: effectiveFps.toFixed(1),
+          accumulatedTime: accumulatedTime.toFixed(2),
+          targetFps,
+          MIN_TIME_STEP: MIN_TIME_STEP.toFixed(2),
+          isMobile,
+          isLowEnd,
+          isScrubbing: isScrubbingRef.current
+        });
+      }
+      
       // Frame rate limiting for smooth playback on low-end devices
       const frameLimiter = frameRateLimiterRef.current;
       if (frameLimiter && !frameLimiter.shouldRenderFrame(currentTime)) {
+        // DEBUG: Log skipped frame
+        if (debugLogCounterRef.current === 0) {
+          console.log('[DEBUG Frame Skip] Frame skipped by limiter');
+        }
         // Skip this frame but keep the loop running
         if (isActive) {
           animationRef.current = requestAnimationFrame(animate);
@@ -895,11 +1107,31 @@ export const VideoPlayer: React.FC = () => {
             setIsPerformancePoor(isPoor);
           }
           
-          // Auto-adjust quality if performance is poor
-          if (isPoor && previewSettings.quality !== 'low') {
+          // Auto-adjust quality if performance is poor (avec cooldown)
+          const nowPerf = performance.now();
+          const timeSinceLastChange = nowPerf - lastAutoQualityChangeRef.current;
+          
+          // DEBUG: Log performance monitoring
+          console.log('[DEBUG Performance Monitor]', {
+            fps: fps.toFixed(1),
+            isPoor,
+            isPerformancePoor,
+            timeSinceLastChange: timeSinceLastChange.toFixed(0) + 'ms',
+            currentQuality: previewSettings.quality,
+            targetFps: previewSettings.targetFps,
+            frameSkipping: previewSettings.frameSkipping
+          });
+          
+          if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
             const recommendation = perfMonitor.getQualityRecommendation();
+            console.log('[DEBUG Performance Monitor] Auto-reducing quality:', {
+              recommendation,
+              from: previewSettings.quality,
+              timeSinceLastChange: timeSinceLastChange.toFixed(0) + 'ms'
+            });
             if (recommendation === 'decrease') {
               console.log('⚠️ Poor performance detected, reducing quality');
+              lastAutoQualityChangeRef.current = nowPerf;
               if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
                 handleQualityChange('medium');
               } else if (previewSettings.quality === 'medium') {
@@ -922,23 +1154,40 @@ export const VideoPlayer: React.FC = () => {
         const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
         const newTime = state.player.currentTime + timeAdvance;
         
+        // DEBUG: Log seek operation
+        const prevTime = state.player.currentTime;
+        
         // Reset accumulated time
         accumulatedTime = 0;
         
         if (newTime >= state.projectDuration) {
+          console.log('[DEBUG Animation Loop] End reached, seeking to 0 and pausing');
           state.seek(0);
           state.pause();
         } else {
-          // MOBILE OPTIMIZATION: Throttle state updates
-          const now = performance.now();
-          const timeSinceLastUpdate = now - lastStateUpdateRef.current;
-          // On high-end PC, we want smooth UI updates (slider moving), so 16ms (60fps) is good.
-          // But if we are struggling, maybe relax it slightly to 32ms (30fps) for the UI update
-          // while keeping the render loop fast.
-          const updateThreshold = (isMobile || isLowEnd) ? 50 : 16; 
+          // OPTIMISATION: Throttling adaptatif selon le contexte
+          // Pendant la lecture: updates fréquents pour playhead fluide (33ms = ~30fps)
+          // Pendant le scrubbing: updates moins fréquents pour économiser le CPU (50-100ms)
+          const nowUpdate = performance.now();
+          const timeSinceLastUpdate = nowUpdate - lastStateUpdateRef.current;
+          
+          // Seuil adaptatif: plus bas pendant la lecture pour fluidité, plus haut pendant scrubbing
+          const isScrubbing = isScrubbingRef.current;
+          const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16; // 30-60fps pendant lecture
+          const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50; // 10-20fps pendant scrubbing
+          const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
           
           if (timeSinceLastUpdate >= updateThreshold) {
-            lastStateUpdateRef.current = now;
+            lastStateUpdateRef.current = nowUpdate;
+            // DEBUG: Log state.seek() call
+            console.log('[DEBUG Animation Loop] state.seek() called:', {
+              prevTime: prevTime.toFixed(3),
+              newTime: newTime.toFixed(3),
+              delta: (newTime - prevTime).toFixed(3),
+              timeAdvance: timeAdvance.toFixed(3),
+              playbackRate: state.player.playbackRate,
+              isScrubbing
+            });
             // Use a non-blocking state update if possible, or just accept this triggers a re-render of components subscribed to currentTime
             state.seek(newTime);
           }
@@ -1057,10 +1306,19 @@ export const VideoPlayer: React.FC = () => {
   }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode]);
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // OPTIMISATION: Activer le flag isScrubbing pendant l'interaction
+    isScrubbingRef.current = true;
+    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percentage = x / rect.width;
     seek(percentage * projectDuration);
+    
+    // Désactiver le flag après un délai plus long pour couvrir toute la transition
+    // 300ms pour s'assurer que tous les seeks sont terminés
+    setTimeout(() => {
+      isScrubbingRef.current = false;
+    }, 300);
   };
 
   // Handle text dragging
@@ -1240,7 +1498,7 @@ export const VideoPlayer: React.FC = () => {
       const deltaY = ((e.clientY - cropDragStart.y) / rect.height) * 100;
 
       const { crop } = cropDragStart;
-      let newCrop = { ...cropArea };
+      const newCrop = { ...cropArea };
 
       switch (resizingCrop) {
         case 'nw': // Top-left corner
@@ -1556,7 +1814,9 @@ export const VideoPlayer: React.FC = () => {
     };
   }, [rotatingImageId, rotationStart, transformStart, updateClip]);
 
-  const activeClips = getActiveClips();
+  // Utiliser directement activeClipsData (useMemo) au lieu de getActiveClips()
+  // pour éviter les appels de fonction inutiles
+  const activeClips = activeClipsData;
   const currentTexts = getCurrentTextOverlays();
   const progressPercentage = projectDuration > 0 ? (player.currentTime / projectDuration) * 100 : 0;
 
