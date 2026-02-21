@@ -161,117 +161,115 @@ export const Timeline: React.FC = () => {
     }
   };
 
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Ignore if typing in an input field
+    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+      return;
+    }
+
+    // Undo/Redo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+
+    // Delete key - remove selected clip or text
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (ui.selectedClipId) {
+        e.preventDefault();
+        removeClip(ui.selectedClipId);
+        return;
+      }
+      if (ui.selectedTextId) {
+        e.preventDefault();
+        removeTextOverlay(ui.selectedTextId);
+        return;
+      }
+    }
+
+    // Ctrl+C or Cmd+C - copy selected clip or text
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if (ui.selectedClipId) {
+        e.preventDefault();
+        const clip = tracks.flatMap(t => t.clips).find(c => c.id === ui.selectedClipId);
+        const trackWithClip = tracks.find(t => t.clips.some(c => c.id === ui.selectedClipId));
+        if (clip && trackWithClip) {
+          setCopiedClip({ clip: { ...clip }, trackId: trackWithClip.id });
+          setCopiedText(null);
+        }
+        return;
+      }
+      if (ui.selectedTextId) {
+        e.preventDefault();
+        const text = textOverlays.find(t => t.id === ui.selectedTextId);
+        if (text) {
+          setCopiedText({ ...text });
+          setCopiedClip(null);
+        }
+        return;
+      }
+    }
+
+    // Ctrl+V or Cmd+V - paste copied clip or text
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      if (copiedClip) {
+        e.preventDefault();
+        const media = mediaFiles.find(m => m.id === copiedClip.clip.mediaId);
+        if (media) {
+          const { addClipToTrack } = useEditorStore.getState();
+          // Paste at playhead position
+          addClipToTrack(copiedClip.trackId, media, player.currentTime);
+        }
+        return;
+      }
+      if (copiedText) {
+        e.preventDefault();
+        const { addTextOverlay } = useEditorStore.getState();
+        addTextOverlay({
+          ...copiedText,
+          id: undefined, // Generate new ID
+          startTime: player.currentTime,
+        });
+        return;
+      }
+    }
+
+    // Arrow keys for seeking
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      seek(Math.max(0, player.currentTime - 0.1));
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      seek(Math.min(projectDuration, player.currentTime + 0.1));
+    }
+    
+    if (e.shiftKey && e.key === 'ArrowLeft') {
+      e.preventDefault();
+      seek(Math.max(0, player.currentTime - 1));
+    }
+    if (e.shiftKey && e.key === 'ArrowRight') {
+      e.preventDefault();
+      seek(Math.min(projectDuration, player.currentTime + 1));
+    }
+  }, [ui.selectedClipId, ui.selectedTextId, copiedClip, copiedText, tracks, mediaFiles, player.currentTime, textOverlays, removeClip, removeTextOverlay, undo, redo, seek, projectDuration]);
+
   // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in an input field
-      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-        return;
-      }
-
-      // Undo/Redo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
-        return;
-      }
-
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        redo();
-        return;
-      }
-
-      // Delete key - remove selected clip or text
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (ui.selectedClipId) {
-          e.preventDefault();
-          removeClip(ui.selectedClipId);
-          return;
-        }
-        if (ui.selectedTextId) {
-          e.preventDefault();
-          removeTextOverlay(ui.selectedTextId);
-          return;
-        }
-      }
-
-      // Ctrl+C or Cmd+C - copy selected clip or text
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        if (ui.selectedClipId) {
-          e.preventDefault();
-          const clip = tracks.flatMap(t => t.clips).find(c => c.id === ui.selectedClipId);
-          const trackWithClip = tracks.find(t => t.clips.some(c => c.id === ui.selectedClipId));
-          if (clip && trackWithClip) {
-            setCopiedClip({ clip: { ...clip }, trackId: trackWithClip.id });
-            setCopiedText(null);
-          }
-          return;
-        }
-        if (ui.selectedTextId) {
-          e.preventDefault();
-          const text = textOverlays.find(t => t.id === ui.selectedTextId);
-          if (text) {
-            setCopiedText({ ...text });
-            setCopiedClip(null);
-          }
-          return;
-        }
-      }
-
-      // Ctrl+V or Cmd+V - paste copied clip or text
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        if (copiedClip) {
-          e.preventDefault();
-          const media = mediaFiles.find(m => m.id === copiedClip.clip.mediaId);
-          if (media) {
-            const { addClipToTrack } = useEditorStore.getState();
-            // Paste at playhead position
-            addClipToTrack(copiedClip.trackId, media, player.currentTime);
-          }
-          return;
-        }
-        if (copiedText) {
-          e.preventDefault();
-          const { addTextOverlay } = useEditorStore.getState();
-          addTextOverlay({
-            ...copiedText,
-            id: undefined, // Generate new ID
-            startTime: player.currentTime,
-          });
-          return;
-        }
-      }
-
-      // Arrow keys for seeking
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        seek(Math.max(0, player.currentTime - 0.1));
-      }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        seek(Math.min(projectDuration, player.currentTime + 0.1));
-      }
-      
-      if (e.shiftKey && e.key === 'ArrowLeft') {
-        e.preventDefault();
-        seek(Math.max(0, player.currentTime - 1));
-      }
-      if (e.shiftKey && e.key === 'ArrowRight') {
-        e.preventDefault();
-        seek(Math.min(projectDuration, player.currentTime + 1));
-      }
-
-      // Space bar for play/pause
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [ui.selectedClipId, ui.selectedTextId, copiedClip, copiedText, tracks, mediaFiles, player.currentTime, textOverlays, removeClip, removeTextOverlay, undo, redo]);
+  }, [handleKeyDown]);
 
   // Generate time markers
   const getTimeMarkers = () => {
@@ -780,90 +778,60 @@ export const Timeline: React.FC = () => {
     return false;
   };
 
+  const handleClipDragMove = useCallback((clientX: number, clientY: number) => {
+    const rect = tracksContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const x = clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
+    const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
+
+    // Determine target track based on mouse position
+    const trackIndex = Math.floor((clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
+    let targetTrack = tracks[trackIndex];
+
+    if (targetTrack && !targetTrack.locked) {
+      const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
+      if (!draggedClip) return;
+
+      // Check if clip type is compatible with target track
+      if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
+        // Find the original track of the clip and only allow horizontal movement
+        const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
+        if (originalTrack) {
+          targetTrack = originalTrack;
+        } else {
+          return; // Can't move to incompatible track
+        }
+      }
+
+      const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
+
+      // Apply snapping
+      const snappedTime = applySnapping(newTime, targetTrack.id, clipDuration, draggedClipId!);
+
+      // Check if there's a collision at snapped position
+      if (hasCollision(targetTrack.id, snappedTime, clipDuration, draggedClipId!)) {
+        // Find next available position without collision
+        const adjustedTime = findNonCollidingPosition(targetTrack.id, snappedTime, clipDuration, draggedClipId!);
+        moveClip(draggedClipId!, targetTrack.id, adjustedTime);
+      } else {
+        // No collision, use snapped position
+        moveClip(draggedClipId!, targetTrack.id, snappedTime);
+      }
+    }
+  }, [dragOffset.x, ui.timelineZoom, tracks, draggedClipId, moveClip, TRACK_HEIGHT, RULER_HEIGHT]);
+
   useEffect(() => {
     if (!isDraggingClip || !draggedClipId) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = tracksContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
-      const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
-
-      // Determine target track based on mouse position
-      const trackIndex = Math.floor((e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
-      let targetTrack = tracks[trackIndex];
-
-      if (targetTrack && !targetTrack.locked) {
-        const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
-        if (!draggedClip) return;
-
-        // Check if clip type is compatible with target track
-        if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
-          // Find the original track of the clip and only allow horizontal movement
-          const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
-          if (originalTrack) {
-            targetTrack = originalTrack;
-          } else {
-            return; // Can't move to incompatible track
-          }
-        }
-
-        const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
-
-        // Apply snapping
-        const snappedTime = applySnapping(newTime, targetTrack.id, clipDuration, draggedClipId);
-
-        // Check if there's a collision at snapped position
-        if (hasCollision(targetTrack.id, snappedTime, clipDuration, draggedClipId)) {
-          // Find next available position without collision
-          const adjustedTime = findNonCollidingPosition(targetTrack.id, snappedTime, clipDuration, draggedClipId);
-          moveClip(draggedClipId, targetTrack.id, adjustedTime);
-        } else {
-          // No collision, use snapped position
-          moveClip(draggedClipId, targetTrack.id, snappedTime);
-        }
-      }
+      handleClipDragMove(e.clientX, e.clientY);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      
-      const rect = tracksContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
       const touch = e.touches[0];
-      const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
-      const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
-
-      // Determine target track based on touch position
-      const trackIndex = Math.floor((touch.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
-      let targetTrack = tracks[trackIndex];
-
-      if (targetTrack && !targetTrack.locked) {
-        const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
-        if (!draggedClip) return;
-
-        // Check if clip type is compatible with target track
-        if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
-          const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
-          if (originalTrack) {
-            targetTrack = originalTrack;
-          } else {
-            return;
-          }
-        }
-
-        const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
-        const snappedTime = applySnapping(newTime, targetTrack.id, clipDuration, draggedClipId);
-
-        if (hasCollision(targetTrack.id, snappedTime, clipDuration, draggedClipId)) {
-          const adjustedTime = findNonCollidingPosition(targetTrack.id, snappedTime, clipDuration, draggedClipId);
-          moveClip(draggedClipId, targetTrack.id, adjustedTime);
-        } else {
-          moveClip(draggedClipId, targetTrack.id, snappedTime);
-        }
-      }
+      handleClipDragMove(touch.clientX, touch.clientY);
     };
 
     const handleMouseUp = () => {
@@ -1586,7 +1554,9 @@ export const Timeline: React.FC = () => {
                       onDrop={(e) => handleClipDrop(e, clip.id)}
                     >
                       {/* Transition Indicators */}
-                      {clipTransitions.map(transition => (
+                      {clipTransitions.map(transition => {
+                        const handleMouseDown = (e: React.MouseEvent) => handleTransitionMouseDown(e, transition.id);
+                        return (
                         <div
                           key={transition.id}
                           className="absolute top-0 bottom-0 bg-blue-500/80 z-20 cursor-move flex items-center justify-center hover:bg-blue-600 transition-colors"
@@ -1595,12 +1565,12 @@ export const Timeline: React.FC = () => {
                             left: transition.position === 'end' ? 'auto' : 0,
                             right: transition.position === 'end' ? 0 : 'auto',
                           }}
-                          onMouseDown={(e) => handleTransitionMouseDown(e, transition.id)}
+                          onMouseDown={handleMouseDown}
                           title={`Transition: ${transition.type} (${transition.position})`}
                         >
                            <Move className={`${isMinimal ? 'w-2 h-2' : 'w-3 h-3'} text-white`} />
                         </div>
-                      ))}
+                      )})}
 
                       {/* Resize handles - larger for touch */}
                       {!track.locked && (

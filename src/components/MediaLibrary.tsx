@@ -33,6 +33,59 @@ export const MediaLibrary: React.FC = () => {
     console.log('📦 mediaFiles mis à jour:', mediaFiles.length, 'fichiers', mediaFiles.map(m => m.name));
   }, [mediaFiles]);
 
+  const extractVideoMetadata = async (file: File, mediaFile: MediaFile) => {
+    console.log('🎬 Extraction métadonnées vidéo...');
+    try {
+      const metadata = await getVideoMetadata(file);
+      mediaFile.duration = metadata.duration;
+      mediaFile.width = metadata.width;
+      mediaFile.height = metadata.height;
+      console.log('✅ Métadonnées extraites:', metadata);
+      
+      // Generate thumbnail (non-blocking)
+      console.log('🖼️ Tentative génération miniature...');
+      generateThumbnail(file, 0)
+        .then(thumb => {
+          mediaFile.thumbnail = thumb;
+          console.log('✅ Miniature générée après coup');
+        })
+        .catch(thumbError => {
+          console.warn('⚠️ Échec génération miniature (non bloquant):', thumbError);
+        });
+    } catch (metadataError) {
+      console.warn('⚠️ Échec extraction métadonnées, utilisation valeurs par défaut:', metadataError);
+      mediaFile.duration = 5;
+      mediaFile.width = 1280;
+      mediaFile.height = 720;
+    }
+  };
+
+  const extractImageMetadata = async (file: File, mediaFile: MediaFile) => {
+    mediaFile.duration = 5; // Default 5 seconds for images
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = () => {
+          mediaFile.width = img.width;
+          mediaFile.height = img.height;
+          mediaFile.thumbnail = mediaFile.url;
+          resolve(null);
+        };
+        img.onerror = reject;
+        img.src = mediaFile.url;
+      });
+      console.log('✅ Image chargée:', {
+        name: mediaFile.name,
+        dimensions: `${mediaFile.width}x${mediaFile.height}`,
+        url: mediaFile.url
+      });
+    } catch (imgError) {
+      console.warn('Image loading failed for', file.name, imgError);
+      mediaFile.width = 1280;
+      mediaFile.height = 720;
+    }
+  };
+
   const processFile = async (file: File): Promise<MediaFile | null> => {
     console.log('🔄 Début du traitement:', file.name, 'Type:', file.type, 'Taille:', file.size);
     
@@ -55,32 +108,7 @@ export const MediaLibrary: React.FC = () => {
 
     try {
       if (type === 'video') {
-        console.log('🎬 Extraction métadonnées vidéo...');
-        try {
-          const metadata = await getVideoMetadata(file);
-          mediaFile.duration = metadata.duration;
-          mediaFile.width = metadata.width;
-          mediaFile.height = metadata.height;
-          console.log('✅ Métadonnées extraites:', metadata);
-          
-          // Generate thumbnail (non-blocking)
-          console.log('🖼️ Tentative génération miniature...');
-          generateThumbnail(file, 0)
-            .then(thumb => {
-              mediaFile.thumbnail = thumb;
-              console.log('✅ Miniature générée après coup');
-              // Force update if needed
-            })
-            .catch(thumbError => {
-              console.warn('⚠️ Échec génération miniature (non bloquant):', thumbError);
-            });
-        } catch (metadataError) {
-          console.warn('⚠️ Échec extraction métadonnées, utilisation valeurs par défaut:', metadataError);
-          // Use defaults
-          mediaFile.duration = 5;
-          mediaFile.width = 1280;
-          mediaFile.height = 720;
-        }
+        await extractVideoMetadata(file, mediaFile);
       } else if (type === 'audio') {
         try {
           mediaFile.duration = await getAudioDuration(file);
@@ -89,35 +117,10 @@ export const MediaLibrary: React.FC = () => {
           mediaFile.duration = 5;
         }
       } else if (type === 'image') {
-        mediaFile.duration = 5; // Default 5 seconds for images
-        
-        // Load image dimensions
-        try {
-          const img = new Image();
-          await new Promise((resolve, reject) => {
-            img.onload = () => {
-              mediaFile.width = img.width;
-              mediaFile.height = img.height;
-              mediaFile.thumbnail = mediaFile.url;
-              resolve(null);
-            };
-            img.onerror = reject;
-            img.src = mediaFile.url;
-          });
-          console.log('✅ Image chargée:', {
-            name: mediaFile.name,
-            dimensions: `${mediaFile.width}x${mediaFile.height}`,
-            url: mediaFile.url
-          });
-        } catch (imgError) {
-          console.warn('Image loading failed for', file.name, imgError);
-          mediaFile.width = 1280;
-          mediaFile.height = 720;
-        }
+        await extractImageMetadata(file, mediaFile);
       }
     } catch (error) {
       console.error('❌ Erreur lors du traitement:', file.name, error);
-      // Return the file anyway with default values
       if (!mediaFile.duration) mediaFile.duration = 5;
       if (!mediaFile.width) mediaFile.width = 1280;
       if (!mediaFile.height) mediaFile.height = 720;

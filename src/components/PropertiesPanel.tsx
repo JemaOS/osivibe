@@ -74,6 +74,80 @@ const Section: React.FC<{ id: string; title: string; children: React.ReactNode; 
   );
 };
 
+const handleScrub = (
+  e: React.PointerEvent,
+  value: number,
+  onChange: (val: number, isFinal?: boolean) => void,
+  options: { min?: number; max?: number; step?: number } = {}
+) => {
+  const target = e.target as HTMLElement;
+  const isInput = target.tagName === 'INPUT';
+
+  e.preventDefault();
+  e.stopPropagation();
+  
+  const startX = e.clientX;
+  const startValue = value;
+  const { min, max, step = 1 } = options;
+  
+  let lastValue = startValue;
+  let rafId: number | null = null;
+  let pendingUpdate = false;
+  let hasMoved = false;
+
+  const handlePointerMove = (moveEvent: PointerEvent) => {
+    const delta = moveEvent.clientX - startX;
+    
+    if (!hasMoved && Math.abs(delta) > 3) {
+      hasMoved = true;
+      document.body.style.cursor = 'ew-resize';
+      if (isInput) target.blur();
+    }
+
+    if (!hasMoved) return;
+
+    let newValue = startValue + delta * step;
+
+    if (min !== undefined) newValue = Math.max(newValue, min);
+    if (max !== undefined) newValue = Math.min(newValue, max);
+
+    if (step < 1) {
+      lastValue = parseFloat(newValue.toFixed(2));
+    } else {
+      lastValue = Math.round(newValue);
+    }
+    
+    if (!pendingUpdate) {
+      pendingUpdate = true;
+      rafId = requestAnimationFrame(() => {
+        onChange(lastValue, false);
+        pendingUpdate = false;
+      });
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+    }
+    
+    window.removeEventListener('pointermove', handlePointerMove);
+    window.removeEventListener('pointerup', handlePointerUp);
+    document.body.style.cursor = '';
+    
+    if (hasMoved) {
+      onChange(lastValue, true);
+    } else {
+      if (isInput) {
+        target.focus();
+      }
+    }
+  };
+
+  window.addEventListener('pointermove', handlePointerMove);
+  window.addEventListener('pointerup', handlePointerUp);
+};
+
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
   const {
     tracks,
@@ -256,79 +330,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     setCropMode(false);
   };
 
-  const handleScrub = (
-    e: React.PointerEvent,
-    value: number,
-    onChange: (val: number, isFinal?: boolean) => void,
-    options: { min?: number; max?: number; step?: number } = {}
-  ) => {
-    const target = e.target as HTMLElement;
-    const isInput = target.tagName === 'INPUT';
 
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const startX = e.clientX;
-    const startValue = value;
-    const { min, max, step = 1 } = options;
-    
-    let lastValue = startValue;
-    let rafId: number | null = null;
-    let pendingUpdate = false;
-    let hasMoved = false;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientX - startX;
-      
-      if (!hasMoved && Math.abs(delta) > 3) {
-        hasMoved = true;
-        document.body.style.cursor = 'ew-resize';
-        if (isInput) target.blur();
-      }
-
-      if (!hasMoved) return;
-
-      let newValue = startValue + delta * step;
-
-      if (min !== undefined) newValue = Math.max(newValue, min);
-      if (max !== undefined) newValue = Math.min(newValue, max);
-
-      if (step < 1) {
-        lastValue = parseFloat(newValue.toFixed(2));
-      } else {
-        lastValue = Math.round(newValue);
-      }
-      
-      if (!pendingUpdate) {
-        pendingUpdate = true;
-        rafId = requestAnimationFrame(() => {
-          onChange(lastValue, false);
-          pendingUpdate = false;
-        });
-      }
-    };
-
-    const handlePointerUp = () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      document.body.style.cursor = '';
-      
-      if (hasMoved) {
-        onChange(lastValue, true);
-      } else {
-        if (isInput) {
-          target.focus();
-        }
-      }
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  };
 
   const aspectRatios: Array<{ value: '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; description: string }> = [
     { value: '16:9', label: '16:9', description: 'Paysage standard' },
@@ -1109,28 +1111,33 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                  category === 'shape' ? 'Formes' : 'Effets'}
               </p>
               <div className="grid grid-cols-2 gap-2">
-                {categoryTransitions.map((transition) => (
+                {categoryTransitions.map((transition) => {
+                  const handleDragStart = (e: React.DragEvent) => {
+                    if (transition.type !== 'none') {
+                      e.dataTransfer.setData('application/json', JSON.stringify({
+                        type: 'NEW_TRANSITION',
+                        transitionType: transition.type
+                      }));
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }
+                  };
+
+                  const handleClick = () => {
+                    if (transition.type === 'none') {
+                      removeTransition(targetClip!.id);
+                      setPreviewTransition(null);
+                    } else {
+                      setTransition(targetClip!.id, transition.type, 0.5);
+                      setPreviewTransition(transition.type);
+                    }
+                  };
+
+                  return (
                   <button
                     key={transition.type}
                     draggable={transition.type !== 'none'}
-                    onDragStart={(e) => {
-                      if (transition.type !== 'none') {
-                        e.dataTransfer.setData('application/json', JSON.stringify({
-                          type: 'NEW_TRANSITION',
-                          transitionType: transition.type
-                        }));
-                        e.dataTransfer.effectAllowed = 'copy';
-                      }
-                    }}
-                    onClick={() => {
-                      if (transition.type === 'none') {
-                        removeTransition(targetClip!.id);
-                        setPreviewTransition(null);
-                      } else {
-                        setTransition(targetClip!.id, transition.type, 0.5);
-                        setPreviewTransition(transition.type);
-                      }
-                    }}
+                    onDragStart={handleDragStart}
+                    onClick={handleClick}
                     className={`group relative overflow-hidden p-2 rounded-xl text-caption font-medium transition-all ${
                       (currentTransition?.type === transition.type) || 
                       (!currentTransition && transition.type === 'none')
@@ -1143,7 +1150,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     </div>
                     <div className="text-center truncate">{transition.name}</div>
                   </button>
-                ))}
+                )})}
               </div>
             </div>
           );

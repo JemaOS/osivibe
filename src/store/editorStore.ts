@@ -443,31 +443,31 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       audioTrackId: audioTrack.id
     });
     
+    const updateVideoClip = (clip: TimelineClip) => {
+      if (clip.id === videoClipId) {
+        console.log('🔊 Video clip keeps audio (detached audio is a copy):', {
+          clipId: clip.id,
+          audioMuted: false,
+          detachedAudioClipId: audioClipId
+        });
+        return { ...clip, audioMuted: false, detachedAudioClipId: audioClipId };
+      }
+      return clip;
+    };
+
+    const updateTrack = (track: TimelineTrack) => {
+      if (track.id === audioTrack!.id) {
+        console.log('🎵 Adding audio clip to track:', audioTrack!.id);
+        return { ...track, clips: [...track.clips, audioClip] };
+      }
+      return {
+        ...track,
+        clips: track.clips.map(updateVideoClip),
+      };
+    };
+
     set((state) => ({
-      tracks: state.tracks.map((track) => {
-        // Add audio clip to audio track
-        if (track.id === audioTrack!.id) {
-          console.log('🎵 Adding audio clip to track:', audioTrack!.id);
-          return { ...track, clips: [...track.clips, audioClip] };
-        }
-        // Keep the video clip's audio playing (NOT muted yet)
-        // The video will only be muted when the detached audio clip is deleted
-        return {
-          ...track,
-          clips: track.clips.map(clip => {
-            if (clip.id === videoClipId) {
-              console.log('🔊 Video clip keeps audio (detached audio is a copy):', {
-                clipId: clip.id,
-                audioMuted: false,
-                detachedAudioClipId: audioClipId
-              });
-              // Store the link but DON'T mute yet - video keeps its audio
-              return { ...clip, audioMuted: false, detachedAudioClipId: audioClipId };
-            }
-            return clip;
-          }),
-        };
-      }),
+      tracks: state.tracks.map(updateTrack),
     }));
     
     // Verify the changes were applied
@@ -647,31 +647,27 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       audioMuted: clipToRemove.audioMuted
     });
     
+    const updateLinkedClip = (c: TimelineClip) => {
+      if (linkedVideoClipId && c.id === linkedVideoClipId) {
+        console.log('🔇 Muting video clip after audio deletion:', linkedVideoClipId);
+        return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+      }
+      if (detachedAudioClipId && c.id === detachedAudioClipId) {
+        return c;
+      }
+      return c;
+    };
+
+    const processTrack = (track: TimelineTrack) => ({
+      ...track,
+      clips: track.clips
+        .filter((c) => c.id !== clipId)
+        .map(updateLinkedClip),
+    });
+
     // First pass: Remove the clip and update linked clips
     set((state) => {
-      const newTracks = state.tracks.map((track) => ({
-        ...track,
-        clips: track.clips
-          // Remove the clip being deleted
-          .filter((c) => c.id !== clipId)
-          // Update linked clips
-          .map((c) => {
-            // If we're removing a detached audio clip, NOW mute the video
-            // The video was playing audio until now, but since the detached audio is deleted,
-            // the video should become muted
-            if (linkedVideoClipId && c.id === linkedVideoClipId) {
-              console.log('🔇 Muting video clip after audio deletion:', linkedVideoClipId);
-              return { ...c, audioMuted: true, detachedAudioClipId: undefined };
-            }
-            // If we're removing a video clip, check if any audio clip is linked to it
-            // and clear the link (the audio clip will be removed in second pass)
-            if (detachedAudioClipId && c.id === detachedAudioClipId) {
-              // This audio clip will be removed in the second pass
-              return c;
-            }
-            return c;
-          }),
-      }));
+      const newTracks = state.tracks.map(processTrack);
       
       return {
         tracks: newTracks,
@@ -696,17 +692,18 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     // Third pass: If we removed an audio clip, find any video clip that references it
     // and mute it (since the detached audio is now gone)
     if (clipToRemove.type === 'audio') {
+      const muteLinkedVideo = (c: TimelineClip) => {
+        if (c.detachedAudioClipId === clipId) {
+          console.log('🔇 Muting video clip (by detachedAudioClipId):', c.id);
+          return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+        }
+        return c;
+      };
+
       set((state) => ({
         tracks: state.tracks.map((track) => ({
           ...track,
-          clips: track.clips.map((c) => {
-            // Check if this video clip's detachedAudioClipId matches the removed audio clip
-            if (c.detachedAudioClipId === clipId) {
-              console.log('🔇 Muting video clip (by detachedAudioClipId):', c.id);
-              return { ...c, audioMuted: true, detachedAudioClipId: undefined };
-            }
-            return c;
-          }),
+          clips: track.clips.map(muteLinkedVideo),
         })),
       }));
     }
@@ -717,22 +714,24 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   updateClip: (clipId, updates, skipHistory = false) => {
     if (!skipHistory) get().saveState(); // Save state before action
     
+    const processTrack = (track: TimelineTrack) => {
+      const hasClip = track.clips.some(c => c.id === clipId);
+      if (!hasClip) return track;
+      
+      const updatedClips = track.clips.map((clip) =>
+        clip.id === clipId ? { ...clip, ...updates } : clip
+      );
+      
+      // Only resolve overlaps if position or duration changed
+      if (updates.startTime !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
+           return { ...track, clips: resolveOverlaps(updatedClips) };
+      }
+      
+      return { ...track, clips: updatedClips };
+    };
+
     set((state) => ({
-      tracks: state.tracks.map((track) => {
-        const hasClip = track.clips.some(c => c.id === clipId);
-        if (!hasClip) return track;
-        
-        const updatedClips = track.clips.map((clip) =>
-          clip.id === clipId ? { ...clip, ...updates } : clip
-        );
-        
-        // Only resolve overlaps if position or duration changed
-        if (updates.startTime !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
-             return { ...track, clips: resolveOverlaps(updatedClips) };
-        }
-        
-        return { ...track, clips: updatedClips };
-      }),
+      tracks: state.tracks.map(processTrack),
     }));
     get().calculateProjectDuration();
   },
@@ -743,8 +742,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     set((state) => {
       let clipToMove: TimelineClip | null = null;
       
-      // Find and remove the clip from its current track
-      const tracksWithoutClip = state.tracks.map((track) => {
+      const removeClipFromTrack = (track: TimelineTrack) => {
         const clip = track.clips.find((c) => c.id === clipId);
         if (clip) {
           clipToMove = { ...clip, trackId: newTrackId, startTime: Math.max(0, newStartTime) };
@@ -753,16 +751,20 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
           ...track,
           clips: track.clips.filter((c) => c.id !== clipId),
         };
-      });
+      };
+
+      // Find and remove the clip from its current track
+      const tracksWithoutClip = state.tracks.map(removeClipFromTrack);
       
       // Add the clip to the new track
       if (clipToMove) {
+        const addClipToNewTrack = (track: TimelineTrack) => 
+          track.id === newTrackId
+            ? { ...track, clips: resolveOverlaps([...track.clips, clipToMove!]) }
+            : track;
+
         return {
-          tracks: tracksWithoutClip.map((track) =>
-            track.id === newTrackId
-              ? { ...track, clips: resolveOverlaps([...track.clips, clipToMove!]) }
-              : track
-          ),
+          tracks: tracksWithoutClip.map(addClipToNewTrack),
         };
       }
       
@@ -774,76 +776,77 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   splitClip: (clipId, splitTime) => {
     get().saveState(); // Save state before action
     
-    set((state) => {
-      const newTracks = state.tracks.map((track) => {
-        const clipIndex = track.clips.findIndex((c) => c.id === clipId);
-        if (clipIndex === -1) return track;
-        
-        const clip = track.clips[clipIndex];
-        const clipStart = clip.startTime;
-        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-        
-        // Check if split time is within the clip
-        if (splitTime <= clipStart || splitTime >= clipEnd) return track;
-        
-        const splitPoint = splitTime - clipStart + clip.trimStart;
-        
-        // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
-        // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
-        // Each split part starts fresh with its own audio state
-        const firstClip: TimelineClip = {
-          id: clip.id, // Keep original ID for first part
-          mediaId: clip.mediaId,
-          trackId: clip.trackId,
-          startTime: clip.startTime,
-          duration: clip.duration,
-          trimStart: clip.trimStart,
-          trimEnd: clip.duration - splitPoint,
-          name: clip.name,
-          type: clip.type,
-          thumbnail: clip.thumbnail,
-          crop: clip.crop,
-          transform: clip.transform,
-          // Audio state is INDEPENDENT - not copied from original
-          audioMuted: false,
-          detachedAudioClipId: undefined,
-          linkedVideoClipId: undefined,
-        };
-        
-        const secondClip: TimelineClip = {
-          id: uuidv4(), // New ID for second part
-          mediaId: clip.mediaId,
-          trackId: clip.trackId,
-          startTime: splitTime,
-          duration: clip.duration,
-          trimStart: splitPoint,
-          trimEnd: clip.trimEnd,
-          name: clip.name + ' (2)',
-          type: clip.type,
-          thumbnail: clip.thumbnail,
-          crop: clip.crop,
-          transform: clip.transform,
-          // Audio state is INDEPENDENT - not copied from original
-          audioMuted: false,
-          detachedAudioClipId: undefined,
-          linkedVideoClipId: undefined,
-        };
-        
-        console.log('✂️ Split clip:', {
-          originalId: clipId,
-          firstClipId: firstClip.id,
-          secondClipId: secondClip.id,
-          splitTime,
-          firstClipAudioMuted: firstClip.audioMuted,
-          secondClipAudioMuted: secondClip.audioMuted
-        });
-        
-        const newClips = [...track.clips];
-        newClips.splice(clipIndex, 1, firstClip, secondClip);
-        
-        return { ...track, clips: resolveOverlaps(newClips) };
+    const processTrack = (track: TimelineTrack) => {
+      const clipIndex = track.clips.findIndex((c) => c.id === clipId);
+      if (clipIndex === -1) return track;
+      
+      const clip = track.clips[clipIndex];
+      const clipStart = clip.startTime;
+      const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+      
+      // Check if split time is within the clip
+      if (splitTime <= clipStart || splitTime >= clipEnd) return track;
+      
+      const splitPoint = splitTime - clipStart + clip.trimStart;
+      
+      // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
+      // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
+      // Each split part starts fresh with its own audio state
+      const firstClip: TimelineClip = {
+        id: clip.id, // Keep original ID for first part
+        mediaId: clip.mediaId,
+        trackId: clip.trackId,
+        startTime: clip.startTime,
+        duration: clip.duration,
+        trimStart: clip.trimStart,
+        trimEnd: clip.duration - splitPoint,
+        name: clip.name,
+        type: clip.type,
+        thumbnail: clip.thumbnail,
+        crop: clip.crop,
+        transform: clip.transform,
+        // Audio state is INDEPENDENT - not copied from original
+        audioMuted: false,
+        detachedAudioClipId: undefined,
+        linkedVideoClipId: undefined,
+      };
+      
+      const secondClip: TimelineClip = {
+        id: uuidv4(), // New ID for second part
+        mediaId: clip.mediaId,
+        trackId: clip.trackId,
+        startTime: splitTime,
+        duration: clip.duration,
+        trimStart: splitPoint,
+        trimEnd: clip.trimEnd,
+        name: clip.name + ' (2)',
+        type: clip.type,
+        thumbnail: clip.thumbnail,
+        crop: clip.crop,
+        transform: clip.transform,
+        // Audio state is INDEPENDENT - not copied from original
+        audioMuted: false,
+        detachedAudioClipId: undefined,
+        linkedVideoClipId: undefined,
+      };
+      
+      console.log('✂️ Split clip:', {
+        originalId: clipId,
+        firstClipId: firstClip.id,
+        secondClipId: secondClip.id,
+        splitTime,
+        firstClipAudioMuted: firstClip.audioMuted,
+        secondClipAudioMuted: secondClip.audioMuted
       });
       
+      const newClips = [...track.clips];
+      newClips.splice(clipIndex, 1, firstClip, secondClip);
+      
+      return { ...track, clips: resolveOverlaps(newClips) };
+    };
+
+    set((state) => {
+      const newTracks = state.tracks.map(processTrack);
       return { tracks: newTracks };
     });
     get().calculateProjectDuration();
@@ -871,11 +874,11 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     const sortedTexts = [...state.textOverlays].sort((a, b) => a.startTime - b.startTime);
     let isColliding = true;
     
+    const checkCollision = (t: TextOverlay) => (startTime < t.startTime + t.duration) && (startTime + duration > t.startTime);
+
     // Iteratively find a free spot
     while (isColliding) {
-      const collider = sortedTexts.find(t => 
-        (startTime < t.startTime + t.duration) && (startTime + duration > t.startTime)
-      );
+      const collider = sortedTexts.find(checkCollision);
       
       if (collider) {
         // Move to the end of the colliding clip

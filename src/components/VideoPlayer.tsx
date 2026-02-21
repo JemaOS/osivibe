@@ -1921,9 +1921,9 @@ export const VideoPlayer: React.FC = () => {
       if (enhancedProfile) {
         // Set playback quality hints based on GPU tier
         if (enhancedProfile.gpu.tier === 'low') {
-          el.setAttribute('data-quality-hint', 'low');
+          el.dataset.qualityHint = 'low';
         } else if (enhancedProfile.gpu.tier === 'high') {
-          el.setAttribute('data-quality-hint', 'high');
+          el.dataset.qualityHint = 'high';
         }
         
         // Enable hardware acceleration if supported

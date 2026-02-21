@@ -26,6 +26,61 @@ interface HeaderProps {
   onToggleSidebar: () => void;
 }
 
+const ProjectMenu = ({ 
+  projects, 
+  currentProjectId, 
+  loadProject, 
+  deleteProject, 
+  isProjectMenuOpen, 
+  setIsProjectMenuOpen 
+}: any) => {
+  if (!isProjectMenuOpen) return null;
+  
+  return (
+    <>
+      <div 
+        className="fixed inset-0 z-40" 
+        onClick={() => setIsProjectMenuOpen(false)} 
+      />
+      <div className="absolute top-full left-0 mt-2 w-64 bg-[#1f1f1f] border border-white/10 rounded-lg shadow-xl z-50 py-1 max-h-[300px] overflow-y-auto">
+        <div className="px-3 py-2 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+          Projets récents
+        </div>
+        {projects.map((p: any) => (
+          <div 
+            key={p.id} 
+            className={`flex items-center justify-between px-3 py-2 hover:bg-white/5 cursor-pointer group ${p.id === currentProjectId ? 'bg-white/5' : ''}`}
+            onClick={() => {
+              loadProject(p.id);
+              setIsProjectMenuOpen(false);
+            }}
+          >
+            <div className="flex items-center gap-2 overflow-hidden">
+              <FolderOpen className={`w-4 h-4 flex-shrink-0 ${p.id === currentProjectId ? 'text-primary-500' : 'text-neutral-500'}`} />
+              <span className={`text-sm truncate ${p.id === currentProjectId ? 'text-white font-medium' : 'text-neutral-300'}`}>
+                {p.name}
+              </span>
+            </div>
+            
+            {projects.length > 1 && (
+              <button 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  deleteProject(p.id); 
+                }} 
+                className="w-6 h-6 rounded flex items-center justify-center text-neutral-500 hover:text-red-500 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
+                title="Supprimer le projet"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+};
+
 export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
   const { 
     projectName, 
@@ -162,49 +217,14 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
                   <ChevronDown className="w-3 h-3" />
                 </button>
                 
-                {isProjectMenuOpen && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-40" 
-                      onClick={() => setIsProjectMenuOpen(false)} 
-                    />
-                    <div className="absolute top-full left-0 mt-2 w-64 bg-[#1f1f1f] border border-white/10 rounded-lg shadow-xl z-50 py-1 max-h-[300px] overflow-y-auto">
-                      <div className="px-3 py-2 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                        Projets récents
-                      </div>
-                      {projects.map(p => (
-                        <div 
-                          key={p.id} 
-                          className={`flex items-center justify-between px-3 py-2 hover:bg-white/5 cursor-pointer group ${p.id === currentProjectId ? 'bg-white/5' : ''}`}
-                          onClick={() => {
-                            loadProject(p.id);
-                            setIsProjectMenuOpen(false);
-                          }}
-                        >
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            <FolderOpen className={`w-4 h-4 flex-shrink-0 ${p.id === currentProjectId ? 'text-primary-500' : 'text-neutral-500'}`} />
-                            <span className={`text-sm truncate ${p.id === currentProjectId ? 'text-white font-medium' : 'text-neutral-300'}`}>
-                              {p.name}
-                            </span>
-                          </div>
-                          
-                          {projects.length > 1 && (
-                            <button 
-                              onClick={(e) => { 
-                                e.stopPropagation(); 
-                                deleteProject(p.id); 
-                              }} 
-                              className="w-6 h-6 rounded flex items-center justify-center text-neutral-500 hover:text-red-500 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
-                              title="Supprimer le projet"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
+                <ProjectMenu 
+                  projects={projects}
+                  currentProjectId={currentProjectId}
+                  loadProject={loadProject}
+                  deleteProject={deleteProject}
+                  isProjectMenuOpen={isProjectMenuOpen}
+                  setIsProjectMenuOpen={setIsProjectMenuOpen}
+                />
               </div>
             </div>
           )}

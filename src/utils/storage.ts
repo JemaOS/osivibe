@@ -53,7 +53,7 @@ export const indexedDBStorage = {
     }
 
     if (lastSavedJson === currentJson) {
-      return Promise.resolve();
+      return;
     }
 
     if (saveTimeout) {
