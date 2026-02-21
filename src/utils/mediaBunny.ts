@@ -386,13 +386,11 @@ export async function exportProjectWithMediaBunny(
                     
                     const hasTransition = startTransition || endTransition;
                     const hasText = activeTexts.length > 0;
-                    // @ts-ignore
-                    const isSameResolution = sample.displayWidth === width && sample.displayHeight === height;
+                    const isSameResolution = (sample as any).displayWidth === width && (sample as any).displayHeight === height;
 
                     if (!hasFilter && !hasTransition && !hasText && isSameResolution) {
                         // FAST PATH: Zero-copy frame creation
-                        // @ts-ignore
-                        const frame = new VideoFrame(sample, { timestamp: relativeTimestamp * 1_000_000 });
+                        const frame = new VideoFrame(sample as any, { timestamp: relativeTimestamp * 1_000_000 });
                         const newSample = new VideoSample(frame);
                         await videoSource.add(newSample);
                         newSample.close();
@@ -458,12 +456,13 @@ export async function exportProjectWithMediaBunny(
                                         ctx.scale(p, p);
                                         ctx.translate(-width / 2, -height / 2);
                                         break;
-                                    case 'zoom-out':
+                                    case 'zoom-out': {
                                         const s = 1.5 - p * 0.5;
                                         ctx.translate(width / 2, height / 2);
                                         ctx.scale(s, s);
                                         ctx.translate(-width / 2, -height / 2);
                                         break;
+                                    }
                                     case 'rotate-in':
                                         ctx.translate(width / 2, height / 2);
                                         ctx.rotate(inv * -Math.PI);
@@ -476,31 +475,37 @@ export async function exportProjectWithMediaBunny(
                                         ctx.scale(p, p);
                                         ctx.translate(-width / 2, -height / 2);
                                         break;
-                                    case 'slide-left':
+                                    case 'slide-left': {
                                         const txLeft = isEnd ? -inv * width : inv * width;
                                         ctx.translate(txLeft, 0);
                                         break;
-                                    case 'slide-right':
+                                    }
+                                    case 'slide-right': {
                                         const txRight = isEnd ? inv * width : -inv * width;
                                         ctx.translate(txRight, 0);
                                         break;
-                                    case 'slide-up':
+                                    }
+                                    case 'slide-up': {
                                         const tyUp = isEnd ? -inv * height : inv * height;
                                         ctx.translate(0, tyUp);
                                         break;
-                                    case 'slide-down':
+                                    }
+                                    case 'slide-down': {
                                         const tyDown = isEnd ? inv * height : -inv * height;
                                         ctx.translate(0, tyDown);
                                         break;
-                                    case 'slide-diagonal-tl':
+                                    }
+                                    case 'slide-diagonal-tl': {
                                         const tDiaTL = isEnd ? -inv : inv;
                                         ctx.translate(tDiaTL * width, tDiaTL * height);
                                         break;
-                                    case 'slide-diagonal-tr':
+                                    }
+                                    case 'slide-diagonal-tr': {
                                         const tDiaTRX = isEnd ? inv : -inv;
                                         const tDiaTRY = isEnd ? -inv : inv;
                                         ctx.translate(tDiaTRX * width, tDiaTRY * height);
                                         break;
+                                    }
                                     case 'wipe-left':
                                         ctx.beginPath();
                                         if (isEnd) {
@@ -537,13 +542,14 @@ export async function exportProjectWithMediaBunny(
                                         }
                                         ctx.clip();
                                         break;
-                                    case 'circle-wipe':
+                                    case 'circle-wipe': {
                                         ctx.beginPath();
                                         const maxRadius = Math.sqrt(width*width + height*height) / 2;
                                         ctx.arc(width/2, height/2, p * maxRadius * 1.5, 0, Math.PI * 2);
                                         ctx.clip();
                                         break;
-                                    case 'diamond-wipe':
+                                    }
+                                    case 'diamond-wipe': {
                                         ctx.beginPath();
                                         const cx = width / 2;
                                         const cy = height / 2;
@@ -556,18 +562,16 @@ export async function exportProjectWithMediaBunny(
                                         ctx.closePath();
                                         ctx.clip();
                                         break;
+                                    }
                                 }
                             }
                         }
     
                         // Draw the frame
-                        // @ts-ignore - sample might be VideoFrame or wrapper
-                        if (typeof sample.draw === 'function') {
-                             // @ts-ignore
-                            sample.draw(ctx, 0, 0, width, height);
+                        if (typeof (sample as any).draw === 'function') {
+                            (sample as any).draw(ctx, 0, 0, width, height);
                         } else {
-                             // @ts-ignore
-                            ctx.drawImage(sample, 0, 0, width, height);
+                            ctx.drawImage(sample as any, 0, 0, width, height);
                         }
                         
                         ctx.restore();

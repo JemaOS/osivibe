@@ -26,7 +26,9 @@ export const indexedDBStorage = {
             if (result) {
               try {
                 lastSavedJson = JSON.stringify(result);
-              } catch (e) {}
+              } catch (e) {
+                // Ignore stringify errors
+              }
             }
             resolve(result);
           };

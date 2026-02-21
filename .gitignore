@@ -28,3 +28,4 @@ test-results/
 *.sw?
 
 .vercel
+.env*.local

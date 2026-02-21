@@ -598,10 +598,20 @@ export async function loadFFmpeg(
     const prog = /out_time_ms=(\d+)/.exec(message);
     const tFromProgress = prog ? parseInt(prog[1], 10) / 1_000_000 : null;
 
-    const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(message);
-    const tFromStats = m
-      ? (parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]))
-      : null;
+    let tFromStats: number | null = null;
+    const timeIndex = message.indexOf('time=');
+    if (timeIndex !== -1) {
+      const timeStr = message.substring(timeIndex + 5).split(' ')[0]; // Get the time part
+      const parts = timeStr.split(':');
+      if (parts.length >= 3) {
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const s = parseFloat(parts[2]);
+        if (!isNaN(h) && !isNaN(m) && !isNaN(s)) {
+          tFromStats = h * 3600 + m * 60 + s;
+        }
+      }
+    }
 
     const t = (tFromProgress ?? tFromStats);
     if (t == null) return;
@@ -1374,7 +1384,6 @@ async function _exportProjectInternal(
   // We only fallback if there are features we absolutely cannot handle efficiently yet
   // For now, we let MediaBunny try everything. If it fails, the catch block will handle fallback.
   
-  /* 
   const hasTextOverlays = textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim().length > 0);
   const hasTransitions = transitions && transitions.length > 0 && transitions.some(t => t.type !== 'none');
   const hasFilters = clips.some(c => c.filter && (
@@ -1385,13 +1394,14 @@ async function _exportProjectInternal(
     c.filter.sepia || 
     c.filter.blur > 0
   ));
+  const hasImages = clips.some(c => c.file.type.startsWith('image/'));
+  const hasAudioClips = audioClips && audioClips.length > 0;
   
   // If complex features are present, skip MediaBunny and use FFmpeg
-  if (hasTextOverlays || hasTransitions || hasFilters) {
-    console.log('⚠️ Complex features detected (Text/Transitions/Filters), falling back to FFmpeg for full support.');
+  if (hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips) {
+    console.log('⚠️ Complex features detected (Text/Transitions/Filters/Images/Audio), falling back to FFmpeg for full support.');
     // Fallthrough to FFmpeg implementation below
   } else {
-  */
     try {
         // Try MediaBunny for fast export
         return await exportProjectWithMediaBunny(
@@ -1407,11 +1417,9 @@ async function _exportProjectInternal(
         );
     } catch (error) {
         console.error('MediaBunny export failed:', error);
-        throw error;
+        console.log('Falling back to FFmpeg...');
     }
-    
-    // FFmpeg logic disabled
-    return new Blob([]); 
+  }
 
 
   // Prevent concurrent exports (they will terminate each other in ffmpeg.wasm)
@@ -1682,7 +1690,9 @@ async function _exportProjectInternal(
           extraAudioInputNames.push(name);
           try {
             await ffmpegInstance.deleteFile(name);
-          } catch {}
+          } catch {
+            // Ignore error if file doesn't exist
+          }
           const buf = new Uint8Array(await file.arrayBuffer());
           await writeFileWithTimeout(ffmpegInstance, name, buf, safeMode ? 60000 : 45000);
         }
@@ -1816,7 +1826,9 @@ async function _exportProjectInternal(
         for (const n of extraAudioInputNames) {
           try {
             await ffmpegInstance.deleteFile(n);
-          } catch {}
+          } catch {
+            // Ignore error if file doesn't exist
+          }
         }
       }
 
@@ -1997,7 +2009,9 @@ async function _exportProjectInternal(
         onProgress?.(5, `Chargement des fichiers audio... (${i + 1}/${extraAudioFiles.length})`);
         try {
           await ffmpegInstance.deleteFile(inputFileName);
-        } catch {}
+        } catch {
+          // Ignore error if file doesn't exist
+        }
         const dataArray = new Uint8Array(await file.arrayBuffer());
         await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray, safeMode ? 60000 : 45000);
       }

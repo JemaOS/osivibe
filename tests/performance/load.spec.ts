@@ -20,10 +20,8 @@ test.describe('Performance', () => {
       return new Promise((resolve) => {
         let cumulativeLayoutShift = 0;
         const observer = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            // @ts-ignore
+          for (const entry of list.getEntries() as any[]) {
             if (!entry.hadRecentInput) {
-              // @ts-ignore
               cumulativeLayoutShift += entry.value;
             }
           }

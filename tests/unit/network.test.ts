@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadFonts } from '../../src/utils/ffmpeg';
+import { loadDefaultFont } from '../../src/utils/ffmpeg';
 
 // Mock the FFmpeg instance
 const mockFFmpeg = {
@@ -11,8 +11,7 @@ const mockFFmpeg = {
 vi.mock('../../src/utils/ffmpeg', async (importOriginal) => {
   const actual = await importOriginal();
   return {
-    // @ts-ignore
-    ...actual,
+    ...(actual as any),
     getFFmpeg: () => mockFFmpeg,
     // We want to test the real loadFonts function, but it depends on getFFmpeg
     // Since we can't easily partial mock the internal state of the module, 

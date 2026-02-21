@@ -684,12 +684,12 @@ export const VideoPlayer: React.FC = () => {
       }
 
       // Ensure src
-      if (audioEl.src !== item.media.url) {
+      if (audioEl.getAttribute('src') !== item.media.url) {
         console.log('[DEBUG syncAudioVolumeAndPlayback] Setting src:', {
           clipId: item.clip.id,
           src: item.media.url
         });
-        audioEl.src = item.media.url;
+        audioEl.setAttribute('src', item.media.url);
         audioEl.load();
       }
 
@@ -698,24 +698,29 @@ export const VideoPlayer: React.FC = () => {
       const localTime = player.currentTime - clipStart + item.clip.trimStart;
       const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
       
+      const isScrubbing = isScrubbingRef.current;
+      const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
+      
       // DEBUG: Log audio time sync
-      if (timeDiff > 0.01) {
+      if (timeDiff > 0.05 && !player.isPlaying) {
         console.log('[DEBUG syncAudioVolumeAndPlayback] Audio time check:', {
           clipId: item.clip.id,
           audioTime: (audioEl.currentTime || 0).toFixed(3),
           localTime: localTime.toFixed(3),
           timeDiff: timeDiff.toFixed(3),
-          willSeek: timeDiff > 0.15
+          willSeek: timeDiff > seekThreshold
         });
       }
       
-      if (timeDiff > 0.15 && Number.isFinite(localTime)) {
+      if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
         try {
-          console.log('[DEBUG syncAudioVolumeAndPlayback] Seeking audio:', {
-            clipId: item.clip.id,
-            to: localTime.toFixed(3)
-          });
-          audioEl.currentTime = Math.max(0, localTime);
+          if (audioEl.readyState > 0) {
+            console.log('[DEBUG syncAudioVolumeAndPlayback] Seeking audio:', {
+              clipId: item.clip.id,
+              to: localTime.toFixed(3)
+            });
+            audioEl.currentTime = Math.max(0, localTime);
+          }
         } catch (err) {
           console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
         }
@@ -834,8 +839,8 @@ export const VideoPlayer: React.FC = () => {
       if (!videoEl) return;
 
       // Only update src if it changed
-      if (videoEl.src !== item.media.url) {
-        videoEl.src = item.media.url;
+      if (videoEl.getAttribute('src') !== item.media.url) {
+        videoEl.setAttribute('src', item.media.url);
         videoEl.load();
       }
 
@@ -882,14 +887,16 @@ export const VideoPlayer: React.FC = () => {
           // Mark as seeking to prevent race conditions
           if (!isSeekingRef.current) {
             isSeekingRef.current = true;
-            console.log('[DEBUG syncVideosDebounced] SEEKING video:', {
-              clipId: item.clip.id,
-              from: videoEl.currentTime.toFixed(3),
-              to: localTime.toFixed(3),
-              diff: timeDiff.toFixed(3),
-              reason: isScrubbing ? 'scrubbing' : 'paused'
-            });
-            videoEl.currentTime = localTime;
+            if (videoEl.readyState > 0) {
+              console.log('[DEBUG syncVideosDebounced] SEEKING video:', {
+                clipId: item.clip.id,
+                from: videoEl.currentTime.toFixed(3),
+                to: localTime.toFixed(3),
+                diff: timeDiff.toFixed(3),
+                reason: isScrubbing ? 'scrubbing' : 'paused'
+              });
+              videoEl.currentTime = localTime;
+            }
             
             // Reset seeking flag after a short delay (longer on mobile)
             setTimeout(() => {
@@ -1148,49 +1155,30 @@ export const VideoPlayer: React.FC = () => {
       // Accumulate time and only update state when we have enough
       accumulatedTime += deltaTime;
       
-      if (accumulatedTime >= MIN_TIME_STEP) {
+      const nowUpdate = performance.now();
+      const timeSinceLastUpdate = nowUpdate - lastStateUpdateRef.current;
+      
+      const isScrubbing = isScrubbingRef.current;
+      const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16; // 30-60fps pendant lecture
+      const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50; // 10-20fps pendant scrubbing
+      const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
+      
+      if (accumulatedTime >= MIN_TIME_STEP && timeSinceLastUpdate >= updateThreshold) {
         // Get current state directly (avoid re-render)
         const state = useEditorStore.getState();
         const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
         const newTime = state.player.currentTime + timeAdvance;
         
-        // DEBUG: Log seek operation
-        const prevTime = state.player.currentTime;
-        
         // Reset accumulated time
         accumulatedTime = 0;
+        lastStateUpdateRef.current = nowUpdate;
         
         if (newTime >= state.projectDuration) {
           console.log('[DEBUG Animation Loop] End reached, seeking to 0 and pausing');
           state.seek(0);
           state.pause();
         } else {
-          // OPTIMISATION: Throttling adaptatif selon le contexte
-          // Pendant la lecture: updates fréquents pour playhead fluide (33ms = ~30fps)
-          // Pendant le scrubbing: updates moins fréquents pour économiser le CPU (50-100ms)
-          const nowUpdate = performance.now();
-          const timeSinceLastUpdate = nowUpdate - lastStateUpdateRef.current;
-          
-          // Seuil adaptatif: plus bas pendant la lecture pour fluidité, plus haut pendant scrubbing
-          const isScrubbing = isScrubbingRef.current;
-          const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16; // 30-60fps pendant lecture
-          const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50; // 10-20fps pendant scrubbing
-          const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
-          
-          if (timeSinceLastUpdate >= updateThreshold) {
-            lastStateUpdateRef.current = nowUpdate;
-            // DEBUG: Log state.seek() call
-            console.log('[DEBUG Animation Loop] state.seek() called:', {
-              prevTime: prevTime.toFixed(3),
-              newTime: newTime.toFixed(3),
-              delta: (newTime - prevTime).toFixed(3),
-              timeAdvance: timeAdvance.toFixed(3),
-              playbackRate: state.player.playbackRate,
-              isScrubbing
-            });
-            // Use a non-blocking state update if possible, or just accept this triggers a re-render of components subscribed to currentTime
-            state.seek(newTime);
-          }
+          state.seek(newTime);
         }
       }
 

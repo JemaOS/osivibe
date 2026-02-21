@@ -101,7 +101,7 @@ export const TransitionPreview: React.FC<TransitionPreviewProps> = ({ type, clas
       case 'wipe-left':
       case 'wipe-right':
       case 'wipe-up':
-      case 'wipe-down':
+      case 'wipe-down': {
         const isHorizontal = type.includes('left') || type.includes('right');
         const firstHalf = type.includes('left') || type.includes('up');
         return (
@@ -121,6 +121,7 @@ export const TransitionPreview: React.FC<TransitionPreviewProps> = ({ type, clas
             )}
           </svg>
         );
+      }
       
       case 'zoom-in':
         return (

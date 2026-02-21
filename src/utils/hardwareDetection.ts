@@ -603,8 +603,7 @@ export async function detectHardware(): Promise<HardwareProfile> {
   console.log('⚡ Processor Profile:', processor);
   
   // Detect memory
-  // @ts-ignore - deviceMemory is not in all browsers
-  const deviceMemory = navigator.deviceMemory || 4; // Default to 4GB if not available
+  const deviceMemory = (navigator as any).deviceMemory || 4; // Default to 4GB if not available
   const memoryTier = classifyMemoryTier(deviceMemory);
   
   const memory: MemoryProfile = {

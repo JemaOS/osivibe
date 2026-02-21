@@ -85,7 +85,9 @@ export function isValidMediaFile(file: File): boolean {
 }
 
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 9);
+  const array = new Uint32Array(2);
+  crypto.getRandomValues(array);
+  return array[0].toString(36) + array[1].toString(36);
 }
 
 export function debounce<T extends (...args: any[]) => any>(

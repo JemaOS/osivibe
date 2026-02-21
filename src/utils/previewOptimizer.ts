@@ -231,8 +231,7 @@ function isMobileChrome(): boolean {
  * Detect if device has limited memory (< 4GB)
  */
 function hasLimitedMemory(): boolean {
-  // @ts-ignore - deviceMemory is not in all browsers
-  const memory = navigator.deviceMemory;
+  const memory = (navigator as any).deviceMemory;
   if (memory !== undefined) {
     return memory < 4;
   }
@@ -244,8 +243,7 @@ function hasLimitedMemory(): boolean {
  * Detect network connection quality
  */
 function getConnectionQuality(): 'slow' | 'medium' | 'fast' {
-  // @ts-ignore - connection is not in all browsers
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
   if (connection) {
     const effectiveType = connection.effectiveType;
     if (effectiveType === 'slow-2g' || effectiveType === '2g') {
@@ -664,21 +662,18 @@ export function applyVideoOptimizations(
     videoElement.preload = settings.bufferSize === 'large' ? 'auto' : 'metadata';
     
     // Enable low latency mode if supported (Chrome 87+)
-    // @ts-ignore - experimental API
     if ('requestVideoFrameCallback' in videoElement) {
       // Video frame callback is available - good for sync
       console.log('📹 requestVideoFrameCallback available');
     }
     
     // Set decode hints for Chrome
-    // @ts-ignore - experimental API
     if (videoElement.getVideoPlaybackQuality) {
       // Can monitor dropped frames
       console.log('📹 getVideoPlaybackQuality available');
     }
     
     // Reduce buffer size on mobile
-    // @ts-ignore - experimental API
     if ('buffered' in videoElement && settings.bufferSize === 'small') {
       // Hint to browser to use smaller buffer
       videoElement.setAttribute('x-webkit-airplay', 'deny');
@@ -762,8 +757,7 @@ export function optimizeMobilePlayback(videoElement: HTMLVideoElement): void {
   if (!isChromeOnMobile) return;
   
   // Reduce decode priority during playback
-  // @ts-ignore
-  if (videoElement.requestVideoFrameCallback) {
+  if ('requestVideoFrameCallback' in videoElement) {
     let lastFrameTime = 0;
     const targetFrameTime = 1000 / 24; // Target 24fps on mobile
     
@@ -773,8 +767,7 @@ export function optimizeMobilePlayback(videoElement: HTMLVideoElement): void {
       // Skip frames if we're falling behind
       if (elapsed < targetFrameTime * 0.8) {
         // Too fast, skip this callback
-        // @ts-ignore
-        videoElement.requestVideoFrameCallback(frameCallback);
+        (videoElement as any).requestVideoFrameCallback(frameCallback);
         return;
       }
       
@@ -782,28 +775,24 @@ export function optimizeMobilePlayback(videoElement: HTMLVideoElement): void {
       
       // Continue requesting frames
       if (!videoElement.paused && !videoElement.ended) {
-        // @ts-ignore
-        videoElement.requestVideoFrameCallback(frameCallback);
+        (videoElement as any).requestVideoFrameCallback(frameCallback);
       }
     };
     
     // Start frame callback when playing
     videoElement.addEventListener('play', () => {
       lastFrameTime = performance.now();
-      // @ts-ignore
-      videoElement.requestVideoFrameCallback(frameCallback);
+        (videoElement as any).requestVideoFrameCallback(frameCallback);
     }, { once: false });
   }
   
   // Monitor and log dropped frames
-  // @ts-ignore
   if (videoElement.getVideoPlaybackQuality) {
     let lastDroppedFrames = 0;
     
     const checkQuality = () => {
       if (videoElement.paused || videoElement.ended) return;
       
-      // @ts-ignore
       const quality = videoElement.getVideoPlaybackQuality();
       const newDropped = quality.droppedVideoFrames - lastDroppedFrames;
       
