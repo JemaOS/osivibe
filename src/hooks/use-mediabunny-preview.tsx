@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Input, UrlSource, VideoSampleSink, ALL_FORMATS } from 'mediabunny';
 import { useEditorStore } from '../store/editorStore';
-import { TimelineClip } from '../types';
+import { TimelineClip, TimelineTrack } from '../types';
 import { getCSSFilter } from '../utils/helpers';
 
 interface MediaBunnyClip {
@@ -157,7 +157,110 @@ export const useMediaBunnyPreview = (
     cacheHits: 0
   });
 
-  // Helper to safely fetch a sample (serialized and deduped)
+  // Helper: Find active clips at current time
+  const findActiveClips = (
+    tracks: TimelineTrack[],
+    clipsMap: Map<string, MediaBunnyClip>,
+    currentTime: number
+  ): { clip: TimelineClip, mbClip: MediaBunnyClip }[] => {
+    const activeClips: { clip: TimelineClip, mbClip: MediaBunnyClip }[] = [];
+    
+    tracks.forEach(track => {
+      if (track.type !== 'video') return;
+      
+      const clip = track.clips.find(c => 
+        currentTime >= c.startTime && 
+        currentTime < c.startTime + (c.duration - c.trimStart - c.trimEnd)
+      );
+
+      if (clip) {
+        const mbClip = clipsMap.get(clip.id);
+        if (mbClip) {
+          activeClips.push({ clip, mbClip });
+        }
+      }
+    });
+    
+    return activeClips;
+  };
+
+// Helper: Check if buffered frame matches requested time
+const isBufferMatch = (item: { sample: { timestamp?: number; duration?: number }, time: number }, clipTime: number): boolean => {
+  if (typeof item.sample.timestamp === 'number') {
+    const isMicroseconds = item.sample.timestamp > 1000; 
+    const scale = isMicroseconds ? 1e-6 : 1;
+    const frameTime = item.sample.timestamp * scale;
+    const frameDuration = (item.sample.duration ? item.sample.duration * scale : 0.033);
+    
+    return clipTime >= frameTime - 0.01 && clipTime < frameTime + frameDuration + 0.015;
+  }
+  // Fallback
+  return Math.abs(clipTime - item.time) < 0.045;
+};
+
+// Helper: Check if last sample can be reused
+const canReuseLastSample = (
+  sample: { timestamp?: number; duration?: number }, 
+  lastSampleTime: number | undefined,
+  clipTime: number
+): boolean => {
+  if (typeof sample.timestamp === 'number') {
+    const isMicroseconds = sample.timestamp > 1000; 
+    const scale = isMicroseconds ? 1e-6 : 1;
+    const frameTime = sample.timestamp * scale;
+    const frameDuration = (sample.duration ? sample.duration * scale : 0.033);
+    
+    if (clipTime >= frameTime - 0.01 && clipTime < frameTime + frameDuration + 0.015) {
+      return true;
+    }
+  }
+  
+  // Fallback to simple delta check
+  if (lastSampleTime !== undefined) {
+    const delta = Math.abs(clipTime - lastSampleTime);
+    return delta < 0.045;
+  }
+  
+  return false;
+};
+
+// Helper: Draw sample to canvas
+const drawSampleToCanvas = (
+  ctx: CanvasRenderingContext2D,
+  sample: { displayWidth: number; displayHeight: number; draw: Function },
+  clip: TimelineClip,
+  width: number,
+  height: number
+) => {
+  if (clip.crop) {
+    // Crop logic
+    const sx = (clip.crop.x / 100) * sample.displayWidth;
+    const sy = (clip.crop.y / 100) * sample.displayHeight;
+    const sWidth = (clip.crop.width / 100) * sample.displayWidth;
+    const sHeight = (clip.crop.height / 100) * sample.displayHeight;
+    sample.draw(ctx, 0, 0, width, height, sx, sy, sWidth, sHeight);
+  } else {
+    // Standard video rendering (object-contain)
+    const videoAspect = sample.displayWidth / sample.displayHeight;
+    const canvasAspect = width / height;
+    
+    let drawWidth, drawHeight, dx, dy;
+    
+    if (videoAspect > canvasAspect) {
+      drawWidth = width;
+      drawHeight = width / videoAspect;
+      dx = 0;
+      dy = (height - drawHeight) / 2;
+    } else {
+      drawHeight = height;
+      drawWidth = height * videoAspect;
+      dy = 0;
+      dx = (width - drawWidth) / 2;
+    }
+    
+    sample.draw(ctx, dx, dy, drawWidth, drawHeight);
+  }
+};
   const safeGetSample = async (mbClip: MediaBunnyClip, time: number) => {
     // Check if we are already fetching this time (or close to it)
     for (const [pendingTime, promise] of mbClip.pendingFetches.entries()) {

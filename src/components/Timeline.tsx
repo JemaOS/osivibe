@@ -18,6 +18,66 @@ interface ContextMenu {
   y: number;
 }
 
+// Helper functions extracted to reduce cognitive complexity
+const getTrackHeight = (layoutMode: string): number => {
+  if (layoutMode === 'minimal') return 40;
+  if (layoutMode === 'compact') return 48;
+  if (layoutMode === 'adaptive') return 56;
+  if (layoutMode === 'expanded') return 60;
+  return 64; // Desktop
+};
+
+const getRulerHeight = (layoutMode: string): number => {
+  if (layoutMode === 'minimal') return 24;
+  if (layoutMode === 'compact') return 28;
+  return 32;
+};
+
+const getLabelWidth = (layoutMode: string): number => {
+  if (layoutMode === 'minimal') return 60;
+  if (layoutMode === 'compact') return 80;
+  if (layoutMode === 'adaptive') return 96;
+  return 128; // Desktop
+};
+
+const getTrackLabel = (trackName: string, layoutMode: string): string => {
+  const isDesktop = layoutMode === 'desktop';
+  const isExpanded = layoutMode === 'expanded';
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact' || layoutMode === 'adaptive';
+  
+  if (isDesktop || isExpanded) return trackName;
+  
+  const lowerName = trackName.toLowerCase();
+  
+  if (isMinimal) {
+    if (lowerName.includes('video')) return 'Vid';
+    if (lowerName.includes('image')) return 'Img';
+    if (lowerName.includes('audio')) return 'Aud';
+    if (lowerName.includes('text')) return 'Txt';
+    return trackName.substring(0, 3);
+  }
+  
+  if (isCompact) {
+    if (lowerName.includes('video')) return 'Video';
+    if (lowerName.includes('image')) return 'Imgs';
+    if (lowerName.includes('audio')) return 'Audio';
+    if (lowerName.includes('text')) return 'Text';
+    return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
+  }
+  
+  return trackName;
+};
+
+const getTrackIconComponent = (trackName: string, trackType: string) => {
+  const lowerName = trackName.toLowerCase();
+  if (lowerName.includes('video') || trackType === 'video') return Monitor;
+  if (lowerName.includes('image')) return Monitor;
+  if (lowerName.includes('audio') || trackType === 'audio') return Volume2;
+  if (lowerName.includes('text')) return Type;
+  return Monitor;
+};
+
 export const Timeline: React.FC = () => {
   const {
     tracks,
@@ -61,73 +121,9 @@ export const Timeline: React.FC = () => {
   const isExpanded = layoutMode === 'expanded';
   const isDesktop = layoutMode === 'desktop';
 
-  // Get dynamic track height based on layout mode
-  const getTrackHeight = () => {
-    if (isMinimal) return 40;
-    if (isCompact) return 48;
-    if (isAdaptive) return 56;
-    if (isExpanded) return 60;
-    return 64; // Desktop
-  };
-
-  // Get dynamic ruler height
-  const getRulerHeight = () => {
-    if (isMinimal) return 24;
-    if (isCompact) return 28;
-    return 32;
-  };
-
-  // Get label width based on layout
-  const getLabelWidth = () => {
-    if (isMinimal) return 60; // Increased from 56 for better label visibility
-    if (isCompact) return 80; // Increased from 72 for iPhone 12/13/14/16 (390px) label visibility
-    if (isAdaptive) return 96; // Increased from 88 for better label visibility
-    return 128; // Desktop
-  };
-
-  // Get abbreviated track label for small screens
-  const getTrackLabel = (trackName: string): string => {
-    if (isDesktop || isExpanded) return trackName;
-    
-    // For adaptive, compact, and minimal modes, use abbreviated labels
-    const lowerName = trackName.toLowerCase();
-    
-    if (isMinimal) {
-      // Very short abbreviations for minimal mode
-      if (lowerName.includes('video')) return 'Vid';
-      if (lowerName.includes('image')) return 'Img';
-      if (lowerName.includes('audio')) return 'Aud';
-      if (lowerName.includes('text')) return 'Txt';
-      // For custom track names, take first 3 characters
-      return trackName.substring(0, 3);
-    }
-    
-    if (isCompact || isAdaptive) {
-      // Slightly longer abbreviations for compact/adaptive
-      if (lowerName.includes('video')) return 'Video';
-      if (lowerName.includes('image')) return 'Imgs';
-      if (lowerName.includes('audio')) return 'Audio';
-      if (lowerName.includes('text')) return 'Text';
-      // For custom track names, take first 5 characters
-      return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
-    }
-    
-    return trackName;
-  };
-
-  // Get track icon based on track type/name
-  const getTrackIcon = (trackName: string, trackType: string) => {
-    const lowerName = trackName.toLowerCase();
-    if (lowerName.includes('video') || trackType === 'video') return Monitor;
-    if (lowerName.includes('image')) return Monitor;
-    if (lowerName.includes('audio') || trackType === 'audio') return Volume2;
-    if (lowerName.includes('text')) return Type;
-    return Monitor;
-  };
-
-  const TRACK_HEIGHT = getTrackHeight();
-  const RULER_HEIGHT = getRulerHeight();
-  const LABEL_WIDTH = getLabelWidth();
+  const TRACK_HEIGHT = getTrackHeight(layoutMode);
+  const RULER_HEIGHT = getRulerHeight(layoutMode);
+  const LABEL_WIDTH = getLabelWidth(layoutMode);
   const PIXELS_PER_SECOND = BASE_PIXELS_PER_SECOND;
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -1405,7 +1401,7 @@ export const Timeline: React.FC = () => {
           {/* Track labels */}
           <div ref={labelsContainerRef} className="flex-1 overflow-hidden relative min-h-0">
             {tracks.map((track) => {
-              const TrackIcon = getTrackIcon(track.name, track.type);
+              const TrackIcon = getTrackIconComponent(track.name, track.type);
               return (
                 <div
                   key={track.id}
@@ -1421,7 +1417,7 @@ export const Timeline: React.FC = () => {
                       className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
                       title={track.name} // Full name on hover
                     >
-                      {getTrackLabel(track.name)}
+                      {getTrackLabel(track.name, layoutMode)}
                     </p>
                   </div>
                   <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
@@ -1458,7 +1454,7 @@ export const Timeline: React.FC = () => {
                   className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
                   title="Textes" // Full name on hover
                 >
-                  {getTrackLabel('Textes')}
+                  {getTrackLabel('Textes', layoutMode)}
                 </p>
               </div>
               <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">

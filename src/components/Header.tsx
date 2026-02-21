@@ -81,6 +81,27 @@ const ProjectMenu = ({
   );
 };
 
+// Helper functions extracted outside component to reduce cognitive complexity
+const getHeaderHeight = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'h-10';
+  if (layoutMode === 'compact') return 'h-11';
+  if (layoutMode === 'adaptive') return 'h-12';
+  return 'h-14'; // expanded and desktop
+};
+
+const getButtonSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'w-8 h-8';
+  if (layoutMode === 'compact') return 'w-9 h-9';
+  if (layoutMode === 'adaptive') return 'w-10 h-10';
+  return 'w-9 h-9'; // desktop can be slightly smaller
+};
+
+const getIconSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'w-4 h-4';
+  if (layoutMode === 'compact') return 'w-4 h-4';
+  return 'w-5 h-5';
+};
+
 export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
   const { 
     projectName, 
@@ -103,13 +124,6 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
   const responsive = useResponsive();
   const layoutMode = useLayoutMode();
   
-  // Determine size variants based on layout mode
-  const isMinimal = layoutMode === 'minimal';
-  const isCompact = layoutMode === 'compact';
-  const isAdaptive = layoutMode === 'adaptive';
-  const isExpanded = layoutMode === 'expanded';
-  const isDesktop = layoutMode === 'desktop';
-  
   // Touch target sizes based on device
   const touchTargetSize = responsive.touchTargetSize;
 
@@ -129,52 +143,30 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
     }
   };
 
-  // Dynamic header height based on layout mode
-  const getHeaderHeight = () => {
-    if (isMinimal) return 'h-10';
-    if (isCompact) return 'h-11';
-    if (isAdaptive) return 'h-12';
-    return 'h-14'; // expanded and desktop
-  };
-
-  // Dynamic button sizes for touch targets
-  const getButtonSize = () => {
-    if (isMinimal) return 'w-8 h-8';
-    if (isCompact) return 'w-9 h-9';
-    if (isAdaptive) return 'w-10 h-10';
-    return 'w-9 h-9'; // desktop can be slightly smaller
-  };
-
-  const getIconSize = () => {
-    if (isMinimal) return 'w-4 h-4';
-    if (isCompact) return 'w-4 h-4';
-    return 'w-5 h-5';
-  };
-
   return (
-    <header className={`${getHeaderHeight()} bg-[#0f0f0f] border-b border-white/10 flex items-center justify-between px-2 fold-cover:px-1.5 fold-open:px-3 sm:px-4 z-50 relative flex-shrink-0`}>
+    <header className={`${getHeaderHeight(layoutMode)} bg-[#0f0f0f] border-b border-white/10 flex items-center justify-between px-2 fold-cover:px-1.5 fold-open:px-3 sm:px-4 z-50 relative flex-shrink-0`}>
       {/* Left Section */}
       <div className="flex items-center gap-2 fold-cover:gap-1.5 fold-open:gap-3 sm:gap-4 flex-1 min-w-0">
         {/* Toggle Sidebar Button - Always visible with proper touch target */}
         <button
           onClick={onToggleSidebar}
-          className={`${getButtonSize()} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0 touch-target`}
+          className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0 touch-target`}
           title={isSidebarVisible ? 'Masquer le panneau' : 'Afficher le panneau'}
         >
           {isSidebarVisible ? (
-            <PanelLeftClose className={getIconSize()} />
+            <PanelLeftClose className={getIconSize(layoutMode)} />
           ) : (
-            <PanelLeft className={getIconSize()} />
+            <PanelLeft className={getIconSize(layoutMode)} />
           )}
         </button>
 
         {/* Logo and App Name */}
         <div className="flex items-center gap-1 fold-cover:gap-0.5 fold-open:gap-1.5 sm:gap-2 flex-shrink-0">
-          <div className={`${isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-8 h-8'} rounded-lg bg-primary-500 flex items-center justify-center`}>
-            <Film className={`${isMinimal ? 'w-3 h-3' : isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-white`} />
+          <div className={`${layoutMode === 'minimal' ? 'w-6 h-6' : layoutMode === 'compact' ? 'w-7 h-7' : 'w-8 h-8'} rounded-lg bg-primary-500 flex items-center justify-center`}>
+            <Film className={`${layoutMode === 'minimal' ? 'w-3 h-3' : layoutMode === 'compact' ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-white`} />
           </div>
           {/* Hide app name on minimal/fold cover screens */}
-          <span className={`text-sm fold-cover:hidden fold-open:inline sm:text-base font-semibold text-white ${isMinimal ? 'hidden' : ''}`}>
+          <span className={`text-sm fold-cover:hidden fold-open:inline sm:text-base font-semibold text-white ${layoutMode === 'minimal' ? 'hidden' : ''}`}>
             osivibe
           </span>
         </div>
@@ -183,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         <div className="hidden fold-open:block md:block w-px h-6 bg-white/20" />
         
         {/* Project Name & Management - Hidden on minimal/compact */}
-        <div className={`${isMinimal || isCompact ? 'hidden' : 'hidden md:flex'} items-center gap-2`}>
+        <div className={`${layoutMode === 'minimal' || layoutMode === 'compact' ? 'hidden' : 'hidden md:flex'} items-center gap-2`}>
           {isEditingName ? (
             <input
               type="text"
@@ -232,10 +224,10 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
           {/* New Project Button */}
           <button
             onClick={createProject}
-            className={`${getButtonSize()} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors ml-1 touch-target`}
+            className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors ml-1 touch-target`}
             title="Nouveau projet"
           >
-            <Plus className={getIconSize()} />
+            <Plus className={getIconSize(layoutMode)} />
           </button>
         </div>
       </div>
@@ -243,20 +235,20 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
       {/* Actions */}
       <div className="flex items-center gap-1 fold-cover:gap-0.5 fold-open:gap-1.5 sm:gap-2">
         {/* Undo/Redo - Hidden on minimal, shown on larger screens */}
-        <div className={`${isMinimal ? 'hidden' : 'hidden'} fold-open:flex lg:flex items-center gap-1`}>
+        <div className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-open:flex lg:flex items-center gap-1`}>
           <button 
             onClick={undo}
-            className={`${getButtonSize()} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
+            className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
             title="Annuler (Ctrl+Z)"
           >
-            <Undo2 className={getIconSize()} />
+            <Undo2 className={getIconSize(layoutMode)} />
           </button>
           <button 
             onClick={redo}
-            className={`${getButtonSize()} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
+            className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
             title="Refaire (Ctrl+Y)"
           >
-            <Redo2 className={getIconSize()} />
+            <Redo2 className={getIconSize(layoutMode)} />
           </button>
         </div>
 
@@ -267,12 +259,12 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         <button
           onClick={openExportModal}
           className={`bg-primary-500 hover:bg-primary-600 text-white ${
-            isMinimal ? 'h-8 px-2' : isCompact ? 'h-9 px-3' : 'h-9 px-4'
+            layoutMode === 'minimal' ? 'h-8 px-2' : layoutMode === 'compact' ? 'h-9 px-3' : 'h-9 px-4'
           } rounded-lg flex items-center gap-1 fold-open:gap-2 text-xs fold-open:text-sm font-medium transition-colors flex-shrink-0 touch-target`}
         >
-          <Download className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
+          <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
           {/* Hide text on minimal screens */}
-          <span className={`${isMinimal ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
+          <span className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
             Exporter
           </span>
         </button>

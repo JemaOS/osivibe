@@ -45,6 +45,29 @@ const PRESET_COLORS = [
   '#8B5CF6', '#EC4899', '#F43F5E'  // Violet, Pink, Rose
 ];
 
+// Helper functions extracted to reduce cognitive complexity
+const getSectionPadding = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'px-3 pb-3';
+  if (layoutMode === 'compact') return 'px-3 pb-4';
+  return 'px-4 pb-4';
+};
+
+const getSectionButtonPadding = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'px-3 py-2.5';
+  if (layoutMode === 'compact') return 'px-3 py-3';
+  return 'px-4 py-3';
+};
+
+const getSectionFontSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'text-sm';
+  return 'text-body';
+};
+
+const getChevronSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'w-3.5 h-3.5';
+  return 'w-4 h-4';
+};
+
 type TabType = 'clip' | 'text' | 'transitions' | 'filters';
 
 interface PropertiesPanelProps {
@@ -53,20 +76,18 @@ interface PropertiesPanelProps {
 
 const Section: React.FC<{ id: string; title: string; children: React.ReactNode; isExpanded: boolean; onToggle: () => void }> = ({ id, title, children, isExpanded, onToggle }) => {
   const layoutMode = useLayoutMode();
-  const isMinimal = layoutMode === 'minimal';
-  const isCompact = layoutMode === 'compact';
 
   return (
     <div className="border-b border-white/10 last:border-0">
       <button
         onClick={onToggle}
-        className={`w-full ${isMinimal ? 'px-3 py-2.5' : isCompact ? 'px-3 py-3' : 'px-4 py-3'} flex items-center justify-between ${isMinimal ? 'text-sm' : 'text-body'} font-medium text-white hover:bg-white/10 transition-colors touch-target`}
+        className={`w-full ${getSectionButtonPadding(layoutMode)} flex items-center justify-between ${getSectionFontSize(layoutMode)} font-medium text-white hover:bg-white/10 transition-colors touch-target`}
       >
         {title}
-        {isExpanded ? <ChevronUp className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} /> : <ChevronDown className={`${isMinimal ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />}
+        {isExpanded ? <ChevronUp className={getChevronSize(layoutMode)} /> : <ChevronDown className={getChevronSize(layoutMode)} />}
       </button>
       {isExpanded && (
-        <div className={`${isMinimal ? 'px-3 pb-3' : isCompact ? 'px-3 pb-4' : 'px-4 pb-4'}`}>
+        <div className={getSectionPadding(layoutMode)}>
           {children}
         </div>
       )}
@@ -1078,6 +1099,39 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     const currentTransition = transitions.find(t => t.clipId === targetClip!.id);
     const categories = Array.from(new Set(AVAILABLE_TRANSITIONS.map(t => t.category)));
 
+    // Handlers extracted to reduce nesting
+    const handleTransitionDragStart = (transition: typeof AVAILABLE_TRANSITIONS[0]) => (e: React.DragEvent) => {
+      if (transition.type !== 'none') {
+        e.dataTransfer.setData('application/json', JSON.stringify({
+          type: 'NEW_TRANSITION',
+          transitionType: transition.type
+        }));
+        e.dataTransfer.effectAllowed = 'copy';
+      }
+    };
+
+    const handleTransitionClick = (transition: typeof AVAILABLE_TRANSITIONS[0]) => {
+      if (transition.type === 'none') {
+        removeTransition(targetClip!.id);
+        setPreviewTransition(null);
+      } else {
+        setTransition(targetClip!.id, transition.type, 0.5);
+        setPreviewTransition(transition.type);
+      }
+    };
+
+    const getTransitionCategoryLabel = (category: string): string => {
+      const labels: Record<string, string> = {
+        basic: 'Basiques',
+        slide: 'Glissements',
+        wipe: 'Balayages',
+        zoom: 'Zooms',
+        rotate: 'Rotations',
+        shape: 'Formes'
+      };
+      return labels[category] || 'Effets';
+    };
+
     return (
       <div className="p-4 space-y-4">
         <p className="text-small text-neutral-500">
@@ -1103,41 +1157,15 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
           return (
             <div key={category}>
               <p className="text-caption text-neutral-500 uppercase mb-2">
-                {category === 'basic' ? 'Basiques' : 
-                 category === 'slide' ? 'Glissements' :
-                 category === 'wipe' ? 'Balayages' :
-                 category === 'zoom' ? 'Zooms' :
-                 category === 'rotate' ? 'Rotations' :
-                 category === 'shape' ? 'Formes' : 'Effets'}
+                {getTransitionCategoryLabel(category)}
               </p>
               <div className="grid grid-cols-2 gap-2">
-                {categoryTransitions.map((transition) => {
-                  const handleDragStart = (e: React.DragEvent) => {
-                    if (transition.type !== 'none') {
-                      e.dataTransfer.setData('application/json', JSON.stringify({
-                        type: 'NEW_TRANSITION',
-                        transitionType: transition.type
-                      }));
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }
-                  };
-
-                  const handleClick = () => {
-                    if (transition.type === 'none') {
-                      removeTransition(targetClip!.id);
-                      setPreviewTransition(null);
-                    } else {
-                      setTransition(targetClip!.id, transition.type, 0.5);
-                      setPreviewTransition(transition.type);
-                    }
-                  };
-
-                  return (
+                {categoryTransitions.map((transition) => (
                   <button
                     key={transition.type}
                     draggable={transition.type !== 'none'}
-                    onDragStart={handleDragStart}
-                    onClick={handleClick}
+                    onDragStart={handleTransitionDragStart(transition)}
+                    onClick={() => handleTransitionClick(transition)}
                     className={`group relative overflow-hidden p-2 rounded-xl text-caption font-medium transition-all ${
                       (currentTransition?.type === transition.type) || 
                       (!currentTransition && transition.type === 'none')
@@ -1150,7 +1178,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     </div>
                     <div className="text-center truncate">{transition.name}</div>
                   </button>
-                )})}
+                ))}
               </div>
             </div>
           );

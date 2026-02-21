@@ -231,6 +231,70 @@ function getFoldState(width: number, aspectRatio: number, isSpanning: boolean): 
   return 'unknown';
 }
 
+/**
+ * Determines layout mode, device type, and UI recommendations based on screen dimensions
+ */
+function getLayoutRecommendations(
+  width: number,
+  aspectRatio: number,
+  isFoldable: boolean
+): {
+  layoutMode: LayoutMode;
+  deviceType: DeviceType;
+  touchTargetSize: number;
+  timelineTracks: number;
+  panelVisibility: PanelVisibility;
+} {
+  if (width <= BREAKPOINTS.foldCover) {
+    return {
+      layoutMode: 'minimal',
+      deviceType: isFoldable ? 'foldable-folded' : 'phone',
+      touchTargetSize: 48,
+      timelineTracks: 1,
+      panelVisibility: 'hidden',
+    };
+  }
+  
+  if (width <= BREAKPOINTS.phoneLg) {
+    return {
+      layoutMode: 'compact',
+      deviceType: 'phone',
+      touchTargetSize: 44,
+      timelineTracks: 2,
+      panelVisibility: 'collapsed',
+    };
+  }
+  
+  if (width <= BREAKPOINTS.foldOpenLg && aspectRatio > 0.7 && aspectRatio < 1.4) {
+    return {
+      layoutMode: 'adaptive',
+      deviceType: 'foldable-unfolded',
+      touchTargetSize: 44,
+      timelineTracks: 3,
+      panelVisibility: 'visible',
+    };
+  }
+  
+  if (width <= BREAKPOINTS.lg) {
+    return {
+      layoutMode: 'expanded',
+      deviceType: width <= BREAKPOINTS.foldMax && isFoldable ? 'foldable-unfolded' : 'tablet',
+      touchTargetSize: 40,
+      timelineTracks: 4,
+      panelVisibility: 'visible',
+    };
+  }
+  
+  // Desktop
+  return {
+    layoutMode: 'desktop',
+    deviceType: 'desktop',
+    touchTargetSize: 36,
+    timelineTracks: 6,
+    panelVisibility: 'visible',
+  };
+}
+
 // ============================================
 // MAIN HOOK
 // ============================================
@@ -336,49 +400,9 @@ export function useResponsive(): ResponsiveState {
     // Determine orientation
     const orientation: Orientation = aspectRatio >= 1 ? 'landscape' : 'portrait';
     
-    // Determine layout mode, device type, and UI recommendations
-    let layoutMode: LayoutMode;
-    let deviceType: DeviceType;
-    let touchTargetSize: number;
-    let timelineTracks: number;
-    let panelVisibility: PanelVisibility;
-    
-    if (width <= BREAKPOINTS.foldCover) {
-      // Fold cover / very narrow displays
-      layoutMode = 'minimal';
-      deviceType = isFoldable ? 'foldable-folded' : 'phone';
-      touchTargetSize = 48;
-      timelineTracks = 1;
-      panelVisibility = 'hidden';
-    } else if (width <= BREAKPOINTS.phoneLg) {
-      // Standard phones
-      layoutMode = 'compact';
-      deviceType = 'phone';
-      touchTargetSize = 44;
-      timelineTracks = 2;
-      panelVisibility = 'collapsed';
-    } else if (width <= BREAKPOINTS.foldOpenLg && aspectRatio > 0.7 && aspectRatio < 1.4) {
-      // Foldable inner displays (near-square)
-      layoutMode = 'adaptive';
-      deviceType = 'foldable-unfolded';
-      touchTargetSize = 44;
-      timelineTracks = 3;
-      panelVisibility = 'visible';
-    } else if (width <= BREAKPOINTS.lg) {
-      // Tablets and large foldables
-      layoutMode = 'expanded';
-      deviceType = width <= BREAKPOINTS.foldMax && isFoldable ? 'foldable-unfolded' : 'tablet';
-      touchTargetSize = 40;
-      timelineTracks = 4;
-      panelVisibility = 'visible';
-    } else {
-      // Desktop
-      layoutMode = 'desktop';
-      deviceType = 'desktop';
-      touchTargetSize = 36;
-      timelineTracks = 6;
-      panelVisibility = 'visible';
-    }
+    // Get layout mode, device type, and UI recommendations
+    const { layoutMode, deviceType, touchTargetSize, timelineTracks, panelVisibility } = 
+      getLayoutRecommendations(width, aspectRatio, isFoldable);
     
     // Backward compatibility flags
     const isMobile = width < BREAKPOINTS.md;

@@ -17,7 +17,187 @@ import { ExportSettings, VideoFilter, TextOverlay, Transition, AspectRatio, getR
 
 let isExportCancelled = false;
 
-export function cancelMediaBunnyExport() {
+// Helper function to build filter string from VideoFilter
+const buildFilterString = (filter: VideoFilter): string => {
+    const filters: string[] = [];
+    if (filter.brightness !== 0) filters.push(`brightness(${100 + filter.brightness}%)`);
+    if (filter.contrast !== 0) filters.push(`contrast(${100 + filter.contrast}%)`);
+    if (filter.saturation !== 0) filters.push(`saturate(${100 + filter.saturation}%)`);
+    if (filter.grayscale) filters.push('grayscale(100%)');
+    if (filter.sepia) filters.push('sepia(100%)');
+    if (filter.blur > 0) filters.push(`blur(${filter.blur}px)`);
+    return filters.length > 0 ? filters.join(' ') : 'none';
+};
+
+// Helper function to apply transition effects
+const applyTransition = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    transition: Transition,
+    clipTime: number,
+    clipDuration: number,
+    width: number,
+    height: number,
+    isEnd: boolean
+): void => {
+    const p = isEnd 
+        ? (clipDuration - clipTime) / transition.duration 
+        : clipTime / transition.duration;
+    const inv = 1 - p;
+    const type = transition.type;
+
+    // Opacity for fade-like transitions
+    if (['fade', 'dissolve', 'cross-dissolve', 'zoom-in', 'zoom-out', 'rotate-in', 'rotate-out'].includes(type)) {
+        ctx.globalAlpha = p;
+    }
+
+    switch (type) {
+        case 'zoom-in':
+            ctx.translate(width / 2, height / 2);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
+            break;
+        case 'zoom-out': {
+            const s = 1.5 - p * 0.5;
+            ctx.translate(width / 2, height / 2);
+            ctx.scale(s, s);
+            ctx.translate(-width / 2, -height / 2);
+            break;
+        }
+        case 'rotate-in':
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(inv * -Math.PI);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
+            break;
+        case 'rotate-out':
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(inv * Math.PI);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
+            break;
+        case 'slide-left': {
+            const txLeft = isEnd ? -inv * width : inv * width;
+            ctx.translate(txLeft, 0);
+            break;
+        }
+        case 'slide-right': {
+            const txRight = isEnd ? inv * width : -inv * width;
+            ctx.translate(txRight, 0);
+            break;
+        }
+        case 'slide-up': {
+            const tyUp = isEnd ? -inv * height : inv * height;
+            ctx.translate(0, tyUp);
+            break;
+        }
+        case 'slide-down': {
+            const tyDown = isEnd ? inv * height : -inv * height;
+            ctx.translate(0, tyDown);
+            break;
+        }
+        case 'slide-diagonal-tl': {
+            const tDiaTL = isEnd ? -inv : inv;
+            ctx.translate(tDiaTL * width, tDiaTL * height);
+            break;
+        }
+        case 'slide-diagonal-tr': {
+            const tDiaTRX = isEnd ? inv : -inv;
+            const tDiaTRY = isEnd ? -inv : inv;
+            ctx.translate(tDiaTRX * width, tDiaTRY * height);
+            break;
+        }
+        case 'wipe-left':
+            ctx.beginPath();
+            ctx.rect(0, 0, isEnd ? inv * width : p * width, height);
+            ctx.clip();
+            break;
+        case 'wipe-right':
+            ctx.beginPath();
+            ctx.rect(isEnd ? inv * width : 0, 0, p * width, height);
+            ctx.clip();
+            break;
+        case 'wipe-up':
+            ctx.beginPath();
+            ctx.rect(0, isEnd ? inv * height : 0, width, p * height);
+            ctx.clip();
+            break;
+        case 'wipe-down':
+            ctx.beginPath();
+            ctx.rect(0, isEnd ? inv * height : 0, width, p * height);
+            ctx.clip();
+            break;
+        case 'circle-wipe': {
+            ctx.beginPath();
+            const maxRadius = Math.sqrt(width * width + height * height) / 2;
+            ctx.arc(width / 2, height / 2, p * maxRadius * 1.5, 0, Math.PI * 2);
+            ctx.clip();
+            break;
+        }
+        case 'diamond-wipe': {
+            ctx.beginPath();
+            const cx = width / 2;
+            const cy = height / 2;
+            const dx = p * width;
+            const dy = p * height;
+            ctx.moveTo(cx, cy - dy);
+            ctx.lineTo(cx + dx, cy);
+            ctx.lineTo(cx, cy + dy);
+            ctx.lineTo(cx - dx, cy);
+            ctx.closePath();
+            ctx.clip();
+            break;
+        }
+    }
+};
+
+// Helper function to render text overlays
+const renderTextOverlays = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    activeTexts: TextOverlay[],
+    width: number,
+    height: number
+): void => {
+    ctx.filter = 'none';
+    for (const text of activeTexts) {
+        ctx.save();
+        const x = (text.x / 100) * width;
+        const y = (text.y / 100) * height;
+        
+        ctx.font = `${text.italic ? 'italic ' : ''}${text.bold ? 'bold ' : ''}${text.fontSize}px ${text.fontFamily}`;
+        ctx.fillStyle = text.color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        ctx.translate(x, y);
+        if (text.scaleX || text.scaleY) {
+            ctx.scale(text.scaleX || 1, text.scaleY || 1);
+        }
+        
+        ctx.fillText(text.text, 0, 0);
+        ctx.restore();
+    }
+};
+
+// Helper function to check if a clip has effects
+const hasClipEffects = (clip: any, width: number, height: number): { hasFilter: boolean; hasTransition: boolean; hasText: boolean; isSameResolution: boolean } => {
+    const hasFilter = clip.filter && (
+        clip.filter.brightness !== 0 || 
+        clip.filter.contrast !== 0 || 
+        clip.filter.saturation !== 0 || 
+        clip.filter.grayscale || 
+        clip.filter.sepia || 
+        clip.filter.blur > 0
+    );
+    
+    return {
+        hasFilter,
+        hasTransition: false,
+        hasText: false,
+        isSameResolution: true
+    };
+// Helper functions end
+
+
     isExportCancelled = true;
 }
 

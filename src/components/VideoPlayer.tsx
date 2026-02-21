@@ -22,7 +22,7 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { formatTime, getCSSFilter } from '../utils/helpers';
-import type { TimelineClip, MediaFile, TransformSettings } from '../types';
+import type { TimelineClip, MediaFile, TransformSettings, Transition } from '../types';
 import { RESOLUTION_PRESETS } from '../types';
 import {
   initializePreviewOptimizer,
@@ -456,123 +456,144 @@ export const VideoPlayer: React.FC = () => {
     });
   }, [textOverlays, player.currentTime]);
 
-  // Calculate transition style
-  const getTransitionStyle = (clip: TimelineClip, currentTime: number) => {
-    const clipTransitions = transitions.filter(t => t.clipId === clip.id);
-    if (clipTransitions.length === 0) return {};
+  // Helper functions extracted outside VideoPlayer component to reduce cognitive complexity
 
-    const style: React.CSSProperties = {};
+// Calculate transition progress based on position
+const calculateTransitionProgress = (
+  currentTime: number,
+  clipStart: number,
+  clipEnd: number,
+  transitionDuration: number,
+  position: string | undefined
+): number => {
+  if (position === 'start' || !position) {
+    return (currentTime - clipStart) / transitionDuration;
+  }
+  return (clipEnd - currentTime) / transitionDuration;
+};
 
-    clipTransitions.forEach(transition => {
-      if (transition.type === 'none') return;
+// Apply specific transition style
+const applyTransitionStyle = (
+  transition: { type: string; position?: string },
+  progress: number,
+  inv: number,
+  p: number
+): React.CSSProperties => {
+  const style: React.CSSProperties = {};
+  
+  switch (transition.type) {
+    case 'fade':
+    case 'dissolve':
+    case 'cross-dissolve':
+      style.opacity = p;
+      break;
+    case 'zoom-in':
+      style.transform = `scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'zoom-out':
+      style.transform = `scale(${1.5 - p * 0.5})`;
+      style.opacity = p;
+      break;
+    case 'slide-left':
+      style.transform = transition.position === 'end' 
+        ? `translateX(${-inv * 100}%)` 
+        : `translateX(${inv * 100}%)`;
+      break;
+    case 'slide-right':
+      style.transform = transition.position === 'end' 
+        ? `translateX(${inv * 100}%)` 
+        : `translateX(${-inv * 100}%)`;
+      break;
+    case 'slide-up':
+      style.transform = transition.position === 'end' 
+        ? `translateY(${-inv * 100}%)` 
+        : `translateY(${inv * 100}%)`;
+      break;
+    case 'slide-down':
+      style.transform = transition.position === 'end' 
+        ? `translateY(${inv * 100}%)` 
+        : `translateY(${-inv * 100}%)`;
+      break;
+    case 'slide-diagonal-tl':
+      style.transform = transition.position === 'end'
+        ? `translate(${-inv * 100}%, ${-inv * 100}%)`
+        : `translate(${inv * 100}%, ${inv * 100}%)`;
+      break;
+    case 'slide-diagonal-tr':
+      style.transform = transition.position === 'end'
+        ? `translate(${inv * 100}%, ${-inv * 100}%)`
+        : `translate(${-inv * 100}%, ${inv * 100}%)`;
+      break;
+    case 'wipe-left':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 ${inv * 100}% 0 0)`
+        : `inset(0 0 0 ${inv * 100}%)`;
+      break;
+    case 'wipe-right':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 0 0 ${inv * 100}%)`
+        : `inset(0 ${inv * 100}% 0 0)`;
+      break;
+    case 'wipe-up':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 0 ${inv * 100}% 0)`
+        : `inset(${inv * 100}% 0 0 0)`;
+      break;
+    case 'wipe-down':
+      style.clipPath = transition.position === 'end'
+        ? `inset(${inv * 100}% 0 0 0)`
+        : `inset(0 0 ${inv * 100}% 0)`;
+      break;
+    case 'rotate-in':
+      style.transform = `rotate(${inv * -180}deg) scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'rotate-out':
+      style.transform = `rotate(${inv * 180}deg) scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'circle-wipe':
+      style.clipPath = `circle(${p * 100}% at 50% 50%)`;
+      break;
+    case 'diamond-wipe':
+      style.clipPath = `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)`;
+      break;
+    default:
+      style.opacity = p;
+  }
+  
+  return style;
+};
 
-      const clipStart = clip.startTime;
-      const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-      let progress = 0;
+// Calculate transition style for a clip
+const calculateTransitionStyle = (
+  clip: TimelineClip,
+  currentTime: number,
+  transitions: Transition[]
+): React.CSSProperties => {
+  const clipTransitions = transitions.filter(t => t.clipId === clip.id);
+  if (clipTransitions.length === 0) return {};
 
-      if (transition.position === 'start' || !transition.position) {
-        progress = (currentTime - clipStart) / transition.duration;
-      } else {
-        progress = (clipEnd - currentTime) / transition.duration;
-      }
+  const style: React.CSSProperties = {};
 
-      if (progress >= 0 && progress <= 1) {
-        const p = progress;
-        const inv = 1 - p;
+  clipTransitions.forEach(transition => {
+    if (transition.type === 'none') return;
 
-        switch (transition.type) {
-          case 'fade':
-          case 'dissolve':
-          case 'cross-dissolve':
-            style.opacity = p;
-            break;
-          case 'zoom-in':
-            style.transform = `scale(${p})`;
-            style.opacity = p;
-            break;
-          case 'zoom-out':
-            style.transform = `scale(${1.5 - p * 0.5})`;
-            style.opacity = p;
-            break;
-          case 'slide-left':
-            style.transform = transition.position === 'end' 
-              ? `translateX(${-inv * 100}%)` 
-              : `translateX(${inv * 100}%)`;
-            break;
-          case 'slide-right':
-            style.transform = transition.position === 'end' 
-              ? `translateX(${inv * 100}%)` 
-              : `translateX(${-inv * 100}%)`;
-            break;
-          case 'slide-up':
-            style.transform = transition.position === 'end' 
-              ? `translateY(${-inv * 100}%)` 
-              : `translateY(${inv * 100}%)`;
-            break;
-          case 'slide-down':
-            style.transform = transition.position === 'end' 
-              ? `translateY(${inv * 100}%)` 
-              : `translateY(${-inv * 100}%)`;
-            break;
-          case 'slide-diagonal-tl':
-            style.transform = transition.position === 'end'
-              ? `translate(${-inv * 100}%, ${-inv * 100}%)`
-              : `translate(${inv * 100}%, ${inv * 100}%)`;
-            break;
-          case 'slide-diagonal-tr':
-            style.transform = transition.position === 'end'
-              ? `translate(${inv * 100}%, ${-inv * 100}%)`
-              : `translate(${-inv * 100}%, ${inv * 100}%)`;
-            break;
-          case 'wipe-left':
-            style.clipPath = transition.position === 'end'
-              ? `inset(0 ${inv * 100}% 0 0)`
-              : `inset(0 0 0 ${inv * 100}%)`;
-            break;
-          case 'wipe-right':
-            style.clipPath = transition.position === 'end'
-              ? `inset(0 0 0 ${inv * 100}%)`
-              : `inset(0 ${inv * 100}% 0 0)`;
-            break;
-          case 'wipe-up':
-            style.clipPath = transition.position === 'end'
-              ? `inset(0 0 ${inv * 100}% 0)`
-              : `inset(0 0 0 0)`; // TODO: Fix wipe-up logic if needed, inset(top right bottom left)
-            // Actually for wipe-up (reveal from bottom):
-            // Start: inset(100% 0 0 0) -> inset(0 0 0 0)
-            // End: inset(0 0 0 0) -> inset(100% 0 0 0) (wipe out to top?)
-            // Let's stick to standard wipe logic:
-            style.clipPath = transition.position === 'end'
-              ? `inset(0 0 ${inv * 100}% 0)`
-              : `inset(${inv * 100}% 0 0 0)`;
-            break;
-          case 'wipe-down':
-            style.clipPath = transition.position === 'end'
-              ? `inset(${inv * 100}% 0 0 0)`
-              : `inset(0 0 ${inv * 100}% 0)`;
-            break;
-          case 'rotate-in':
-            style.transform = `rotate(${inv * -180}deg) scale(${p})`;
-            style.opacity = p;
-            break;
-          case 'rotate-out':
-            style.transform = `rotate(${inv * 180}deg) scale(${p})`;
-            style.opacity = p;
-            break;
-          case 'circle-wipe':
-            style.clipPath = `circle(${p * 100}% at 50% 50%)`;
-            break;
-          case 'diamond-wipe':
-            style.clipPath = `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)`;
-            break;
-          default:
-            style.opacity = p;
-        }
-      }
-    });
+    const clipStart = clip.startTime;
+    const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+    const progress = calculateTransitionProgress(currentTime, clipStart, clipEnd, transition.duration, transition.position);
 
-    return style;
-  };
+    if (progress >= 0 && progress <= 1) {
+      const p = progress;
+      const inv = 1 - p;
+      const transitionStyle = applyTransitionStyle(transition, progress, inv, p);
+      Object.assign(style, transitionStyle);
+    }
+  });
+
+  return style;
+};
 
   // Create a dependency string for audioMuted states to trigger re-render when they change
   const audioMutedStates = useMemo(() => {
@@ -2055,7 +2076,7 @@ export const VideoPlayer: React.FC = () => {
               {activeClips.map((item, index) => {
                 const isSelected = ui.selectedClipId === item.clip.id;
                 const zIndex = 10 + index; // Higher tracks appear on top
-                const transitionStyle = getTransitionStyle(item.clip, player.currentTime);
+                const transitionStyle = calculateTransitionStyle(item.clip, player.currentTime, transitions);
 
                 if (item.media.type === 'video') {
                   // If MediaBunny is enabled, use it for video rendering
