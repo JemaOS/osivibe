@@ -78,6 +78,24 @@ const getTrackIconComponent = (trackName: string, trackType: string) => {
   return Monitor;
 };
 
+// Additional helper functions to reduce component complexity
+const getClipHeight = (layoutMode: string, trackHeight: number): number => {
+  if (layoutMode === 'minimal' || layoutMode === 'compact') return trackHeight - 8;
+  return trackHeight - 16;
+};
+
+const getClipTop = (layoutMode: string): number => {
+  if (layoutMode === 'minimal' || layoutMode === 'compact') return 4;
+  return 8;
+};
+
+const getTimeInterval = (zoom: number): number => {
+  if (zoom < 0.5) return 10;
+  if (zoom < 1) return 5;
+  if (zoom < 2) return 2;
+  return 1;
+};
+
 export const Timeline: React.FC = () => {
   const {
     tracks,
@@ -270,7 +288,7 @@ export const Timeline: React.FC = () => {
   // Generate time markers
   const getTimeMarkers = () => {
     const markers: number[] = [];
-    const interval = ui.timelineZoom < 0.5 ? 10 : ui.timelineZoom < 1 ? 5 : ui.timelineZoom < 2 ? 2 : 1;
+    const interval = getTimeInterval(ui.timelineZoom);
     
     for (let i = 0; i <= projectDuration; i += interval) {
       markers.push(i);
@@ -1320,8 +1338,8 @@ export const Timeline: React.FC = () => {
   };
 
   // Get dynamic sizes for UI elements
-  const getClipHeight = () => TRACK_HEIGHT - (isMinimal ? 8 : isCompact ? 8 : 16);
-  const getClipTop = () => isMinimal ? 4 : isCompact ? 4 : 8;
+  const clipHeight = getClipHeight(layoutMode, TRACK_HEIGHT);
+  const clipTop = getClipTop(layoutMode);
 
   return (
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
@@ -1541,8 +1559,8 @@ export const Timeline: React.FC = () => {
                       style={{
                         left: `${clipX}px`,
                         width: `${clipWidth}px`,
-                        top: getClipTop(),
-                        height: getClipHeight(),
+                        top: clipTop,
+                        height: clipHeight,
                       }}
                       onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
                       onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
@@ -1626,8 +1644,8 @@ export const Timeline: React.FC = () => {
                     style={{
                       left: `${textX}px`,
                       width: `${textWidth}px`,
-                      top: getClipTop(),
-                      height: getClipHeight(),
+                      top: clipTop,
+                      height: clipHeight,
                     }}
                     onMouseDown={(e) => handleTextMouseDown(e, text.id)}
                     onContextMenu={(e) => handleTextContextMenu(e, text.id)}

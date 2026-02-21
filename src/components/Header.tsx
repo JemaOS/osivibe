@@ -102,6 +102,25 @@ const getIconSize = (layoutMode: string): string => {
   return 'w-5 h-5';
 };
 
+const getLogoSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'w-6 h-6';
+  if (layoutMode === 'compact') return 'w-7 h-7';
+  return 'w-8 h-8';
+};
+
+const getLogoIconSize = (layoutMode: string): string => {
+  if (layoutMode === 'minimal') return 'w-3 h-3';
+  if (layoutMode === 'compact') return 'w-3.5 h-3.5';
+  return 'w-4 h-4';
+};
+
+const getExportButtonClasses = (layoutMode: string): string => {
+  const baseClasses = 'bg-primary-500 hover:bg-primary-600 text-white rounded-lg flex items-center gap-1 fold-open:gap-2 font-medium transition-colors flex-shrink-0 touch-target';
+  if (layoutMode === 'minimal') return `${baseClasses} h-8 px-2 text-xs`;
+  if (layoutMode === 'compact') return `${baseClasses} h-9 px-3 text-xs`;
+  return `${baseClasses} h-9 px-4 text-xs fold-open:text-sm`;
+};
+
 export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
   const { 
     projectName, 
@@ -162,8 +181,8 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
 
         {/* Logo and App Name */}
         <div className="flex items-center gap-1 fold-cover:gap-0.5 fold-open:gap-1.5 sm:gap-2 flex-shrink-0">
-          <div className={`${layoutMode === 'minimal' ? 'w-6 h-6' : layoutMode === 'compact' ? 'w-7 h-7' : 'w-8 h-8'} rounded-lg bg-primary-500 flex items-center justify-center`}>
-            <Film className={`${layoutMode === 'minimal' ? 'w-3 h-3' : layoutMode === 'compact' ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-white`} />
+          <div className={`${getLogoSize(layoutMode)} rounded-lg bg-primary-500 flex items-center justify-center`}>
+            <Film className={getLogoIconSize(layoutMode)} text-white />
           </div>
           {/* Hide app name on minimal/fold cover screens */}
           <span className={`text-sm fold-cover:hidden fold-open:inline sm:text-base font-semibold text-white ${layoutMode === 'minimal' ? 'hidden' : ''}`}>
@@ -258,9 +277,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         {/* Export button - Always visible with adaptive sizing */}
         <button
           onClick={openExportModal}
-          className={`bg-primary-500 hover:bg-primary-600 text-white ${
-            layoutMode === 'minimal' ? 'h-8 px-2' : layoutMode === 'compact' ? 'h-9 px-3' : 'h-9 px-4'
-          } rounded-lg flex items-center gap-1 fold-open:gap-2 text-xs fold-open:text-sm font-medium transition-colors flex-shrink-0 touch-target`}
+          className={getExportButtonClasses(layoutMode)}
         >
           <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
           {/* Hide text on minimal screens */}
