@@ -162,6 +162,47 @@ function extractProfileInfo(hardwareProfile: AnyHardwareProfile) {
   return { gpuTier, processorCores, memoryTier, isAppleSilicon, gpuVendor };
 }
 
+function applyHardwareSpecificSettings(
+  settings: EncodingSettings,
+  hardwareProfile: AnyHardwareProfile,
+  quality: string,
+  format: string
+) {
+  const { gpuTier, processorCores, memoryTier, isAppleSilicon, gpuVendor } = extractProfileInfo(hardwareProfile);
+  
+  applyGpuTierSettings(settings, gpuTier, quality);
+  
+  if (processorCores >= 16 || processorCores >= 8) {
+    settings.threads = '4';
+  } else {
+    settings.threads = String(Math.max(2, processorCores));
+  }
+  
+  if (isAppleSilicon) {
+    settings.preset = quality === 'high' ? 'medium' : 'fast';
+    settings.threads = '0';
+  }
+  
+  if (memoryTier === 'low') {
+    settings.maxWidth = Math.min(settings.maxWidth, 1280);
+    settings.maxHeight = Math.min(settings.maxHeight, 720);
+    settings.preset = 'ultrafast';
+    settings.additionalFlags.push('-max_muxing_queue_size', '1024');
+  }
+  
+  applyGpuVendorSettings(settings, gpuVendor);
+  
+  if (format === 'webm') {
+    settings.videoCodec = 'libvpx-vp9';
+    const cpuUsed = gpuTier === 'high' ? '4' : gpuTier === 'medium' ? '6' : '8';
+    settings.additionalFlags.push('-cpu-used', cpuUsed);
+    settings.additionalFlags.push('-row-mt', '1');
+    settings.additionalFlags.push('-deadline', 'realtime');
+  }
+  
+  return { gpuTier, processorCores };
+}
+
 /**
  * Get optimal encoding settings based on hardware profile
  * @param hardwareProfile - The detected hardware profile
@@ -206,39 +247,7 @@ export function getOptimalEncodingSettings(
   
   const settings = { ...defaultSettings };
   
-  const { gpuTier, processorCores, memoryTier, isAppleSilicon, gpuVendor } = extractProfileInfo(hardwareProfile);
-  
-  applyGpuTierSettings(settings, gpuTier, quality);
-  
-  if (processorCores >= 16) {
-    settings.threads = '4';
-  } else if (processorCores >= 8) {
-    settings.threads = '4';
-  } else {
-    settings.threads = String(Math.max(2, processorCores));
-  }
-  
-  if (isAppleSilicon) {
-    settings.preset = quality === 'high' ? 'medium' : 'fast';
-    settings.threads = '0';
-  }
-  
-  if (memoryTier === 'low') {
-    settings.maxWidth = Math.min(settings.maxWidth, 1280);
-    settings.maxHeight = Math.min(settings.maxHeight, 720);
-    settings.preset = 'ultrafast';
-    settings.additionalFlags.push('-max_muxing_queue_size', '1024');
-  }
-  
-  applyGpuVendorSettings(settings, gpuVendor);
-  
-  if (format === 'webm') {
-    settings.videoCodec = 'libvpx-vp9';
-    const cpuUsed = gpuTier === 'high' ? '4' : gpuTier === 'medium' ? '6' : '8';
-    settings.additionalFlags.push('-cpu-used', cpuUsed);
-    settings.additionalFlags.push('-row-mt', '1');
-    settings.additionalFlags.push('-deadline', 'realtime');
-  }
+  const { gpuTier, processorCores } = applyHardwareSpecificSettings(settings, hardwareProfile, quality, format);
   
   console.log('⚡ FFmpeg: Speed-optimized encoding settings', {
     gpuTier,
@@ -1546,6 +1555,33 @@ function buildSingleClipTextFilter(
   return vLabel;
 }
 
+async function loadExtraAudioFiles(
+  ffmpegInstance: any,
+  clip: ExportClip,
+  externalAudioClipsSingle: any[],
+  safeMode: boolean
+) {
+  const extraAudioFiles: File[] = [];
+  for (const ac of externalAudioClipsSingle) {
+    if (ac.file === clip.file) continue;
+    if (!extraAudioFiles.includes(ac.file)) extraAudioFiles.push(ac.file);
+  }
+
+  const extraAudioInputNames: string[] = [];
+  for (let i = 0; i < extraAudioFiles.length; i++) {
+    const file = extraAudioFiles[i];
+    const name = `audio_input${i}${getFileExtension(file.name)}`;
+    extraAudioInputNames.push(name);
+    try {
+      await ffmpegInstance.deleteFile(name);
+    } catch (e) { /* ignore */ }
+    const buf = new Uint8Array(await file.arrayBuffer());
+    await writeFileWithTimeout(ffmpegInstance, name, buf, safeMode ? 60000 : 45000);
+  }
+  
+  return { extraAudioFiles, extraAudioInputNames };
+}
+
 async function exportSingleClipComplexPath(
   ffmpegInstance: any,
   clip: ExportClip,
@@ -1569,23 +1605,9 @@ async function exportSingleClipComplexPath(
   const endTransition = clipTransitions.find((t) => t.position === 'end');
   const needsBg = clipTransitions.length > 0;
 
-  const extraAudioFiles: File[] = [];
-  for (const ac of externalAudioClipsSingle) {
-    if (ac.file === clip.file) continue;
-    if (!extraAudioFiles.includes(ac.file)) extraAudioFiles.push(ac.file);
-  }
-
-  const extraAudioInputNames: string[] = [];
-  for (let i = 0; i < extraAudioFiles.length; i++) {
-    const file = extraAudioFiles[i];
-    const name = `audio_input${i}${getFileExtension(file.name)}`;
-    extraAudioInputNames.push(name);
-    try {
-      await ffmpegInstance.deleteFile(name);
-    } catch (e) { /* ignore */ }
-    const buf = new Uint8Array(await file.arrayBuffer());
-    await writeFileWithTimeout(ffmpegInstance, name, buf, safeMode ? 60000 : 45000);
-  }
+  const { extraAudioFiles, extraAudioInputNames } = await loadExtraAudioFiles(
+    ffmpegInstance, clip, externalAudioClipsSingle, safeMode
+  );
 
   const bgInputIndex = 1 + extraAudioInputNames.length;
   const fc: string[] = [];
@@ -2250,29 +2272,67 @@ async function _exportProjectInternal(
   safeMode: boolean = false,
   audioClips?: ExportAudioClip[]
 ): Promise<Blob> {
+  // Try MediaBunny export first if no complex features
+  const mediaBunnyResult = tryMediaBunnyExport(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
+  if (mediaBunnyResult) {
+    return mediaBunnyResult;
+  }
+
+  // Wait for any existing FFmpeg operation to complete
+  await waitForFFmpegOperation();
+  
+  isOperationInProgress = true;
+  currentOperationType = 'export';
+  
+  try {
+    return await performFFmpegExport(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
+  } catch (error) {
+    await handleExportError(error);
+    throw error;
+  } finally {
+    isOperationInProgress = false;
+    currentOperationType = null;
+  }
+}
+
+function tryMediaBunnyExport(
+  clips: ExportClip[],
+  settings: ExportSettings,
+  onProgress?: (progress: number, message: string) => void,
+  textOverlays?: TextOverlay[],
+  transitions?: Transition[],
+  aspectRatio?: AspectRatio,
+  hardwareProfile?: AnyHardwareProfile,
+  safeMode?: boolean,
+  audioClips?: ExportAudioClip[]
+): Promise<Blob> | null {
   const hasComplexFeatures = checkComplexFeatures(clips, textOverlays, transitions, audioClips);
   
   if (hasComplexFeatures) {
     console.log('⚠️ Complex features detected (Text/Transitions/Filters/Images/Audio), falling back to FFmpeg for full support.');
-  } else {
-    try {
-        return await exportProjectWithMediaBunny(
-            clips,
-            settings,
-            onProgress,
-            textOverlays,
-            transitions,
-            aspectRatio,
-            hardwareProfile,
-            safeMode,
-            audioClips
-        );
-    } catch (error) {
-        console.error('MediaBunny export failed:', error);
-        console.log('Falling back to FFmpeg...');
-    }
+    return null;
   }
 
+  try {
+    return exportProjectWithMediaBunny(
+      clips,
+      settings,
+      onProgress,
+      textOverlays,
+      transitions,
+      aspectRatio,
+      hardwareProfile,
+      safeMode,
+      audioClips
+    );
+  } catch (error) {
+    console.error('MediaBunny export failed:', error);
+    console.log('Falling back to FFmpeg...');
+    return null;
+  }
+}
+
+async function waitForFFmpegOperation(): Promise<void> {
   if (isOperationInProgress && currentOperationType === 'export') {
     throw new Error('Un export est déjà en cours. Veuillez patienter.');
   }
@@ -2281,96 +2341,102 @@ async function _exportProjectInternal(
     console.log('⏳ Waiting for FFmpeg operation to finish:', currentOperationType);
     const start = performance.now();
     const timeoutMs = 4000;
+    
     while (isOperationInProgress && performance.now() - start < timeoutMs) {
       await new Promise((r) => setTimeout(r, 50));
     }
+    
     if (isOperationInProgress) {
       console.warn('⚠️ Previous FFmpeg operation did not finish in time, resetting instance...');
       await resetFFmpeg();
     }
   }
+}
+
+async function performFFmpegExport(
+  clips: ExportClip[],
+  settings: ExportSettings,
+  onProgress?: (progress: number, message: string) => void,
+  textOverlays?: TextOverlay[],
+  transitions?: Transition[],
+  aspectRatio?: AspectRatio,
+  hardwareProfile?: AnyHardwareProfile,
+  safeMode?: boolean,
+  audioClips?: ExportAudioClip[]
+): Promise<Blob> {
+  currentTotalDuration = clips.reduce((acc, clip) => acc + (clip.duration - clip.trimStart - clip.trimEnd), 0);
   
-  isOperationInProgress = true;
-  currentOperationType = 'export';
+  onProgress?.(1, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
   
-  try {
-    currentTotalDuration = clips.reduce((acc, clip) => acc + (clip.duration - clip.trimStart - clip.trimEnd), 0);
-    
-    onProgress?.(1, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
-    
-    const exportProgressHandler = (percent: number, msg: string) => {
-      const scaledPercent = Math.round(percent * 0.95);
-      const safePercent = Math.min(95, Math.max(0, scaledPercent));
-      onProgress?.(safePercent, `Traitement en cours...`);
-    };
+  const exportProgressHandler = (percent: number, msg: string) => {
+    const scaledPercent = Math.round(percent * 0.95);
+    const safePercent = Math.min(95, Math.max(0, scaledPercent));
+    onProgress?.(safePercent, `Traitement en cours...`);
+  };
 
-    const ffmpegInstance = await loadFFmpeg(exportProgressHandler, { safeMode });
-    
-    if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
-      onProgress?.(2, 'Chargement de la police...');
-      await loadDefaultFont(ffmpegInstance);
-    }
-    
-    onProgress?.(3, 'Préparation des paramètres...');
-    const effectiveAspectRatio = aspectRatio || settings.aspectRatio || '16:9';
-    const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
-    console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
-    const outputFormat = settings.format;
-    
-    const effectiveHardwareProfile = hardwareProfile || cachedHardwareProfile;
-    const encodingSettings = getOptimalEncodingSettings(
-      effectiveHardwareProfile,
-      outputFormat as 'mp4' | 'webm',
-      settings.quality,
-      safeMode
-    );
-    
-    const estimatedTime = estimateEncodingTime(
-      effectiveHardwareProfile,
-      currentTotalDuration,
-      resolution
-    );
+  const ffmpegInstance = await loadFFmpeg(exportProgressHandler, { safeMode });
+  
+  if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
+    onProgress?.(2, 'Chargement de la police...');
+    await loadDefaultFont(ffmpegInstance);
+  }
+  
+  onProgress?.(3, 'Préparation des paramètres...');
+  const effectiveAspectRatio = aspectRatio || settings.aspectRatio || '16:9';
+  const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
+  console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
+  const outputFormat = settings.format;
+  
+  const effectiveHardwareProfile = hardwareProfile || cachedHardwareProfile;
+  const encodingSettings = getOptimalEncodingSettings(
+    effectiveHardwareProfile,
+    outputFormat as 'mp4' | 'webm',
+    settings.quality,
+    safeMode
+  );
+  
+  const estimatedTime = estimateEncodingTime(
+    effectiveHardwareProfile,
+    currentTotalDuration,
+    resolution
+  );
 
-    const execTimeoutMs = safeMode
-      ? Math.max(600_000, estimatedTime * 1000 * 60)
-      : Math.max(240_000, estimatedTime * 1000 * 30);
-    
-    const encodingStartTime = performance.now();
-    const quality = encodingSettings.crf;
+  const execTimeoutMs = safeMode
+    ? Math.max(600_000, estimatedTime * 1000 * 60)
+    : Math.max(240_000, estimatedTime * 1000 * 30);
+  
+  const encodingStartTime = performance.now();
+  const quality = encodingSettings.crf;
 
-    if (clips.length === 0) {
-      throw new Error('Aucun clip à exporter');
-    }
+  if (clips.length === 0) {
+    throw new Error('Aucun clip à exporter');
+  }
 
-    if (clips.length === 1) {
-      return await exportSingleClip(
-        ffmpegInstance, clips[0], settings, encodingSettings, resolution, outputFormat, quality,
-        execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
-      );
-    }
-
-    return await exportMultiClip(
-      ffmpegInstance, clips, settings, encodingSettings, resolution, outputFormat, quality,
+  if (clips.length === 1) {
+    return await exportSingleClip(
+      ffmpegInstance, clips[0], settings, encodingSettings, resolution, outputFormat, quality,
       execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
     );
-  } catch (error) {
-    console.error('Error in exportProject:', error);
-    if (
-      error instanceof Error &&
-      (
-        error.message.includes('Timeout') ||
-        error.message.includes('stuck') ||
-        error.message.includes('FFmpeg.terminate') ||
-        error.message.includes('FS error')
-      )
-    ) {
-      console.warn('FFmpeg error detected, resetting instance...');
-      await resetFFmpeg();
-    }
-    throw error;
-  } finally {
-    isOperationInProgress = false;
-    currentOperationType = null;
+  }
+
+  return await exportMultiClip(
+    ffmpegInstance, clips, settings, encodingSettings, resolution, outputFormat, quality,
+    execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
+  );
+}
+
+async function handleExportError(error: unknown): Promise<void> {
+  console.error('Error in exportProject:', error);
+  const isFFmpegError = error instanceof Error && (
+    error.message.includes('Timeout') ||
+    error.message.includes('stuck') ||
+    error.message.includes('FFmpeg.terminate') ||
+    error.message.includes('FS error')
+  );
+  
+  if (isFFmpegError) {
+    console.warn('FFmpeg error detected, resetting instance...');
+    await resetFFmpeg();
   }
 }
 

@@ -274,6 +274,82 @@ const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor
   }
 };
 
+const getHeaderPadding = (layoutMode: string) => {
+  if (layoutMode === 'minimal') return 'px-2 py-1.5';
+  if (layoutMode === 'compact') return 'px-3 py-2';
+  return 'px-4 py-3';
+};
+
+const getHeaderFontSize = (layoutMode: string) => {
+  if (layoutMode === 'minimal') return 'text-sm';
+  if (layoutMode === 'compact') return 'text-base';
+  return 'text-h3';
+};
+
+const BottomSheetProperties = ({
+  isBottomSheetOpen,
+  setIsBottomSheetOpen,
+  bottomSheetHeight,
+  bottomSheetRef,
+  handleBottomSheetDragStart,
+  renderPanelContent
+}: any) => {
+  return (
+    <>
+      {/* Bottom sheet trigger button */}
+      <button
+        onClick={() => setIsBottomSheetOpen(true)}
+        className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-primary-500 text-white shadow-lg flex items-center justify-center touch-target-lg"
+        aria-label="Open properties panel"
+      >
+        <Sliders className="w-5 h-5" />
+      </button>
+      
+      {/* Bottom sheet overlay */}
+      {isBottomSheetOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 fold-transition"
+          onClick={() => setIsBottomSheetOpen(false)}
+        />
+      )}
+      
+      {/* Bottom sheet panel */}
+      <div
+        ref={bottomSheetRef}
+        className={`fixed left-0 right-0 bottom-0 z-50 glass-panel rounded-t-2xl fold-transition ${
+          isBottomSheetOpen ? 'translate-y-0' : 'translate-y-full'
+        }`}
+        style={{ height: `${bottomSheetHeight}vh` }}
+      >
+        {/* Drag handle */}
+        <div
+          className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-target"
+          onTouchStart={handleBottomSheetDragStart}
+          onMouseDown={handleBottomSheetDragStart}
+        >
+          <div className="w-10 h-1 bg-white/30 rounded-full" />
+        </div>
+        
+        {/* Header with close button */}
+        <div className="px-4 pb-2 flex items-center justify-between border-b border-white/10">
+          <h2 className="text-base font-semibold text-white">Propriétés</h2>
+          <button
+            onClick={() => setIsBottomSheetOpen(false)}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 touch-target"
+          >
+            <X className="w-4 h-4 text-white" />
+          </button>
+        </div>
+        
+        {/* Panel content */}
+        <div className="flex flex-col h-[calc(100%-60px)] overflow-hidden">
+          {renderPanelContent()}
+        </div>
+      </div>
+    </>
+  );
+};
+
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
   const {
     tracks,
@@ -1358,58 +1434,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
   // For minimal/fold-cover mode, render as bottom sheet
   if (isMinimal && responsive.foldState === 'folded') {
     return (
-      <>
-        {/* Bottom sheet trigger button */}
-        <button
-          onClick={() => setIsBottomSheetOpen(true)}
-          className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-primary-500 text-white shadow-lg flex items-center justify-center touch-target-lg"
-          aria-label="Open properties panel"
-        >
-          <Sliders className="w-5 h-5" />
-        </button>
-        
-        {/* Bottom sheet overlay */}
-        {isBottomSheetOpen && (
-          <div
-            className="fixed inset-0 bg-black/50 z-50 fold-transition"
-            onClick={() => setIsBottomSheetOpen(false)}
-          />
-        )}
-        
-        {/* Bottom sheet panel */}
-        <div
-          ref={bottomSheetRef}
-          className={`fixed left-0 right-0 bottom-0 z-50 glass-panel rounded-t-2xl fold-transition ${
-            isBottomSheetOpen ? 'translate-y-0' : 'translate-y-full'
-          }`}
-          style={{ height: `${bottomSheetHeight}vh` }}
-        >
-          {/* Drag handle */}
-          <div
-            className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-target"
-            onTouchStart={handleBottomSheetDragStart}
-            onMouseDown={handleBottomSheetDragStart}
-          >
-            <div className="w-10 h-1 bg-white/30 rounded-full" />
-          </div>
-          
-          {/* Header with close button */}
-          <div className="px-4 pb-2 flex items-center justify-between border-b border-white/10">
-            <h2 className="text-base font-semibold text-white">Propriétés</h2>
-            <button
-              onClick={() => setIsBottomSheetOpen(false)}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 touch-target"
-            >
-              <X className="w-4 h-4 text-white" />
-            </button>
-          </div>
-          
-          {/* Panel content */}
-          <div className="flex flex-col h-[calc(100%-60px)] overflow-hidden">
-            {renderPanelContent()}
-          </div>
-        </div>
-      </>
+      <BottomSheetProperties
+        isBottomSheetOpen={isBottomSheetOpen}
+        setIsBottomSheetOpen={setIsBottomSheetOpen}
+        bottomSheetHeight={bottomSheetHeight}
+        bottomSheetRef={bottomSheetRef}
+        handleBottomSheetDragStart={handleBottomSheetDragStart}
+        renderPanelContent={renderPanelContent}
+      />
     );
   }
 
@@ -1417,8 +1449,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
   return (
     <div className={`glass-panel h-full flex flex-col overflow-hidden fold-transition ${responsive.isSpanning ? 'avoid-hinge' : ''}`}>
       {/* Header */}
-      <div className={`${isMinimal ? 'px-2 py-1.5' : isCompact ? 'px-3 py-2' : 'px-4 py-3'} border-b border-white/20 flex-shrink-0`}>
-        <h2 className={`${isMinimal ? 'text-sm' : isCompact ? 'text-base' : 'text-h3'} font-semibold text-white`}>Propriétés</h2>
+      <div className={`${getHeaderPadding(layoutMode)} border-b border-white/20 flex-shrink-0`}>
+        <h2 className={`${getHeaderFontSize(layoutMode)} font-semibold text-white`}>Propriétés</h2>
       </div>
 
       {renderPanelContent()}

@@ -601,22 +601,32 @@ export const VideoPlayer: React.FC = () => {
     handleImageRotateStart
   } = useVideoPlayerImage(videoContainerRef, player, pause, tracks, updateClip);
 
-  // We need getActiveClips for crop hook
+
+
+  // OPTIMISATION: Utiliser useMemo au lieu de useCallback pour getActiveClips
+  // Cela évite les recalculs à chaque render quand les clips n'ont pas changé
+  // NOTE: track.muted should only affect AUDIO playback, not video display
+  // Video clips should always be visible regardless of mute state
   const activeClipsData = useMemo(() => {
     const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
     
     tracks.forEach((track, index) => {
+      // Only filter by track type, NOT by muted state
+      // Muted tracks should still show video, just without audio
       if (track.type !== 'video') return;
       
       const clip = track.clips.find(c => {
         const clipStart = c.startTime;
         const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        // Use <= for clipEnd to include clips at exactly the boundary (important for split clips)
+        // This ensures the preview doesn't disappear when playhead is at the exact split point
         return player.currentTime >= clipStart && player.currentTime <= clipEnd;
       });
       
       if (clip) {
         const media = mediaFiles.find(m => m.id === clip.mediaId);
         if (media) {
+          // Include trackMuted state so audio can be properly controlled
           result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
         }
       }
@@ -625,6 +635,7 @@ export const VideoPlayer: React.FC = () => {
     return result;
   }, [tracks, mediaFiles, player.currentTime]);
   
+  // Fonction wrapper pour compatibilité avec le code existant
   const getActiveClips = useCallback(() => activeClipsData, [activeClipsData]);
 
   const {
@@ -636,23 +647,6 @@ export const VideoPlayer: React.FC = () => {
     handleApplyCrop,
     handleCropResizeStart
   } = useVideoPlayerCrop(videoContainerRef, player, pause, ui, updateClip, getActiveClips);
-
-  useVideoPlayerSync(
-    videoRefs,
-    audioRefs,
-    canvasRef,
-    player,
-    filters,
-    getActiveClips,
-    getActiveAudioClips,
-    videoClipsWithDetachedAudio,
-    isMobileRef,
-    isScrubbingRef,
-    useMediaBunny,
-    isMediaBunnyReady,
-    renderMediaBunny,
-    audioMutedStates
-  );
 
   // Initialize preview optimizer on mount - AUTO QUALITY FROM START
   useEffect(() => {
@@ -865,40 +859,7 @@ export const VideoPlayer: React.FC = () => {
     console.log('🎬 Preview quality changed to:', quality, newSettings);
   }, [hardwareProfile]);
   
-  // OPTIMISATION: Utiliser useMemo au lieu de useCallback pour getActiveClips
-  // Cela évite les recalculs à chaque render quand les clips n'ont pas changé
-  // NOTE: track.muted should only affect AUDIO playback, not video display
-  // Video clips should always be visible regardless of mute state
-  const activeClipsData = useMemo(() => {
-    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
-    
-    tracks.forEach((track, index) => {
-      // Only filter by track type, NOT by muted state
-      // Muted tracks should still show video, just without audio
-      if (track.type !== 'video') return;
-      
-      const clip = track.clips.find(c => {
-        const clipStart = c.startTime;
-        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-        // Use <= for clipEnd to include clips at exactly the boundary (important for split clips)
-        // This ensures the preview doesn't disappear when playhead is at the exact split point
-        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
-      });
-      
-      if (clip) {
-        const media = mediaFiles.find(m => m.id === clip.mediaId);
-        if (media) {
-          // Include trackMuted state so audio can be properly controlled
-          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
-        }
-      }
-    });
-    
-    return result;
-  }, [tracks, mediaFiles, player.currentTime]);
-  
-  // Fonction wrapper pour compatibilité avec le code existant
-  const getActiveClips = useCallback(() => activeClipsData, [activeClipsData]);
+
 
   // Audio preview: get all active audio clips at playhead (supports external audio tracks + detached audio)
   const getActiveAudioClips = useCallback(() => {
@@ -962,7 +923,20 @@ export const VideoPlayer: React.FC = () => {
       .join(',');
   }, [tracks]);
 
-  useVideoPlayerSync(
+
+
+  const allAudioClips = useMemo(() => {
+    return tracks
+      .filter((t) => t.type === 'audio')
+      .flatMap((t) => t.clips)
+      .map((clip) => ({
+        clip,
+        media: mediaFiles.find((m) => m.id === clip.mediaId) || null,
+      }))
+      .filter((x) => !!x.media) as { clip: TimelineClip; media: MediaFile }[];
+  }, [tracks, mediaFiles]);
+
+  const { syncVideosDebounced } = useVideoPlayerSync(
     videoRefs,
     audioRefs,
     canvasRef,
@@ -978,17 +952,6 @@ export const VideoPlayer: React.FC = () => {
     renderMediaBunny,
     audioMutedStates
   );
-
-  const allAudioClips = useMemo(() => {
-    return tracks
-      .filter((t) => t.type === 'audio')
-      .flatMap((t) => t.clips)
-      .map((clip) => ({
-        clip,
-        media: mediaFiles.find((m) => m.id === clip.mediaId) || null,
-      }))
-      .filter((x) => !!x.media) as { clip: TimelineClip; media: MediaFile }[];
-  }, [tracks, mediaFiles]);
 
   // Update video playback with optimized sync
   useEffect(() => {
@@ -1075,56 +1038,43 @@ export const VideoPlayer: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (editingTextId) return;
 
       switch (e.key) {
         case ' ':
           e.preventDefault();
-          if (!cropMode && !editingTextId) {
+          if (!cropMode) {
             togglePlayPause();
           }
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          if (!editingTextId) {
-            seek(Math.max(0, player.currentTime - (e.shiftKey ? 10 : 1)));
-          }
+          seek(Math.max(0, player.currentTime - (e.shiftKey ? 10 : 1)));
           break;
         case 'ArrowRight':
           e.preventDefault();
-          if (!editingTextId) {
-            seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 10 : 1)));
-          }
+          seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 10 : 1)));
           break;
         case 'Home':
           e.preventDefault();
-          if (!editingTextId) {
-            seek(0);
-          }
+          seek(0);
           break;
         case 'End':
           e.preventDefault();
-          if (!editingTextId) {
-            seek(projectDuration);
-          }
+          seek(projectDuration);
           break;
         case 'm':
           e.preventDefault();
-          if (!editingTextId) {
-            toggleMute();
-          }
+          toggleMute();
           break;
         case 'f':
           e.preventDefault();
-          if (!editingTextId) {
-            toggleFullscreen();
-          }
+          toggleFullscreen();
           break;
         case 'c':
           if (e.ctrlKey || e.metaKey) return;
           e.preventDefault();
-          if (!editingTextId) {
-            setCropMode(prev => !prev);
-          }
+          setCropMode(prev => !prev);
           break;
       }
     };

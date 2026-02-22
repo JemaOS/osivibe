@@ -29,39 +29,12 @@ const buildFilterString = (filter: VideoFilter): string => {
     return filters.length > 0 ? filters.join(' ') : 'none';
 };
 
-// Helper function to apply transition effects
-const applyTransition = (
-    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-    transition: Transition,
-    clipTime: number,
-    clipDuration: number,
-    width: number,
-    height: number,
-    isEnd: boolean
-): void => {
-    const p = isEnd 
-        ? (clipDuration - clipTime) / transition.duration 
-        : clipTime / transition.duration;
-    const inv = 1 - p;
-    const type = transition.type;
-
-    // Opacity for fade-like transitions
-    if (['fade', 'dissolve', 'cross-dissolve', 'zoom-in', 'zoom-out', 'rotate-in', 'rotate-out'].includes(type)) {
-        ctx.globalAlpha = p;
-    }
-
-    // Helper to apply transform
-    const applyTransform = (transform: (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, p: number, inv: number, width: number, height: number) => void) => {
-        transform(ctx, p, inv, width, height);
-    };
-
+const applyTransformTransition = (ctx: any, type: string, p: number, inv: number, width: number, height: number) => {
     switch (type) {
         case 'zoom-in':
-            applyTransform((c, val) => {
-                c.translate(width / 2, height / 2);
-                c.scale(val, val);
-                c.translate(-width / 2, -height / 2);
-            });
+            ctx.translate(width / 2, height / 2);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
             break;
         case 'zoom-out': {
             const s = 1.5 - p * 0.5;
@@ -71,41 +44,34 @@ const applyTransition = (
             break;
         }
         case 'rotate-in':
-            applyTransform((c, val, i) => {
-                c.translate(width / 2, height / 2);
-                c.rotate(i * -Math.PI);
-                c.scale(val, val);
-                c.translate(-width / 2, -height / 2);
-            });
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(inv * -Math.PI);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
             break;
         case 'rotate-out':
-            applyTransform((c, val, i) => {
-                c.translate(width / 2, height / 2);
-                c.rotate(i * Math.PI);
-                c.scale(val, val);
-                c.translate(-width / 2, -height / 2);
-            });
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(inv * Math.PI);
+            ctx.scale(p, p);
+            ctx.translate(-width / 2, -height / 2);
             break;
-        case 'slide-left': {
-            const txLeft = isEnd ? -inv * width : inv * width;
-            ctx.translate(txLeft, 0);
+    }
+};
+
+const applySlideTransition = (ctx: any, type: string, inv: number, width: number, height: number, isEnd: boolean) => {
+    switch (type) {
+        case 'slide-left':
+            ctx.translate(isEnd ? -inv * width : inv * width, 0);
             break;
-        }
-        case 'slide-right': {
-            const txRight = isEnd ? inv * width : -inv * width;
-            ctx.translate(txRight, 0);
+        case 'slide-right':
+            ctx.translate(isEnd ? inv * width : -inv * width, 0);
             break;
-        }
-        case 'slide-up': {
-            const tyUp = isEnd ? -inv * height : inv * height;
-            ctx.translate(0, tyUp);
+        case 'slide-up':
+            ctx.translate(0, isEnd ? -inv * height : inv * height);
             break;
-        }
-        case 'slide-down': {
-            const tyDown = isEnd ? inv * height : -inv * height;
-            ctx.translate(0, tyDown);
+        case 'slide-down':
+            ctx.translate(0, isEnd ? inv * height : -inv * height);
             break;
-        }
         case 'slide-diagonal-tl': {
             const tDiaTL = isEnd ? -inv : inv;
             ctx.translate(tDiaTL * width, tDiaTL * height);
@@ -117,6 +83,11 @@ const applyTransition = (
             ctx.translate(tDiaTRX * width, tDiaTRY * height);
             break;
         }
+    }
+};
+
+const applyWipeTransition = (ctx: any, type: string, p: number, inv: number, width: number, height: number, isEnd: boolean) => {
+    switch (type) {
         case 'wipe-left':
             ctx.beginPath();
             ctx.rect(0, 0, isEnd ? inv * width : p * width, height);
@@ -158,6 +129,35 @@ const applyTransition = (
             ctx.clip();
             break;
         }
+    }
+};
+
+// Helper function to apply transition effects
+const applyTransition = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    transition: Transition,
+    clipTime: number,
+    clipDuration: number,
+    width: number,
+    height: number,
+    isEnd: boolean
+): void => {
+    const p = isEnd 
+        ? (clipDuration - clipTime) / transition.duration 
+        : clipTime / transition.duration;
+    const inv = 1 - p;
+    const type = transition.type;
+
+    if (['fade', 'dissolve', 'cross-dissolve', 'zoom-in', 'zoom-out', 'rotate-in', 'rotate-out'].includes(type)) {
+        ctx.globalAlpha = p;
+    }
+
+    if (type.startsWith('zoom') || type.startsWith('rotate')) {
+        applyTransformTransition(ctx, type, p, inv, width, height);
+    } else if (type.startsWith('slide')) {
+        applySlideTransition(ctx, type, inv, width, height, isEnd);
+    } else if (type.includes('wipe')) {
+        applyWipeTransition(ctx, type, p, inv, width, height, isEnd);
     }
 };
 
@@ -419,6 +419,103 @@ const processAudioSamples = async (
     }
 };
 
+const processSingleVideoSample = async (
+    sample: any,
+    clip: any,
+    clipDuration: number,
+    processedDuration: number,
+    totalDuration: number,
+    sortedClipsLength: number,
+    clipIndex: number,
+    onProgress: any,
+    textOverlays: any,
+    startTransition: any,
+    endTransition: any,
+    width: number,
+    height: number,
+    videoSource: any,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+) => {
+    const timestamp = sample.timestamp;
+    const relativeTimestamp = timestamp - clip.trimStart + clip.startTime;
+    
+    const clipProcessedTime = timestamp - clip.trimStart;
+    const clipProgress = clipProcessedTime / clipDuration;
+    const totalProgress = 5 + ((processedDuration + (clipDuration * clipProgress)) / totalDuration) * 90;
+    
+    if (Math.floor(totalProgress) > Math.floor(5 + (processedDuration / totalDuration) * 90)) {
+         onProgress?.(Math.round(totalProgress), `Traitement du clip ${clipIndex + 1}/${sortedClipsLength}...`);
+    }
+
+    const activeTexts = textOverlays ? textOverlays.filter((t: any) => 
+        relativeTimestamp >= t.startTime && 
+        relativeTimestamp <= (t.startTime + t.duration)
+    ) : [];
+
+    const { hasFilter } = hasClipEffects(clip, width, height);
+    const actualHasTransition = startTransition || endTransition;
+    const actualHasText = activeTexts.length > 0;
+    const actualIsSameResolution = (sample as any).displayWidth === width && (sample as any).displayHeight === height;
+
+    if (!hasFilter && !actualHasTransition && !actualHasText && actualIsSameResolution) {
+        const frame = new VideoFrame(sample as any, { timestamp: relativeTimestamp * 1_000_000 });
+        const newSample = new VideoSample(frame);
+        await videoSource.add(newSample);
+        newSample.close();
+    } else {
+        ctx.filter = 'none';
+        ctx.globalAlpha = 1.0;
+        
+        if (startTransition || endTransition) {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        ctx.save();
+
+        if (clip.filter) {
+            ctx.filter = buildFilterString(clip.filter);
+        }
+
+        if (startTransition || endTransition) {
+            const clipTime = timestamp - clip.trimStart;
+            
+            let activeTransition: Transition | undefined;
+            let isEnd = false;
+
+            if (startTransition && clipTime < startTransition.duration) {
+                activeTransition = startTransition;
+                isEnd = false;
+            } else if (endTransition && clipTime > (clipDuration - endTransition.duration)) {
+                activeTransition = endTransition;
+                isEnd = true;
+            }
+            
+            if (activeTransition) {
+                applyTransition(ctx, activeTransition, clipTime, clipDuration, width, height, isEnd);
+            }
+        }
+
+        if (typeof (sample as any).draw === 'function') {
+            (sample as any).draw(ctx, 0, 0, width, height);
+        } else {
+            ctx.drawImage(sample as any, 0, 0, width, height);
+        }
+        
+        ctx.restore();
+
+        if (actualHasText) {
+            renderTextOverlays(ctx, activeTexts, width, height);
+        }
+
+        const frame = new VideoFrame(canvas as any, { timestamp: relativeTimestamp * 1_000_000 });
+        const newSample = new VideoSample(frame);
+        await videoSource.add(newSample);
+        newSample.close();
+    }
+};
+
 const processVideoSamples = async (
     videoSink: VideoSampleSink,
     clip: any,
@@ -437,7 +534,6 @@ const processVideoSamples = async (
     canvas: HTMLCanvasElement | OffscreenCanvas,
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 ) => {
-    let clipProcessedTime = 0;
     for await (const sample of videoSink.samples()) {
         if (isExportCancelled) {
             sample.close();
@@ -452,85 +548,11 @@ const processVideoSamples = async (
         }
         
         if (timestamp >= clip.trimStart && timestamp <= (clip.duration - clip.trimEnd)) {
-            const relativeTimestamp = timestamp - clip.trimStart + clip.startTime;
-            
-            clipProcessedTime = timestamp - clip.trimStart;
-            const clipProgress = clipProcessedTime / clipDuration;
-            const totalProgress = 5 + ((processedDuration + (clipDuration * clipProgress)) / totalDuration) * 90;
-            
-            if (Math.floor(totalProgress) > Math.floor(5 + (processedDuration / totalDuration) * 90)) {
-                 onProgress?.(Math.round(totalProgress), `Traitement du clip ${clipIndex + 1}/${sortedClipsLength}...`);
-            }
-
-            const activeTexts = textOverlays ? textOverlays.filter((t: any) => 
-                relativeTimestamp >= t.startTime && 
-                relativeTimestamp <= (t.startTime + t.duration)
-            ) : [];
-
-            const { hasFilter, hasTransition, hasText, isSameResolution } = hasClipEffects(clip, width, height);
-            const actualHasTransition = startTransition || endTransition;
-            const actualHasText = activeTexts.length > 0;
-            const actualIsSameResolution = (sample as any).displayWidth === width && (sample as any).displayHeight === height;
-
-            if (!hasFilter && !actualHasTransition && !actualHasText && actualIsSameResolution) {
-                const frame = new VideoFrame(sample as any, { timestamp: relativeTimestamp * 1_000_000 });
-                const newSample = new VideoSample(frame);
-                await videoSource.add(newSample);
-                newSample.close();
-            } else {
-                ctx.filter = 'none';
-                ctx.globalAlpha = 1.0;
-                
-                if (startTransition || endTransition) {
-                    ctx.fillStyle = 'black';
-                    ctx.fillRect(0, 0, width, height);
-                }
-
-                ctx.save();
-
-                if (clip.filter) {
-                    ctx.filter = buildFilterString(clip.filter);
-                }
-
-                if (startTransition || endTransition) {
-                    const clipTime = timestamp - clip.trimStart;
-                    
-                    let p = 1;
-                    let activeTransition: Transition | undefined;
-                    let isEnd = false;
-
-                    if (startTransition && clipTime < startTransition.duration) {
-                        activeTransition = startTransition;
-                        p = clipTime / startTransition.duration;
-                        isEnd = false;
-                    } else if (endTransition && clipTime > (clipDuration - endTransition.duration)) {
-                        activeTransition = endTransition;
-                        p = (clipDuration - clipTime) / endTransition.duration;
-                        isEnd = true;
-                    }
-                    
-                    if (activeTransition) {
-                        applyTransition(ctx, activeTransition, clipTime, clipDuration, width, height, isEnd);
-                    }
-                }
-
-                if (typeof (sample as any).draw === 'function') {
-                    (sample as any).draw(ctx, 0, 0, width, height);
-                } else {
-                    ctx.drawImage(sample as any, 0, 0, width, height);
-                }
-                
-                ctx.restore();
-
-                if (actualHasText) {
-                    renderTextOverlays(ctx, activeTexts, width, height);
-                }
-
-                const frame = new VideoFrame(canvas as any, { timestamp: relativeTimestamp * 1_000_000 });
-                const newSample = new VideoSample(frame);
-                await videoSource.add(newSample);
-                newSample.close();
-            }
+            await processSingleVideoSample(
+                sample, clip, clipDuration, processedDuration, totalDuration,
+                sortedClipsLength, clipIndex, onProgress, textOverlays,
+                startTransition, endTransition, width, height, videoSource, canvas, ctx
+            );
         }
         sample.close();
     }

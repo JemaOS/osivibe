@@ -3,6 +3,87 @@ import { TransformSettings } from '../types';
 import { getCSSFilter } from '../utils/helpers';
 import { useEditorStore } from '../store/editorStore';
 
+const handleAudioSeek = (audioEl: HTMLAudioElement, localTime: number, timeDiff: number, seekThreshold: number) => {
+  if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
+    try {
+      if (audioEl.readyState > 0) {
+        audioEl.currentTime = Math.max(0, localTime);
+      }
+    } catch (err) {
+      console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
+    }
+  }
+};
+
+const handleAudioPlayPause = (audioEl: HTMLAudioElement, isPlaying: boolean) => {
+  if (isPlaying) {
+    if (audioEl.paused) {
+      audioEl.play().catch((err) => {
+        console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
+      });
+    }
+  } else {
+    if (!audioEl.paused) {
+      audioEl.pause();
+    }
+  }
+};
+
+const syncSingleVideoClip = (
+  item: any,
+  videoEl: HTMLVideoElement,
+  currentTime: number,
+  player: any,
+  isMobile: boolean,
+  isScrubbing: boolean,
+  isSeekingRef: React.MutableRefObject<boolean>,
+  filters: any
+) => {
+  if (videoEl.getAttribute('src') !== item.media.url) {
+    videoEl.setAttribute('src', item.media.url);
+    videoEl.load();
+  }
+
+  if (videoEl.playbackRate !== player.playbackRate) {
+    videoEl.playbackRate = player.playbackRate;
+  }
+
+  const clipStart = item.clip.startTime;
+  const localTime = currentTime - clipStart + item.clip.trimStart;
+  
+  const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
+  const pausedSeekThreshold = 0.05;
+  
+  const seekThreshold = isScrubbing
+    ? scrubbingSeekThreshold
+    : (player.isPlaying ? Infinity : pausedSeekThreshold);
+  
+  const timeDiff = Math.abs(videoEl.currentTime - localTime);
+  
+  if (!player.isPlaying || isScrubbing) {
+    if (timeDiff > seekThreshold) {
+      if (!isSeekingRef.current) {
+        isSeekingRef.current = true;
+        if (videoEl.readyState > 0) {
+          videoEl.currentTime = localTime;
+        }
+        setTimeout(() => {
+          isSeekingRef.current = false;
+        }, isMobile ? 100 : 50);
+      }
+    }
+  }
+
+  if (!isMobile || !player.isPlaying) {
+    const clipFilter = filters[item.clip.id];
+    if (clipFilter) {
+      videoEl.style.filter = getCSSFilter(clipFilter);
+    } else {
+      videoEl.style.filter = 'none';
+    }
+  }
+};
+
 export const useVideoPlayerSync = (
   videoRefs: React.MutableRefObject<{ [key: string]: HTMLVideoElement | null }>,
   audioRefs: React.MutableRefObject<{ [key: string]: HTMLAudioElement | null }>,
@@ -77,15 +158,7 @@ export const useVideoPlayerSync = (
     const isScrubbing = isScrubbingRef.current;
     const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
     
-    if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
-      try {
-        if (audioEl.readyState > 0) {
-          audioEl.currentTime = Math.max(0, localTime);
-        }
-      } catch (err) {
-        console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
-      }
-    }
+    handleAudioSeek(audioEl, localTime, timeDiff, seekThreshold);
 
     audioEl.playbackRate = player.playbackRate;
     const mutedByTrack = item.trackMuted === true;
@@ -94,17 +167,7 @@ export const useVideoPlayerSync = (
     if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
     audioEl.muted = targetVol === 0;
 
-    if (player.isPlaying) {
-      if (audioEl.paused) {
-        audioEl.play().catch((err) => {
-          console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
-        });
-      }
-    } else {
-      if (!audioEl.paused) {
-        audioEl.pause();
-      }
-    }
+    handleAudioPlayPause(audioEl, player.isPlaying);
   }, [player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume, isScrubbingRef]);
 
   const syncAudioVolumeAndPlayback = useCallback(() => {
@@ -165,50 +228,16 @@ export const useVideoPlayerSync = (
       const videoEl = videoRefs.current[item.clip.id];
       if (!videoEl) return;
 
-      if (videoEl.getAttribute('src') !== item.media.url) {
-        videoEl.setAttribute('src', item.media.url);
-        videoEl.load();
-      }
-
-      if (videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
-
-      const clipStart = item.clip.startTime;
-      const localTime = currentTime - clipStart + item.clip.trimStart;
-      
-      const isScrubbing = isScrubbingRef.current;
-      const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
-      const pausedSeekThreshold = 0.05;
-      
-      const seekThreshold = isScrubbing
-        ? scrubbingSeekThreshold
-        : (player.isPlaying ? Infinity : pausedSeekThreshold);
-      
-      const timeDiff = Math.abs(videoEl.currentTime - localTime);
-      
-      if (!player.isPlaying || isScrubbing) {
-        if (timeDiff > seekThreshold) {
-          if (!isSeekingRef.current) {
-            isSeekingRef.current = true;
-            if (videoEl.readyState > 0) {
-              videoEl.currentTime = localTime;
-            }
-            setTimeout(() => {
-              isSeekingRef.current = false;
-            }, isMobile ? 100 : 50);
-          }
-        }
-      }
-
-      if (!isMobile || !player.isPlaying) {
-        const clipFilter = filters[item.clip.id];
-        if (clipFilter) {
-          videoEl.style.filter = getCSSFilter(clipFilter);
-        } else {
-          videoEl.style.filter = 'none';
-        }
-      }
+      syncSingleVideoClip(
+        item,
+        videoEl,
+        currentTime,
+        player,
+        isMobile,
+        isScrubbing,
+        isSeekingRef,
+        filters
+      );
     });
     
     if (useMediaBunny && isMediaBunnyReady && canvasRef.current && (!player.isPlaying || forceSync)) {
@@ -236,6 +265,77 @@ export const useVideoPlayerSync = (
   }, [syncVideosDebounced, audioMutedStates]);
 
   return { syncVideosDebounced };
+};
+
+const adjustQualityIfPoor = (
+  isPoor: boolean,
+  previewSettings: any,
+  timeSinceLastChange: number,
+  AUTO_QUALITY_COOLDOWN: number,
+  perfMonitor: any,
+  lastAutoQualityChangeRef: React.MutableRefObject<number>,
+  nowPerf: number,
+  handleQualityChange: any
+) => {
+  if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
+    const recommendation = perfMonitor.getQualityRecommendation();
+    if (recommendation === 'decrease') {
+      lastAutoQualityChangeRef.current = nowPerf;
+      if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
+        handleQualityChange('medium');
+      } else if (previewSettings.quality === 'medium') {
+        handleQualityChange('low');
+      }
+    }
+  }
+};
+
+const updateDebugLogs = (
+  currentTime: number,
+  debugLastFrameTimeRef: React.MutableRefObject<number>,
+  debugFrameTimesRef: React.MutableRefObject<number[]>,
+  debugLogCounterRef: React.MutableRefObject<number>,
+  debugLastLogTimeRef: React.MutableRefObject<number>
+) => {
+  const frameTime = currentTime - debugLastFrameTimeRef.current;
+  debugLastFrameTimeRef.current = currentTime;
+  debugFrameTimesRef.current.push(frameTime);
+  if (debugFrameTimesRef.current.length > 10) debugFrameTimesRef.current.shift();
+  
+  debugLogCounterRef.current++;
+  const now = performance.now();
+  const timeSinceLastLog = now - debugLastLogTimeRef.current;
+  
+  if (debugLogCounterRef.current >= 60 || timeSinceLastLog > 500) {
+    debugLogCounterRef.current = 0;
+    debugLastLogTimeRef.current = now;
+  }
+};
+
+const updatePlayerState = (
+  accumulatedTime: number,
+  MIN_TIME_STEP: number,
+  timeSinceLastUpdate: number,
+  updateThreshold: number,
+  lastStateUpdateRef: React.MutableRefObject<number>,
+  nowUpdate: number
+) => {
+  if (accumulatedTime >= MIN_TIME_STEP && timeSinceLastUpdate >= updateThreshold) {
+    const state = useEditorStore.getState();
+    const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
+    const newTime = state.player.currentTime + timeAdvance;
+    
+    lastStateUpdateRef.current = nowUpdate;
+    
+    if (newTime >= state.projectDuration) {
+      state.seek(0);
+      state.pause();
+    } else {
+      state.seek(newTime);
+    }
+    return 0; // new accumulatedTime
+  }
+  return accumulatedTime;
 };
 
 export const useVideoPlayerAnimation = (
@@ -314,36 +414,23 @@ export const useVideoPlayerAnimation = (
         const nowPerf = performance.now();
         const timeSinceLastChange = nowPerf - lastAutoQualityChangeRef.current;
         
-        if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
-          const recommendation = perfMonitor.getQualityRecommendation();
-          if (recommendation === 'decrease') {
-            lastAutoQualityChangeRef.current = nowPerf;
-            if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
-              handleQualityChange('medium');
-            } else if (previewSettings.quality === 'medium') {
-              handleQualityChange('low');
-            }
-          }
-        }
+        adjustQualityIfPoor(
+          isPoor,
+          previewSettings,
+          timeSinceLastChange,
+          AUTO_QUALITY_COOLDOWN,
+          perfMonitor,
+          lastAutoQualityChangeRef,
+          nowPerf,
+          handleQualityChange
+        );
       }
     };
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
       
-      const frameTime = currentTime - debugLastFrameTimeRef.current;
-      debugLastFrameTimeRef.current = currentTime;
-      debugFrameTimesRef.current.push(frameTime);
-      if (debugFrameTimesRef.current.length > 10) debugFrameTimesRef.current.shift();
-      
-      debugLogCounterRef.current++;
-      const now = performance.now();
-      const timeSinceLastLog = now - debugLastLogTimeRef.current;
-      
-      if (debugLogCounterRef.current >= 60 || timeSinceLastLog > 500) {
-        debugLogCounterRef.current = 0;
-        debugLastLogTimeRef.current = now;
-      }
+      updateDebugLogs(currentTime, debugLastFrameTimeRef, debugFrameTimesRef, debugLogCounterRef, debugLastLogTimeRef);
       
       const frameLimiter = frameRateLimiterRef.current;
       if (frameLimiter && !frameLimiter.shouldRenderFrame(currentTime)) {
@@ -368,21 +455,14 @@ export const useVideoPlayerAnimation = (
       const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50;
       const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
       
-      if (accumulatedTime >= MIN_TIME_STEP && timeSinceLastUpdate >= updateThreshold) {
-        const state = useEditorStore.getState();
-        const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
-        const newTime = state.player.currentTime + timeAdvance;
-        
-        accumulatedTime = 0;
-        lastStateUpdateRef.current = nowUpdate;
-        
-        if (newTime >= state.projectDuration) {
-          state.seek(0);
-          state.pause();
-        } else {
-          state.seek(newTime);
-        }
-      }
+      accumulatedTime = updatePlayerState(
+        accumulatedTime,
+        MIN_TIME_STEP,
+        timeSinceLastUpdate,
+        updateThreshold,
+        lastStateUpdateRef,
+        nowUpdate
+      );
 
       if (useMediaBunny && isMediaBunnyReady && canvasRef.current) {
         const state = useEditorStore.getState();

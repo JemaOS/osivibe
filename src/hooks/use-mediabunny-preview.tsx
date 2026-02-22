@@ -21,6 +21,23 @@ interface MediaBunnyClip {
   pendingFetches: Map<number, Promise<any>>;
 }
 
+const releaseClipResources = (clip: MediaBunnyClip) => {
+  if (clip.lastSample) {
+    try { clip.lastSample.close(); } catch(e) { /* ignore */ }
+  }
+  clip.buffer.forEach(item => {
+    try { item.sample.close(); } catch(e) { /* ignore */ }
+  });
+  const input = clip.input as unknown as { close?: () => void };
+  if (input && typeof input.close === 'function') {
+    try { input.close(); } catch(e) { /* ignore */ }
+  }
+  const sink = clip.sink as unknown as { close?: () => void };
+  if (sink && typeof sink.close === 'function') {
+    try { sink.close(); } catch(e) { /* ignore */ }
+  }
+};
+
 export const useMediaBunnyPreview = (
   canvasRef: React.RefObject<HTMLCanvasElement>,
   isEnabled: boolean
@@ -62,29 +79,6 @@ export const useMediaBunnyPreview = (
       }
     };
 
-    // Helper to release MediaBunny resources for a clip
-    const releaseClipResources = (clip: MediaBunnyClip) => {
-      // Close any cached samples
-      if (clip.lastSample) {
-        try { clip.lastSample.close(); } catch(e) { /* ignore */ }
-      }
-      // Close buffer samples
-      clip.buffer.forEach(item => {
-        try { item.sample.close(); } catch(e) { /* ignore */ }
-      });
-      // FIX: Close input and sink to release WebCodecs resources (VideoDecoder, etc.)
-      // These resources must be explicitly closed to prevent memory leaks
-      // Use type assertion since the MediaBunny types may not include close() but runtime does
-      const input = clip.input as unknown as { close?: () => void };
-      if (input && typeof input.close === 'function') {
-        try { input.close(); } catch(e) { /* ignore */ }
-      }
-      const sink = clip.sink as unknown as { close?: () => void };
-      if (sink && typeof sink.close === 'function') {
-        try { sink.close(); } catch(e) { /* ignore */ }
-      }
-    };
-
     const initClips = async () => {
       const currentClips = new Map<string, MediaBunnyClip>();
       const promises: Promise<void>[] = [];
@@ -123,26 +117,7 @@ export const useMediaBunnyPreview = (
 
     // Cleanup on unmount - FIX: Ensure all resources are released when component unmounts
     return () => {
-      clipsRef.current.forEach(clip => {
-        // Close cached samples
-        if (clip.lastSample) {
-          try { clip.lastSample.close(); } catch(e) { /* ignore */ }
-        }
-        // Close buffer samples
-        clip.buffer.forEach(item => {
-          try { item.sample.close(); } catch(e) { /* ignore */ }
-        });
-        // FIX: Close input and sink to release WebCodecs resources
-        // Use type assertion since the MediaBunny types may not include close() but runtime does
-        const input = clip.input as unknown as { close?: () => void };
-        if (input && typeof input.close === 'function') {
-          try { input.close(); } catch(e) { /* ignore */ }
-        }
-        const sink = clip.sink as unknown as { close?: () => void };
-        if (sink && typeof sink.close === 'function') {
-          try { sink.close(); } catch(e) { /* ignore */ }
-        }
-      });
+      clipsRef.current.forEach(releaseClipResources);
       // Clear the map to release all references
       clipsRef.current.clear();
     };
@@ -359,34 +334,30 @@ const drawSampleToCanvas = (
     }
   };
 
+const findBestBufferMatch = (buffer: any[], clipTime: number) => {
+  for (let i = 0; i < buffer.length; i++) {
+    if (isBufferMatch(buffer[i], clipTime)) {
+      return { index: i, sample: buffer[i].sample };
+    }
+  }
+  return { index: -1, sample: null };
+};
+
   const processSampleFetch = async (clip: TimelineClip, mbClip: MediaBunnyClip, clipTime: number) => {
     try {
-      let bestBufferIndex = -1;
-      let bestBufferSample = null;
-      
-      for (let i = 0; i < mbClip.buffer.length; i++) {
-        const item = mbClip.buffer[i];
-        if (isBufferMatch(item, clipTime)) {
-          bestBufferIndex = i;
-          bestBufferSample = item.sample;
-          break;
-        }
-      }
+      const { index: bestBufferIndex, sample: bestBufferSample } = findBestBufferMatch(mbClip.buffer, clipTime);
       
       if (bestBufferSample) {
         processBufferMatch(mbClip, clipTime, bestBufferIndex, bestBufferSample);
         return { clip, sample: mbClip.lastSample, reused: true };
       }
 
-      if (mbClip.lastSample) {
-        const reused = canReuseLastSample(mbClip.lastSample, mbClip.lastSampleTime, clipTime);
-        if (reused) {
-          perfRef.current.cacheHits++;
-          if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
-             refillBuffer(mbClip, clipTime);
-          }
-          return { clip, sample: mbClip.lastSample, reused: true };
+      if (mbClip.lastSample && canReuseLastSample(mbClip.lastSample, mbClip.lastSampleTime, clipTime)) {
+        perfRef.current.cacheHits++;
+        if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
+           refillBuffer(mbClip, clipTime);
         }
+        return { clip, sample: mbClip.lastSample, reused: true };
       }
 
       const sample = await safeGetSample(mbClip, clipTime);

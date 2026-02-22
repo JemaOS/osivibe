@@ -356,54 +356,88 @@ function determineRecommendedQuality(
   cpuCores: number,
   connectionQuality: string
 ): { quality: PreviewSettings['quality']; maxSafeResolution: number } {
-  let recommendedQuality: PreviewSettings['quality'] = 'high';
-  let maxSafeResolution = 1080;
-  
+  // Early returns for specific device types
   if (isAppleSilicon) {
     return { quality: 'original', maxSafeResolution: 2160 };
   }
-  
-  if (isHighEndMobile && !isChromeOnMobile) {
+
+  const mobileResult = determineMobileQuality(isHighEndMobile, isChromeOnMobile, performanceScore);
+  if (mobileResult) {
+    return mobileResult;
+  }
+
+  // Get base quality from performance
+  const perf = determineQualityFromPerformance(performanceScore);
+  let { quality: recommendedQuality, maxSafeResolution } = perf;
+
+  // Adjust based on CPU cores and network
+  const adjusted = adjustQualityForHardware(
+    recommendedQuality,
+    maxSafeResolution,
+    isHighEndMobile,
+    isAppleSilicon,
+    cpuCores,
+    connectionQuality
+  );
+
+  return adjusted;
+}
+
+function determineMobileQuality(
+  isHighEndMobile: boolean,
+  isChromeOnMobile: boolean,
+  performanceScore: number
+): { quality: PreviewSettings['quality']; maxSafeResolution: number } | null {
+  if (!isChromeOnMobile && isHighEndMobile) {
     return { quality: 'original', maxSafeResolution: 1080 };
   }
-  
-  if (isHighEndMobile && isChromeOnMobile) {
+
+  if (isChromeOnMobile && isHighEndMobile) {
     return { quality: 'high', maxSafeResolution: 720 };
   }
-  
+
   if (isChromeOnMobile) {
     if (performanceScore >= 50) {
       return { quality: 'medium', maxSafeResolution: 480 };
-    } else {
-      return { quality: 'low', maxSafeResolution: 360 };
     }
+    return { quality: 'low', maxSafeResolution: 360 };
   }
-  
-  const perf = determineQualityFromPerformance(performanceScore);
-  recommendedQuality = perf.quality;
-  maxSafeResolution = perf.maxSafeResolution;
-  
+
+  return null;
+}
+
+function adjustQualityForHardware(
+  recommendedQuality: PreviewSettings['quality'],
+  maxSafeResolution: number,
+  isHighEndMobile: boolean,
+  isAppleSilicon: boolean,
+  cpuCores: number,
+  connectionQuality: string
+): { quality: PreviewSettings['quality']; maxSafeResolution: number } {
+  let quality = recommendedQuality;
+  let resolution = maxSafeResolution;
+
   // Adjust based on CPU cores
   if (!isHighEndMobile && !isAppleSilicon) {
-    if (cpuCores <= 2 && recommendedQuality !== 'low') {
-      recommendedQuality = 'low';
-      maxSafeResolution = 360;
-    } else if (cpuCores <= 4 && recommendedQuality === 'original') {
-      recommendedQuality = 'high';
-      maxSafeResolution = 720;
+    if (cpuCores <= 2 && quality !== 'low') {
+      quality = 'low';
+      resolution = 360;
+    } else if (cpuCores <= 4 && quality === 'original') {
+      quality = 'high';
+      resolution = 720;
     }
   }
-  
+
   // Adjust based on network
-  if (connectionQuality === 'slow' && recommendedQuality !== 'low') {
-    recommendedQuality = 'low';
-    maxSafeResolution = 360;
-  } else if (connectionQuality === 'medium' && recommendedQuality === 'original') {
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
+  if (connectionQuality === 'slow' && quality !== 'low') {
+    quality = 'low';
+    resolution = 360;
+  } else if (connectionQuality === 'medium' && quality === 'original') {
+    quality = 'high';
+    resolution = 720;
   }
-  
-  return { quality: recommendedQuality, maxSafeResolution };
+
+  return { quality, maxSafeResolution: resolution };
 }
 
 /**
@@ -464,6 +498,36 @@ export function detectHardware(): HardwareProfile {
   };
 }
 
+function applyQualitySettings(settings: PreviewSettings, isChromeOnMobile: boolean, profile: HardwareProfile, videoHeight: number) {
+  switch (settings.quality) {
+    case 'low':
+      settings.maxResolution = PREVIEW_RESOLUTIONS.low;
+      settings.targetFps = isChromeOnMobile ? 20 : 24;
+      settings.frameSkipping = true;
+      settings.bufferSize = 'small';
+      break;
+    case 'medium':
+      settings.maxResolution = PREVIEW_RESOLUTIONS.medium;
+      settings.targetFps = isChromeOnMobile ? 24 : 30;
+      settings.frameSkipping = profile.isLowEnd || isChromeOnMobile;
+      settings.bufferSize = 'small';
+      break;
+    case 'high':
+      settings.maxResolution = PREVIEW_RESOLUTIONS.high;
+      settings.targetFps = isChromeOnMobile ? 25 : 30;
+      settings.frameSkipping = isChromeOnMobile;
+      settings.bufferSize = 'medium';
+      break;
+    case 'original':
+      settings.maxResolution = videoHeight;
+      settings.targetFps = 30; 
+      settings.frameSkipping = isChromeOnMobile;
+      settings.useProxy = false;
+      settings.bufferSize = 'large';
+      break;
+  }
+}
+
 /**
  * Get optimal preview settings based on hardware and video properties
  */
@@ -495,36 +559,7 @@ export function getOptimalSettings(
     }
   }
   
-  // Set max resolution based on quality
-  switch (settings.quality) {
-    case 'low':
-      settings.maxResolution = PREVIEW_RESOLUTIONS.low;
-      settings.targetFps = isChromeOnMobile ? 20 : 24; // Even lower FPS on Chrome mobile
-      settings.frameSkipping = true;
-      settings.bufferSize = 'small';
-      break;
-    case 'medium':
-      settings.maxResolution = PREVIEW_RESOLUTIONS.medium;
-      settings.targetFps = isChromeOnMobile ? 24 : 30;
-      settings.frameSkipping = profile.isLowEnd || isChromeOnMobile;
-      settings.bufferSize = 'small';
-      break;
-    case 'high':
-      settings.maxResolution = PREVIEW_RESOLUTIONS.high;
-      settings.targetFps = isChromeOnMobile ? 25 : 30;
-      settings.frameSkipping = isChromeOnMobile;
-      settings.bufferSize = 'medium';
-      break;
-    case 'original':
-      settings.maxResolution = videoHeight;
-      // Use 30fps even for original quality to ensure stability with 4K decoding
-      // 60fps decoding of 4K content in browser is often unstable even on high-end hardware
-      settings.targetFps = 30; 
-      settings.frameSkipping = isChromeOnMobile;
-      settings.useProxy = false;
-      settings.bufferSize = 'large';
-      break;
-  }
+  applyQualitySettings(settings, isChromeOnMobile, profile, videoHeight);
   
   // Determine if proxy is needed
   settings.useProxy = videoHeight > settings.maxResolution;
