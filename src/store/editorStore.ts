@@ -104,6 +104,7 @@ interface EditorState {
   
   // Media actions
   addMediaFile: (file: MediaFile) => void;
+  updateMediaFile: (id: string, updates: Partial<MediaFile>) => void;
   removeMediaFile: (id: string) => void;
   detachAudioFromVideo: (videoClipId: string) => void;
   
@@ -401,6 +402,14 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   addMediaFile: (file) => {
     set((state) => ({
       mediaFiles: [...state.mediaFiles, file],
+    }));
+  },
+  
+  updateMediaFile: (id, updates) => {
+    set((state) => ({
+      mediaFiles: state.mediaFiles.map((f) =>
+        f.id === id ? { ...f, ...updates } : f
+      ),
     }));
   },
   
@@ -1217,6 +1226,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
             URL.revokeObjectURL(media.url);
           }
           media.url = URL.createObjectURL(media.file);
+          if (media.type === 'image') {
+            media.thumbnail = media.url;
+          }
         }
       });
 
@@ -1228,6 +1240,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
               URL.revokeObjectURL(media.url);
             }
             media.url = URL.createObjectURL(media.file);
+            if (media.type === 'image') {
+              media.thumbnail = media.url;
+            }
           }
         });
       });

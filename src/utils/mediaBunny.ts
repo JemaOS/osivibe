@@ -331,15 +331,7 @@ export async function generateThumbnail(file: File, time: number = 0): Promise<s
         frame.draw(ctx, 0, 0, frame.displayWidth, frame.displayHeight);
         frame.close(); // Release the frame
 
-        return new Promise((resolve, reject) => {
-            canvas.toBlob((blob) => {
-                if (blob) {
-                    resolve(URL.createObjectURL(blob));
-                } else {
-                    reject(new Error('Could not create blob from canvas'));
-                }
-            }, 'image/jpeg');
-        });
+        return canvas.toDataURL('image/jpeg', 0.8);
 
     } catch (error) {
         console.error('Error generating thumbnail with MediaBunny:', error);

@@ -1247,12 +1247,9 @@ export async function generateThumbnail(
       if (!ctx) throw new Error('No canvas context');
       ctx.drawImage(video, 0, 0, targetW, targetH);
 
-      const blob: Blob = await new Promise((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', 0.8);
-      });
-
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       URL.revokeObjectURL(url);
-      return URL.createObjectURL(blob);
+      return dataUrl;
     } catch (e) {
       console.warn('Native thumbnail generation failed, falling back to FFmpeg:', e);
     }
@@ -1289,8 +1286,13 @@ export async function generateThumbnail(
     await ffmpegInstance.deleteFile(inputFileName);
     await ffmpegInstance.deleteFile(outputFileName);
 
-    const blob = new Blob([data as any], { type: 'image/jpeg' });
-    return URL.createObjectURL(blob);
+    const uint8Array = data as Uint8Array;
+    let binary = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+      binary += String.fromCharCode(uint8Array[i]);
+    }
+    const base64 = btoa(binary);
+    return `data:image/jpeg;base64,${base64}`;
   } finally {
     isOperationInProgress = false;
     currentOperationType = null;

@@ -46,7 +46,7 @@ export const MediaLibrary: React.FC = () => {
       console.log('🖼️ Tentative génération miniature...');
       generateThumbnail(file, 0)
         .then(thumb => {
-          mediaFile.thumbnail = thumb;
+          useEditorStore.getState().updateMediaFile(mediaFile.id, { thumbnail: thumb });
           console.log('✅ Miniature générée après coup');
         })
         .catch(thumbError => {
