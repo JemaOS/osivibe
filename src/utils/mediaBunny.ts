@@ -419,6 +419,153 @@ const processAudioSamples = async (
     }
 };
 
+const calculateSampleProgress = (
+    sample: any,
+    clip: any,
+    clipDuration: number,
+    processedDuration: number,
+    totalDuration: number
+): { relativeTimestamp: number; totalProgress: number } => {
+    const timestamp = sample.timestamp;
+    const relativeTimestamp = timestamp - clip.trimStart + clip.startTime;
+    
+    const clipProcessedTime = timestamp - clip.trimStart;
+    const clipProgress = clipProcessedTime / clipDuration;
+    const totalProgress = 5 + ((processedDuration + (clipDuration * clipProgress)) / totalDuration) * 90;
+    
+    return { relativeTimestamp, totalProgress };
+};
+
+const updateProgressIfNeeded = (
+    totalProgress: number,
+    processedDuration: number,
+    totalDuration: number,
+    clipIndex: number,
+    sortedClipsLength: number,
+    onProgress: any
+) => {
+    const prevProgress = 5 + (processedDuration / totalDuration) * 90;
+    if (Math.floor(totalProgress) > Math.floor(prevProgress)) {
+        onProgress?.(Math.round(totalProgress), `Traitement du clip ${clipIndex + 1}/${sortedClipsLength}...`);
+    }
+};
+
+const filterActiveTextOverlays = (
+    textOverlays: any,
+    relativeTimestamp: number
+): TextOverlay[] => {
+    if (!textOverlays) return [];
+    return textOverlays.filter((t: any) => 
+        relativeTimestamp >= t.startTime && 
+        relativeTimestamp <= (t.startTime + t.duration)
+    );
+};
+
+const checkClipEffectFlags = (
+    sample: any,
+    clip: any,
+    width: number,
+    height: number,
+    startTransition: any,
+    endTransition: any,
+    activeTexts: TextOverlay[]
+): { hasFilter: boolean; hasTransition: boolean; hasText: boolean; isSameResolution: boolean } => {
+    const { hasFilter } = hasClipEffects(clip, width, height);
+    const hasTransition = startTransition || endTransition;
+    const hasText = activeTexts.length > 0;
+    const isSameResolution = (sample as any).displayWidth === width && (sample as any).displayHeight === height;
+    
+    return { hasFilter, hasTransition, hasText, isSameResolution };
+};
+
+const addFrameDirectly = async (
+    sample: any,
+    relativeTimestamp: number,
+    videoSource: any
+) => {
+    const frame = new VideoFrame(sample as any, { timestamp: relativeTimestamp * 1_000_000 });
+    const newSample = new VideoSample(frame);
+    await videoSource.add(newSample);
+    newSample.close();
+};
+
+const prepareCanvasForEffects = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    startTransition: any,
+    endTransition: any,
+    clip: any
+) => {
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1.0;
+    
+    if (startTransition || endTransition) {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
+
+    ctx.save();
+
+    if (clip.filter) {
+        ctx.filter = buildFilterString(clip.filter);
+    }
+};
+
+const applyClipTransitions = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    sample: any,
+    clip: any,
+    clipDuration: number,
+    startTransition: any,
+    endTransition: any,
+    width: number,
+    height: number
+) => {
+    if (!startTransition && !endTransition) return;
+    
+    const timestamp = sample.timestamp;
+    const clipTime = timestamp - clip.trimStart;
+    
+    let activeTransition: Transition | undefined;
+    let isEnd = false;
+
+    if (startTransition && clipTime < startTransition.duration) {
+        activeTransition = startTransition;
+        isEnd = false;
+    } else if (endTransition && clipTime > (clipDuration - endTransition.duration)) {
+        activeTransition = endTransition;
+        isEnd = true;
+    }
+    
+    if (activeTransition) {
+        applyTransition(ctx, activeTransition, clipTime, clipDuration, width, height, isEnd);
+    }
+};
+
+const drawSampleToCanvas = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    sample: any,
+    width: number,
+    height: number
+) => {
+    if (typeof (sample as any).draw === 'function') {
+        (sample as any).draw(ctx, 0, 0, width, height);
+    } else {
+        ctx.drawImage(sample as any, 0, 0, width, height);
+    }
+};
+
+const addProcessedFrame = async (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    relativeTimestamp: number,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    videoSource: any
+) => {
+    const frame = new VideoFrame(canvas as any, { timestamp: relativeTimestamp * 1_000_000 });
+    const newSample = new VideoSample(frame);
+    await videoSource.add(newSample);
+    newSample.close();
+};
+
 const processSingleVideoSample = async (
     sample: any,
     clip: any,
@@ -437,82 +584,37 @@ const processSingleVideoSample = async (
     canvas: HTMLCanvasElement | OffscreenCanvas,
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 ) => {
-    const timestamp = sample.timestamp;
-    const relativeTimestamp = timestamp - clip.trimStart + clip.startTime;
+    const { relativeTimestamp, totalProgress } = calculateSampleProgress(
+        sample, clip, clipDuration, processedDuration, totalDuration
+    );
     
-    const clipProcessedTime = timestamp - clip.trimStart;
-    const clipProgress = clipProcessedTime / clipDuration;
-    const totalProgress = 5 + ((processedDuration + (clipDuration * clipProgress)) / totalDuration) * 90;
-    
-    if (Math.floor(totalProgress) > Math.floor(5 + (processedDuration / totalDuration) * 90)) {
-         onProgress?.(Math.round(totalProgress), `Traitement du clip ${clipIndex + 1}/${sortedClipsLength}...`);
-    }
+    updateProgressIfNeeded(
+        totalProgress, processedDuration, totalDuration,
+        clipIndex, sortedClipsLength, onProgress
+    );
 
-    const activeTexts = textOverlays ? textOverlays.filter((t: any) => 
-        relativeTimestamp >= t.startTime && 
-        relativeTimestamp <= (t.startTime + t.duration)
-    ) : [];
+    const activeTexts = filterActiveTextOverlays(textOverlays, relativeTimestamp);
 
-    const { hasFilter } = hasClipEffects(clip, width, height);
-    const actualHasTransition = startTransition || endTransition;
-    const actualHasText = activeTexts.length > 0;
-    const actualIsSameResolution = (sample as any).displayWidth === width && (sample as any).displayHeight === height;
+    const { hasFilter, hasTransition, hasText, isSameResolution } = checkClipEffectFlags(
+        sample, clip, width, height, startTransition, endTransition, activeTexts
+    );
 
-    if (!hasFilter && !actualHasTransition && !actualHasText && actualIsSameResolution) {
-        const frame = new VideoFrame(sample as any, { timestamp: relativeTimestamp * 1_000_000 });
-        const newSample = new VideoSample(frame);
-        await videoSource.add(newSample);
-        newSample.close();
+    if (!hasFilter && !hasTransition && !hasText && isSameResolution) {
+        await addFrameDirectly(sample, relativeTimestamp, videoSource);
     } else {
-        ctx.filter = 'none';
-        ctx.globalAlpha = 1.0;
+        prepareCanvasForEffects(ctx, startTransition, endTransition, clip);
         
-        if (startTransition || endTransition) {
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, width, height);
-        }
-
-        ctx.save();
-
-        if (clip.filter) {
-            ctx.filter = buildFilterString(clip.filter);
-        }
-
-        if (startTransition || endTransition) {
-            const clipTime = timestamp - clip.trimStart;
-            
-            let activeTransition: Transition | undefined;
-            let isEnd = false;
-
-            if (startTransition && clipTime < startTransition.duration) {
-                activeTransition = startTransition;
-                isEnd = false;
-            } else if (endTransition && clipTime > (clipDuration - endTransition.duration)) {
-                activeTransition = endTransition;
-                isEnd = true;
-            }
-            
-            if (activeTransition) {
-                applyTransition(ctx, activeTransition, clipTime, clipDuration, width, height, isEnd);
-            }
-        }
-
-        if (typeof (sample as any).draw === 'function') {
-            (sample as any).draw(ctx, 0, 0, width, height);
-        } else {
-            ctx.drawImage(sample as any, 0, 0, width, height);
-        }
+        applyClipTransitions(ctx, sample, clip, clipDuration, startTransition, endTransition, width, height);
+        
+        drawSampleToCanvas(ctx, sample, width, height);
         
         ctx.restore();
 
-        if (actualHasText) {
+        if (hasText) {
             renderTextOverlays(ctx, activeTexts, width, height);
         }
 
-        const frame = new VideoFrame(canvas as any, { timestamp: relativeTimestamp * 1_000_000 });
-        const newSample = new VideoSample(frame);
-        await videoSource.add(newSample);
-        newSample.close();
+        await addProcessedFrame(ctx, relativeTimestamp, canvas, videoSource);
     }
 };
 
