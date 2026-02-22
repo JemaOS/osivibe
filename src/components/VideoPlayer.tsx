@@ -1587,6 +1587,132 @@ const useCurrentTextOverlays = (textOverlays: any[], currentTime: number) => {
   }, [textOverlays, currentTime]);
 };
 
+// Helper to get aspect ratio value
+const getAspectRatioValue = (aspectRatio: string) => {
+  switch (aspectRatio) {
+    case '16:9': return '16 / 9';
+    case '9:16': return '9 / 16';
+    case '1:1': return '1 / 1';
+    case '4:3': return '4 / 3';
+    case '21:9': return '21 / 9';
+    default: return '16 / 9';
+  }
+};
+
+// Helper to compute crop style
+const computeCropStyle = (clip: any) => {
+  if (!clip.crop) return {};
+  const { x, y, width, height } = clip.crop;
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const scaleX = 100 / safeWidth;
+  const scaleY = 100 / safeHeight;
+  
+  return {
+    width: `${scaleX * 100}%`,
+    height: `${scaleY * 100}%`,
+    left: `${-x * scaleX}%`,
+    top: `${-y * scaleY}%`,
+    position: 'absolute' as const,
+    maxWidth: 'none',
+    maxHeight: 'none',
+  };
+};
+
+// Sub-component for Empty State
+const EmptyState = ({ isMinimal, isCompact }: { isMinimal: boolean; isCompact: boolean }) => {
+  const containerSize = isMinimal ? 'w-12 h-12' : isCompact ? 'w-14 h-14' : 'w-20 h-20';
+  const iconSize = isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-10 h-10';
+  const titleClass = isMinimal ? 'text-xs' : isCompact ? 'text-sm' : 'text-body-lg';
+  const subtitleClass = isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-small';
+  
+  return (
+    <div className="text-center text-neutral-400 p-2 fold-cover:p-1 fold-open:p-4">
+      <div className={`${containerSize} mx-auto mb-2 fold-cover:mb-1 fold-open:mb-4 rounded-xl fold-cover:rounded-lg fold-open:rounded-2xl bg-glass-medium flex items-center justify-center`}>
+        <Play className={iconSize} />
+      </div>
+      <p className={`${titleClass} text-white`}>Aucune vidéo</p>
+      <p className={`${subtitleClass} mt-0.5 fold-cover:mt-0.5 fold-open:mt-1 text-neutral-400`}>Ajoutez des médias</p>
+    </div>
+  );
+};
+
+// Sub-component for Big Play Button
+const BigPlayButton = ({ 
+  isMinimal, 
+  isCompact, 
+  onClick 
+}: { 
+  isMinimal: boolean; 
+  isCompact: boolean; 
+  onClick: () => void 
+}) => {
+  const containerSize = isMinimal ? 'w-14 h-14' : isCompact ? 'w-16 h-16' : 'w-20 h-20';
+  const iconSize = isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-10 h-10';
+  
+  return (
+    <button
+      onClick={onClick}
+      className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors z-[60]"
+    >
+      <div className={`${containerSize} rounded-full bg-glass-light backdrop-blur-md flex items-center justify-center shadow-glass-lg touch-target-lg`}>
+        <Play className={`${iconSize} text-primary-500 ml-0.5 fold-cover:ml-0.5 fold-open:ml-1`} fill="currentColor" />
+      </div>
+    </button>
+  );
+};
+
+// Sub-component for Progress Bar
+const ProgressBar = ({ 
+  isMinimal, 
+  isCompact, 
+  progressPercentage, 
+  touchTargetSize,
+  onClick 
+}: { 
+  isMinimal: boolean; 
+  isCompact: boolean; 
+  progressPercentage: number;
+  touchTargetSize: number;
+  onClick: (e: React.MouseEvent<HTMLDivElement>) => void;
+}) => {
+  const heightClass = isMinimal ? 'h-1.5' : isCompact ? 'h-2' : 'h-1.5';
+  const knobSize = 'w-3 h-3';
+  
+  return (
+    <div
+      className={`${heightClass} bg-neutral-200/50 cursor-pointer relative group flex-shrink-0`}
+      onClick={onClick}
+      style={{ minHeight: touchTargetSize >= 48 ? '8px' : '6px' }}
+    >
+      <div
+        className="absolute inset-y-0 left-0 bg-primary-500 transition-all"
+        style={{ width: `${progressPercentage}%` }}
+      />
+      <div
+        className={`absolute top-1/2 -translate-y-1/2 ${knobSize} bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity`}
+        style={{ left: `calc(${progressPercentage}% - 6px)` }}
+      />
+    </div>
+  );
+};
+
+// Helper to check if big play button should be visible
+const shouldShowBigPlayButton = (player: any, activeClips: any[], cropMode: boolean, editingTextId: string | null, transformingImageId: string | null, resizingImageId: string | null, rotatingImageId: string | null, draggedTextId: string | null, ui: any, resizingTextId: string | null) => {
+  return !player.isPlaying && 
+    activeClips.length > 0 && 
+    !cropMode && 
+    !editingTextId && 
+    !transformingImageId && 
+    !resizingImageId && 
+    !rotatingImageId && 
+    !draggedTextId && 
+    !ui.selectedClipId && 
+    !ui.selectedTextId && 
+    !resizingTextId && 
+    !ui.isMobileSidebarOpen;
+};
+
 export const VideoPlayer: React.FC = () => {
   const {
     mediaFiles,
@@ -1928,41 +2054,11 @@ export const VideoPlayer: React.FC = () => {
     speedButtonRef
   );
   
+  // Get crop style (wrapper to use computeCropStyle)
+  const getCropStyle = useCallback((clip: any) => computeCropStyle(clip), []);
+  
   // Get aspect ratio value for inline style
-  const getAspectRatioValue = () => {
-    switch (aspectRatio) {
-      case '16:9': return '16 / 9';
-      case '9:16': return '9 / 16';
-      case '1:1': return '1 / 1';
-      case '4:3': return '4 / 3';
-      case '21:9': return '21 / 9';
-      default: return '16 / 9';
-    }
-  };
-
-  // Apply crop if defined
-  const getCropStyle = (clip: any) => {
-    if (!clip.crop) return {};
-    const { x, y, width, height } = clip.crop;
-    const safeWidth = Math.max(1, width);
-    const safeHeight = Math.max(1, height);
-    
-    // Zoom to crop logic:
-    // Scale the element up so the cropped area fills the container
-    // And shift it so the top-left of the crop area is at 0,0
-    const scaleX = 100 / safeWidth;
-    const scaleY = 100 / safeHeight;
-    
-    return {
-      width: `${scaleX * 100}%`,
-      height: `${scaleY * 100}%`,
-      left: `${-x * scaleX}%`,
-      top: `${-y * scaleY}%`,
-      position: 'absolute' as const,
-      maxWidth: 'none',
-      maxHeight: 'none',
-    };
-  };
+  const aspectRatioValue = getAspectRatioValue(aspectRatio);
 
   // Stable ref callback with optimizations applied
   const setVideoRef = useCallback((id: string, el: HTMLVideoElement | null) => {
@@ -2092,7 +2188,7 @@ export const VideoPlayer: React.FC = () => {
         <div
           className="relative shadow-2xl overflow-hidden transition-all duration-300 ease-in-out"
           style={{ 
-            aspectRatio: getAspectRatioValue(),
+            aspectRatio: aspectRatioValue,
             backgroundColor: '#1a1a1a',
             border: '2px solid #444',
             boxShadow: '0 0 0 1px #000, 0 20px 50px rgba(0,0,0,0.5)',
