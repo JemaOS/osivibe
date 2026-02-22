@@ -1713,7 +1713,18 @@ const shouldShowBigPlayButton = (player: any, activeClips: any[], cropMode: bool
     !ui.isMobileSidebarOpen;
 };
 
-export const VideoPlayer: React.FC = () => {
+export // Sub-component for Aspect Ratio Indicator
+const AspectRatioIndicator = ({ aspectRatio, isMinimal, isCompact }: { aspectRatio: string; isMinimal: boolean; isCompact: boolean }) => {
+  const textClass = isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs';
+  
+  return (
+    <div className={`absolute top-1 fold-cover:top-0.5 fold-open:top-2 right-1 fold-cover:right-0.5 fold-open:right-2 bg-black/70 backdrop-blur-sm px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-3 py-0.5 fold-cover:py-0.5 fold-open:py-1 rounded-full ${textClass} font-medium text-white z-50 border border-white/20`}>
+      {aspectRatio}
+    </div>
+  );
+};
+
+const VideoPlayer: React.FC = () => {
   const {
     mediaFiles,
     tracks,
@@ -2180,10 +2191,12 @@ export const VideoPlayer: React.FC = () => {
             />
           ))}
         </div>
-        {/* Aspect Ratio Indicator - Responsive sizing */}
-        <div className={`absolute top-1 fold-cover:top-0.5 fold-open:top-2 right-1 fold-cover:right-0.5 fold-open:right-2 bg-black/70 backdrop-blur-sm px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-3 py-0.5 fold-cover:py-0.5 fold-open:py-1 rounded-full ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-white z-50 border border-white/20`}>
-          {aspectRatio}
-        </div>
+        {/* Aspect Ratio Indicator - Using sub-component */}
+        <AspectRatioIndicator 
+          aspectRatio={aspectRatio}
+          isMinimal={isMinimal}
+          isCompact={isCompact}
+        />
         
         <div
           className="relative shadow-2xl overflow-hidden transition-all duration-300 ease-in-out"
@@ -2290,21 +2303,14 @@ export const VideoPlayer: React.FC = () => {
         )}
       </div>
 
-      {/* Progress Bar - Touch-friendly with larger hit area */}
-      <div
-        className={`${isMinimal ? 'h-1.5' : isCompact ? 'h-2' : 'h-1.5'} bg-neutral-200/50 cursor-pointer relative group flex-shrink-0`}
+      {/* Progress Bar - Using sub-component */}
+      <ProgressBar 
+        isMinimal={isMinimal}
+        isCompact={isCompact}
+        progressPercentage={progressPercentage}
+        touchTargetSize={touchTargetSize}
         onClick={handleProgressClick}
-        style={{ minHeight: touchTargetSize >= 48 ? '8px' : '6px' }}
-      >
-        <div
-          className="absolute inset-y-0 left-0 bg-primary-500 transition-all"
-          style={{ width: `${progressPercentage}%` }}
-        />
-        <div
-          className={`absolute top-1/2 -translate-y-1/2 ${isMinimal ? 'w-3 h-3' : 'w-3 h-3'} bg-primary-500 rounded-full shadow-glow-violet opacity-0 group-hover:opacity-100 transition-opacity`}
-          style={{ left: `calc(${progressPercentage}% - 6px)` }}
-        />
-      </div>
+      />
 
       {/* Controls */}
       <VideoPlayerControls
