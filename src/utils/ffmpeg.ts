@@ -1673,10 +1673,21 @@ async function exportSingleClip(
   safeMode: boolean = false
 ): Promise<Blob> {
   onProgress?.(5, 'Chargement du fichier...');
-  const inputFileName = 'input' + getFileExtension(clip.file.name);
+  
+  let fileToLoad = clip.file;
+  if (fileToLoad.type === 'image/svg+xml' || fileToLoad.name.toLowerCase().endsWith('.svg')) {
+    try {
+      const pngBlob = await convertImageToPng(fileToLoad);
+      fileToLoad = new File([pngBlob], fileToLoad.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
+    } catch (e) {
+      console.warn('Failed to convert SVG to PNG:', e);
+    }
+  }
+
+  const inputFileName = 'input' + getFileExtension(fileToLoad.name);
   const outputFileName = `output.${outputFormat}`;
 
-  const fileData = await fetchFile(clip.file);
+  const fileData = await fetchFile(fileToLoad);
   
   try {
     await ffmpegInstance.deleteFile(inputFileName);
@@ -1785,7 +1796,19 @@ async function loadUniqueFiles(
   const inputVideoMeta = new Map<number, { width: number; height: number }>();
   
   for (let i = 0; i < uniqueFiles.length; i++) {
-    const { file } = uniqueFiles[i];
+    let { file } = uniqueFiles[i];
+    
+    // FFmpeg.wasm doesn't support SVG natively, convert to PNG
+    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+      try {
+        const pngBlob = await convertImageToPng(file);
+        file = new File([pngBlob], file.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
+        uniqueFiles[i].file = file;
+      } catch (e) {
+        console.warn('Failed to convert SVG to PNG:', e);
+      }
+    }
+
     const inputFileName = `input${i}${getFileExtension(file.name)}`;
     inputFiles.push(inputFileName);
 
@@ -2483,6 +2506,44 @@ async function handleExportError(error: unknown): Promise<void> {
 function getFileExtension(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase();
   return ext ? `.${ext}` : '.mp4';
+}
+
+async function convertImageToPng(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      // Use a reasonable default size if SVG doesn't specify dimensions
+      canvas.width = img.width || 1920;
+      canvas.height = img.height || 1080;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        return reject(new Error('Could not get canvas context'));
+      }
+      
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Could not convert image to PNG'));
+        }
+      }, 'image/png');
+    };
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not load image for conversion'));
+    };
+    
+    img.src = url;
+  });
 }
 
 export async function getVideoDuration(file: File): Promise<number> {
