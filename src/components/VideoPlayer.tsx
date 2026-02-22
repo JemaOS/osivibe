@@ -703,6 +703,268 @@ const TextOverlays = ({ currentTexts, getTextScaleFactor, ui, editingTextId, edi
   );
 };
 
+// Sub-component for Quality Menu
+const QualityMenu = ({ 
+  showQualityMenu, 
+  qualityMenuRef, 
+  qualityButtonRef,
+  onToggle,
+  isPerformancePoor,
+  currentFps,
+  autoQualityApplied,
+  hardwareProfile,
+  enhancedProfile,
+  qualityOptions,
+  previewSettings,
+  onQualityChange
+}: any) => {
+  if (!showQualityMenu) return null;
+  
+  return (
+    <div
+      ref={qualityMenuRef}
+      className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
+      style={{
+        width: '280px',
+        maxWidth: 'calc(100vw - 2rem)',
+        maxHeight: '70vh',
+        overflowY: 'auto',
+        zIndex: 9999,
+        right: '1rem',
+        bottom: '5rem',
+      }}
+    >
+      <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
+        <span>Qualité Preview • {currentFps} FPS</span>
+        {isPerformancePoor && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
+        )}
+      </div>
+      
+      {autoQualityApplied && hardwareProfile && (
+        <div className="mb-3 px-2 py-2 rounded text-small" style={{ background: 'rgba(117, 122, 237, 0.1)', border: '1px solid rgba(117, 122, 237, 0.3)' }}>
+          <div className="flex items-center gap-1.5" style={{ color: '#757AED' }}>
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
+          </div>
+          <div className="mt-1" style={{ color: '#808080' }}>
+            {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
+            {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
+            {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
+            {hardwareProfile.isLowEnd && ' • Mode économie'}
+          </div>
+          {enhancedProfile && (
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
+              <div className="flex items-center gap-1">
+                <Monitor className="w-3 h-3" />
+                <span className="text-[10px]">
+                  GPU: {enhancedProfile.gpu.model || enhancedProfile.gpu.vgpu}
+                  {enhancedProfile.gpu.tier !== 'unknown' && ` (${enhancedProfile.gpu.tier})`}
+                </span>
+              </div>
+              {enhancedProfile.gpu.supportsWebGPU && (
+                <span className="text-[9px] ml-4 text-green-400">WebGPU ✓</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      
+      <div className="space-y-1">
+        {qualityOptions.map((option: any) => (
+          <button
+            key={option.value}
+            onClick={() => onQualityChange(option.value)}
+            className={`w-full px-3 py-2.5 text-left rounded-sm transition-all ${
+              previewSettings.quality === option.value
+                ? 'text-white'
+                : 'hover:bg-[var(--bg-hover)]'
+            }`}
+            style={{
+              background: previewSettings.quality === option.value ? 'var(--primary)' : 'transparent',
+              border: previewSettings.quality === option.value ? '1px solid var(--primary)' : '1px solid transparent',
+            }}
+          >
+            <div className="text-body font-medium flex items-center gap-2">
+              {option.label}
+              {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
+              )}
+            </div>
+            <div className="text-small mt-0.5" style={{
+              color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
+            }}>{option.description}</div>
+          </button>
+        ))}
+      </div>
+      
+      <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
+        <div className="flex justify-between">
+          <span>Résolution max:</span>
+          <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
+        </div>
+        <div className="flex justify-between mt-1">
+          <span>FPS cible:</span>
+          <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
+        </div>
+        {previewSettings.frameSkipping && (
+          <div className="flex justify-between mt-1">
+            <span>Frame skip:</span>
+            <span style={{ color: '#F59E0B' }}>Activé</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Sub-component for Speed Menu
+const SpeedMenu = ({ 
+  showSpeedMenu, 
+  speedMenuRef,
+  speedButtonRef,
+  playbackSpeeds,
+  playbackRate,
+  onSpeedChange,
+  onClose
+}: any) => {
+  if (!showSpeedMenu) return null;
+  
+  return (
+    <div
+      ref={speedMenuRef}
+      className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50"
+    >
+      {playbackSpeeds.map((speed: any) => (
+        <button
+          key={speed}
+          onClick={() => {
+            onSpeedChange(speed);
+            onClose();
+          }}
+          className={`w-full px-3 py-1.5 text-small text-left rounded-md transition-colors font-mono ${
+            playbackRate === speed
+              ? 'bg-[var(--primary)] text-white'
+              : 'hover:bg-[var(--bg-tertiary)] text-white'
+          }`}
+        >
+          {speed}x
+        </button>
+      ))}
+    </div>
+  );
+};
+
+// Sub-component for Volume Control
+const VolumeControl = ({ 
+  isMinimal,
+  isCompact,
+  showVolumeSlider,
+  onToggleSlider,
+  volume,
+  isMuted,
+  onVolumeChange
+}: any) => {
+  const isHidden = isMinimal || isCompact;
+  if (isHidden) return null;
+  
+  const volumePercent = Math.round(volume * 100);
+  
+  return (
+    <div className="relative flex items-center gap-1 sm:gap-2">
+      <button
+        onClick={onToggleSlider}
+        className="btn-icon w-9 h-9 touch-target"
+        title="Volume"
+      >
+        {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+      </button>
+      <div
+        className={`hidden md:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
+      >
+        <div className="flex-1 h-6 flex items-center px-1">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={volumePercent}
+            onChange={(e) => onVolumeChange(parseInt(e.target.value) / 100)}
+            className="volume-slider-horizontal w-full"
+          />
+        </div>
+        <span className="text-xs text-white font-mono w-9 text-right flex-shrink-0">{volumePercent}%</span>
+      </div>
+    </div>
+  );
+};
+
+// Sub-component for Left Controls (play, skip, frame by frame)
+const LeftControls = ({ 
+  isMinimal,
+  isCompact,
+  seek,
+  projectDuration,
+  currentTime,
+  isPlaying,
+  cropMode,
+  editingTextId,
+  onTogglePlay
+}: any) => {
+  const skipBackClass = isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9';
+  const playButtonClass = isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10';
+  const skipIconClass = isMinimal ? 'w-3 h-3' : 'w-4 h-4';
+  const playIconClass = isMinimal ? 'w-4 h-4' : 'w-5 h-5';
+  const isDisabled = cropMode || editingTextId;
+  
+  return (
+    <>
+      <button
+        onClick={() => seek(0)}
+        className={`btn-icon ${skipBackClass} touch-target flex-shrink-0`}
+        title="Debut"
+      >
+        <SkipBack className={skipIconClass} />
+      </button>
+      <button
+        onClick={() => !isDisabled && onTogglePlay()}
+        className={`btn-icon ${playButtonClass} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        title={isPlaying ? 'Pause' : 'Lecture'}
+        disabled={isDisabled}
+      >
+        {isPlaying ? <Pause className={playIconClass} /> : <Play className={`${playIconClass} ml-0.5`} />}
+      </button>
+      <button
+        onClick={() => seek(projectDuration)}
+        className={`btn-icon ${skipBackClass} touch-target flex-shrink-0`}
+        title="Fin"
+      >
+        <SkipForward className={skipIconClass} />
+      </button>
+      <div className="hidden lg:flex items-center gap-1 ml-2">
+        <button onClick={() => seek(Math.max(0, currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <button onClick={() => seek(Math.min(projectDuration, currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </>
+  );
+};
+
+// Helper to get icon size class
+const getIconSizeClass = (isMinimal: boolean) => isMinimal ? 'w-3 h-3' : 'w-4 h-4';
+
+// Helper to get button size class
+const getButtonSizeClass = (isMinimal: boolean, isCompact: boolean) => {
+  if (isMinimal) return 'w-7 h-7';
+  if (isCompact) return 'w-8 h-8';
+  return 'w-9 h-9';
+};
+
 const VideoPlayerControls = ({
   showControls,
   isMinimal,
@@ -736,48 +998,33 @@ const VideoPlayerControls = ({
   qualityMenuRef,
   speedMenuRef
 }: any) => {
+  // Compute time display class
+  const timeDisplayClass = isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small';
+  const iconSizeClass = getIconSizeClass(isMinimal);
+  const fullscreenButtonClass = getButtonSizeClass(isMinimal, isCompact);
+  const isQualityHidden = isMinimal || isCompact;
+  const isSpeedHidden = isMinimal || isCompact;
+  const isFullscreenDisabled = cropMode || !!editingTextId;
+
   return (
     <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
       {/* Left Controls */}
       <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
-        {/* Skip back - hidden on very small screens */}
-        <button
-          onClick={() => seek(0)}
-          className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
-          title="Debut"
-        >
-          <SkipBack className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
-        </button>
-        <button
-          onClick={() => !cropMode && !editingTextId && togglePlayPause()}
-          className={`btn-icon ${isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10'} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
-          title={player.isPlaying ? 'Pause' : 'Lecture'}
-          disabled={cropMode || !!editingTextId}
-        >
-          {player.isPlaying ? <Pause className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'}`} /> : <Play className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'} ml-0.5`} />}
-        </button>
-        {/* Skip forward - hidden on very small screens */}
-        <button
-          onClick={() => seek(projectDuration)}
-          className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
-          title="Fin"
-        >
-          <SkipForward className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
-        </button>
-
-        {/* Frame by frame - Hidden on small/foldable screens */}
-        <div className="hidden lg:flex items-center gap-1 ml-2">
-          <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button onClick={() => seek(Math.min(projectDuration, player.currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
+        <LeftControls
+          isMinimal={isMinimal}
+          isCompact={isCompact}
+          seek={seek}
+          projectDuration={projectDuration}
+          currentTime={player.currentTime}
+          isPlaying={player.isPlaying}
+          cropMode={cropMode}
+          editingTextId={editingTextId}
+          onTogglePlay={togglePlayPause}
+        />
       </div>
 
-      {/* Time Display - Compact on small screens */}
-      <div className={`font-mono ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small'} text-neutral-400 flex-shrink min-w-0`}>
+      {/* Time Display */}
+      <div className={`font-mono ${timeDisplayClass} text-neutral-400 flex-shrink min-w-0`}>
         <span className="text-white">{formatTime(player.currentTime)}</span>
         <span className="mx-0.5 text-neutral-500">/</span>
         <span>{formatTime(projectDuration)}</span>
@@ -785,188 +1032,75 @@ const VideoPlayerControls = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
-        {/* Volume - Hidden on minimal and compact screens */}
-        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2`}>
-          <button
-            onClick={() => setShowVolumeSlider(!showVolumeSlider)}
-            className="btn-icon w-9 h-9 touch-target"
-            title="Volume"
-          >
-            {player.isMuted || player.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <div
-            className={`hidden md:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
-          >
-            <div className="flex-1 h-6 flex items-center px-1">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={Math.round(player.volume * 100)}
-                onChange={(e) => setVolume(parseInt(e.target.value) / 100)}
-                className="volume-slider-horizontal w-full"
-              />
-            </div>
-            <span className="text-xs text-white font-mono w-9 text-right flex-shrink-0">{Math.round(player.volume * 100)}%</span>
+        {/* Volume */}
+        <VolumeControl
+          isMinimal={isMinimal}
+          isCompact={isCompact}
+          showVolumeSlider={showVolumeSlider}
+          onToggleSlider={() => setShowVolumeSlider(!showVolumeSlider)}
+          volume={player.volume}
+          isMuted={player.isMuted}
+          onVolumeChange={setVolume}
+        />
+
+        {/* Preview Quality */}
+        {!isQualityHidden && (
+          <div className="relative">
+            <button
+              ref={qualityButtonRef}
+              onClick={() => setShowQualityMenu(!showQualityMenu)}
+              className={`btn-icon w-9 h-9 touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
+              title="Qualité"
+            >
+              <Gauge className="w-4 h-4" />
+            </button>
+            <QualityMenu
+              showQualityMenu={showQualityMenu}
+              qualityMenuRef={qualityMenuRef}
+              qualityButtonRef={qualityButtonRef}
+              onToggle={() => setShowQualityMenu(!showQualityMenu)}
+              isPerformancePoor={isPerformancePoor}
+              currentFps={currentFps}
+              autoQualityApplied={autoQualityApplied}
+              hardwareProfile={hardwareProfile}
+              enhancedProfile={enhancedProfile}
+              qualityOptions={qualityOptions}
+              previewSettings={previewSettings}
+              onQualityChange={handleQualityChange}
+            />
           </div>
-        </div>
+        )}
 
-        {/* Preview Quality - Hidden on minimal and compact screens */}
-        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
-          <button
-            ref={qualityButtonRef}
-            onClick={() => setShowQualityMenu(!showQualityMenu)}
-            className={`btn-icon ${isCompact ? 'w-9 h-9' : 'w-9 h-9'} touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
-            title="Qualité"
-          >
-            <Gauge className={`${isCompact ? 'w-4 h-4' : 'w-4 h-4'}`} />
-          </button>
-          {showQualityMenu && (
-            <div
-              ref={qualityMenuRef}
-              className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
-              style={{
-                width: '280px',
-                maxWidth: 'calc(100vw - 2rem)',
-                maxHeight: '70vh',
-                overflowY: 'auto',
-                zIndex: 9999,
-                right: '1rem',
-                bottom: '5rem',
-              }}
+        {/* Playback Speed */}
+        {!isSpeedHidden && (
+          <div className="relative">
+            <button
+              ref={speedButtonRef}
+              onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+              className="btn-icon w-9 h-9 text-caption font-mono touch-target"
+              title="Vitesse"
             >
-              <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
-                <span>Qualité Preview • {currentFps} FPS</span>
-                {isPerformancePoor && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
-                )}
-              </div>
-              
-              {/* Auto-detection banner */}
-              {autoQualityApplied && hardwareProfile && (
-                <div className="mb-3 px-2 py-2 rounded text-small" style={{ background: 'rgba(117, 122, 237, 0.1)', border: '1px solid rgba(117, 122, 237, 0.3)' }}>
-                  <div className="flex items-center gap-1.5" style={{ color: '#757AED' }}>
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
-                  </div>
-                  <div className="mt-1" style={{ color: '#808080' }}>
-                    {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
-                    {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
-                    {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
-                    {hardwareProfile.isLowEnd && ' • Mode économie'}
-                  </div>
-                  {/* Enhanced GPU info */}
-                  {enhancedProfile && (
-                    <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
-                      <div className="flex items-center gap-1">
-                        <Monitor className="w-3 h-3" />
-                        <span className="text-[10px]">
-                          GPU: {enhancedProfile.gpu.model || enhancedProfile.gpu.vendor}
-                          {enhancedProfile.gpu.tier !== 'unknown' && ` (${enhancedProfile.gpu.tier})`}
-                        </span>
-                      </div>
-                      {enhancedProfile.gpu.supportsWebGPU && (
-                        <span className="text-[9px] ml-4 text-green-400">WebGPU ✓</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              <div className="space-y-1">
-                {qualityOptions.map((option: any) => (
-                  <button
-                    key={option.value}
-                    onClick={() => handleQualityChange(option.value)}
-                    className={`w-full px-3 py-2.5 text-left rounded-sm transition-all ${
-                      previewSettings.quality === option.value
-                        ? 'text-white'
-                        : 'hover:bg-[var(--bg-hover)]'
-                    }`}
-                    style={{
-                      background: previewSettings.quality === option.value ? 'var(--primary)' : 'transparent',
-                      border: previewSettings.quality === option.value ? '1px solid var(--primary)' : '1px solid transparent',
-                    }}
-                  >
-                    <div className="text-body font-medium flex items-center gap-2">
-                      {option.label}
-                      {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
-                      )}
-                    </div>
-                    <div className="text-small mt-0.5" style={{
-                      color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
-                    }}>{option.description}</div>
-                  </button>
-                ))}
-              </div>
-              
-              {/* Performance stats */}
-              <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
-                <div className="flex justify-between">
-                  <span>Résolution max:</span>
-                  <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span>FPS cible:</span>
-                  <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
-                </div>
-                {previewSettings.frameSkipping && (
-                  <div className="flex justify-between mt-1">
-                    <span>Frame skip:</span>
-                    <span style={{ color: '#F59E0B' }}>Activé</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Playback Speed - Hidden on minimal and compact screens */}
-        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
-          <button
-            ref={speedButtonRef}
-            onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-            className="btn-icon w-9 h-9 text-caption font-mono touch-target"
-            title="Vitesse"
-          >
-            {player.playbackRate}x
-          </button>
-          {showSpeedMenu && (
-            <div
-              ref={speedMenuRef}
-              className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50"
-            >
-              {playbackSpeeds.map((speed: any) => (
-                <button
-                  key={speed}
-                  onClick={() => {
-                    setPlaybackRate(speed);
-                    setShowSpeedMenu(false);
-                  }}
-                  className={`w-full px-3 py-1.5 text-small text-left rounded-md transition-colors font-mono ${
-                    player.playbackRate === speed
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'hover:bg-[var(--bg-tertiary)] text-white'
-                  }`}
-                >
-                  {speed}x
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+              {player.playbackRate}x
+            </button>
+            <SpeedMenu
+              showSpeedMenu={showSpeedMenu}
+              speedMenuRef={speedMenuRef}
+              speedButtonRef={speedButtonRef}
+              playbackSpeeds={playbackSpeeds}
+              playbackRate={player.playbackRate}
+              onSpeedChange={setPlaybackRate}
+              onClose={() => setShowSpeedMenu(false)}
+            />
+          </div>
+        )}
 
         {/* Fullscreen */}
         <button
           onClick={toggleFullscreen}
-          className={`btn-icon ${isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+          className={`btn-icon ${fullscreenButtonClass} touch-target flex-shrink-0`}
           title={player.isFullscreen ? 'Quitter' : 'Plein écran'}
         >
-          {player.isFullscreen ? <Minimize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} /> : <Maximize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />}
+          {player.isFullscreen ? <Minimize className={iconSizeClass} /> : <Maximize className={iconSizeClass} />}
         </button>
       </div>
     </div>
