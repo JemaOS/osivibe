@@ -2280,8 +2280,8 @@ export const VideoPlayer: React.FC = () => {
           )}
         </div>
 
-        {/* Big Play Button - Hidden when mobile sidebar is open, touch-friendly sizing */}
-        {!player.isPlaying && activeClips.length > 0 && !cropMode && !editingTextId && !transformingImageId && !resizingImageId && !rotatingImageId && !draggedTextId && !ui.selectedClipId && !ui.selectedTextId && !resizingTextId && !ui.isMobileSidebarOpen && (
+        {/* Big Play Button - Using helper function */}
+        {shouldShowBigPlayButton(player, activeClips, cropMode, editingTextId, transformingImageId, resizingImageId, rotatingImageId, draggedTextId, ui, resizingTextId) && (
           <button
             onClick={togglePlayPause}
             className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/30 transition-colors z-[60]"
