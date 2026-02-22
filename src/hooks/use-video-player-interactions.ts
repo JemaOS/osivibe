@@ -64,6 +64,49 @@ export const useVideoPlayerSync = (
     });
   }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, videoClipsWithDetachedAudio, videoRefs]);
 
+  const syncSingleAudioClip = useCallback((item: any, audioEl: HTMLAudioElement) => {
+    if (audioEl.getAttribute('src') !== item.media.url) {
+      audioEl.setAttribute('src', item.media.url);
+      audioEl.load();
+    }
+
+    const clipStart = item.clip.startTime;
+    const localTime = player.currentTime - clipStart + item.clip.trimStart;
+    const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
+    
+    const isScrubbing = isScrubbingRef.current;
+    const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
+    
+    if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
+      try {
+        if (audioEl.readyState > 0) {
+          audioEl.currentTime = Math.max(0, localTime);
+        }
+      } catch (err) {
+        console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
+      }
+    }
+
+    audioEl.playbackRate = player.playbackRate;
+    const mutedByTrack = item.trackMuted === true;
+    const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
+    
+    if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
+    audioEl.muted = targetVol === 0;
+
+    if (player.isPlaying) {
+      if (audioEl.paused) {
+        audioEl.play().catch((err) => {
+          console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
+        });
+      }
+    } else {
+      if (!audioEl.paused) {
+        audioEl.pause();
+      }
+    }
+  }, [player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume, isScrubbingRef]);
+
   const syncAudioVolumeAndPlayback = useCallback(() => {
     const activeAudio = getActiveAudioClips();
     const activeIds = new Set(activeAudio.map((a) => a.clip.id));
@@ -80,49 +123,9 @@ export const useVideoPlayerSync = (
     activeAudio.forEach((item) => {
       const audioEl = audioRefs.current[item.clip.id];
       if (!audioEl) return;
-
-      if (audioEl.getAttribute('src') !== item.media.url) {
-        audioEl.setAttribute('src', item.media.url);
-        audioEl.load();
-      }
-
-      const clipStart = item.clip.startTime;
-      const localTime = player.currentTime - clipStart + item.clip.trimStart;
-      const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
-      
-      const isScrubbing = isScrubbingRef.current;
-      const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
-      
-      if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
-        try {
-          if (audioEl.readyState > 0) {
-            audioEl.currentTime = Math.max(0, localTime);
-          }
-        } catch (err) {
-          console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
-        }
-      }
-
-      audioEl.playbackRate = player.playbackRate;
-      const mutedByTrack = item.trackMuted === true;
-      const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
-      
-      if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
-      audioEl.muted = targetVol === 0;
-
-      if (player.isPlaying) {
-        if (audioEl.paused) {
-          audioEl.play().catch((err) => {
-            console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
-          });
-        }
-      } else {
-        if (!audioEl.paused) {
-          audioEl.pause();
-        }
-      }
+      syncSingleAudioClip(item, audioEl);
     });
-  }, [getActiveAudioClips, player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume, audioRefs, isScrubbingRef]);
+  }, [getActiveAudioClips, audioRefs, syncSingleAudioClip]);
 
   const syncVideosDebounced = useCallback((forceSync: boolean = false) => {
     const now = performance.now();

@@ -89,22 +89,22 @@ export const useMediaBunnyPreview = (
       const currentClips = new Map<string, MediaBunnyClip>();
       const promises: Promise<void>[] = [];
 
-      tracks.forEach(track => {
-        if (track.type !== 'video') return;
+      const videoClips = tracks
+        .filter(track => track.type === 'video')
+        .flatMap(track => track.clips);
 
-        track.clips.forEach(clip => {
-          const media = mediaFiles.find(m => m.id === clip.mediaId);
-          if (!media || media.type !== 'video') return;
+      for (const clip of videoClips) {
+        const media = mediaFiles.find(m => m.id === clip.mediaId);
+        if (!media || media.type !== 'video') continue;
 
-          const existing = clipsRef.current.get(clip.id);
-          if (existing && existing.url === media.url) {
-            currentClips.set(clip.id, existing);
-            return;
-          }
+        const existing = clipsRef.current.get(clip.id);
+        if (existing && existing.url === media.url) {
+          currentClips.set(clip.id, existing);
+          continue;
+        }
 
-          promises.push(initClip(clip, media, currentClips));
-        });
-      });
+        promises.push(initClip(clip, media, currentClips));
+      }
 
       await Promise.all(promises);
 
@@ -230,7 +230,7 @@ const canReuseLastSample = (
 // Helper: Draw sample to canvas
 const drawSampleToCanvas = (
   ctx: CanvasRenderingContext2D,
-  sample: { displayWidth: number; displayHeight: number; draw: Function },
+  sample: { displayWidth: number; displayHeight: number; draw: (...args: any[]) => void },
   clip: TimelineClip,
   width: number,
   height: number
