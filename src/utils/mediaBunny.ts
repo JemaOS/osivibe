@@ -693,6 +693,7 @@ export async function exportProjectWithMediaBunny(
                 throw err;
             }
             console.error(`Error processing clip ${i}:`, err);
+            throw err; // Throw to trigger FFmpeg fallback
         } finally {
             URL.revokeObjectURL(url);
         }
