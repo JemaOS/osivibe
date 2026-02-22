@@ -484,6 +484,975 @@ const ImageClipComponent = ({ item, index, ui, player, transitions, cropMode, ed
   );
 };
 
+const CropOverlay = ({ cropArea, setCropArea, handleCropResizeStart, setCropMode, handleApplyCrop, videoContainerRef }: any) => {
+  return (
+    <div className="absolute inset-0 z-[100]">
+      {/* Visible crop area with shadow for outside */}
+      <div
+        className="absolute border-2 border-primary-500 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]"
+        style={{
+          left: `${cropArea.x}%`,
+          top: `${cropArea.y}%`,
+          width: `${cropArea.width}%`,
+          height: `${cropArea.height}%`,
+          cursor: 'move'
+        }}
+        onMouseDown={(e) => {
+          // Allow dragging the entire crop area
+          if (e.target === e.currentTarget) {
+            e.stopPropagation();
+            const rect = videoContainerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startCrop = { ...cropArea };
+            
+            const handleDrag = (moveEvent: MouseEvent) => {
+              const deltaX = ((moveEvent.clientX - startX) / rect.width) * 100;
+              const deltaY = ((moveEvent.clientY - startY) / rect.height) * 100;
+              
+              setCropArea({
+                ...startCrop,
+                x: Math.max(0, Math.min(100 - startCrop.width, startCrop.x + deltaX)),
+                y: Math.max(0, Math.min(100 - startCrop.height, startCrop.y + deltaY))
+              });
+            };
+            
+            const handleDragEnd = () => {
+              window.removeEventListener('mousemove', handleDrag);
+              window.removeEventListener('mouseup', handleDragEnd);
+            };
+            
+            window.addEventListener('mousemove', handleDrag);
+            window.addEventListener('mouseup', handleDragEnd);
+          }
+        }}
+      >
+        {/* Corner handles - Small and unobtrusive */}
+        <div
+          className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'nw')}
+        />
+        <div
+          className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'ne')}
+        />
+        <div
+          className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'sw')}
+        />
+        <div
+          className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'se')}
+        />
+        
+        {/* Edge handles - Small bars */}
+        <div
+          className="absolute -top-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'n')}
+        />
+        <div
+          className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 's')}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 -left-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'w')}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
+          onMouseDown={(e) => handleCropResizeStart(e, 'e')}
+        />
+        
+        {/* Grid lines (rule of thirds) */}
+        <div className="absolute top-1/3 left-0 right-0 h-px bg-white/30 pointer-events-none" />
+        <div className="absolute top-2/3 left-0 right-0 h-px bg-white/30 pointer-events-none" />
+        <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/30 pointer-events-none" />
+        <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/30 pointer-events-none" />
+      </div>
+      
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-[110]">
+        <button onClick={() => setCropMode(false)} className="btn-secondary px-4 py-2">
+          Annuler
+        </button>
+        <button onClick={handleApplyCrop} className="btn-primary px-4 py-2">
+          Appliquer
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const TextOverlays = ({ currentTexts, getTextScaleFactor, ui, editingTextId, editingTextValue, handleTextMouseDown, player, pause, selectText, handleTextDoubleClick, handleTextEditChange, handleTextEditSubmit, handleTextEditKeyDown, handleTextResizeStart }: any) => {
+  return (
+    <>
+      {currentTexts.map((text: any) => {
+        // Calculate scaled font size to match export resolution
+        const scaleFactor = getTextScaleFactor();
+        const scaledFontSize = text.fontSize * scaleFactor;
+        
+        return (
+        <div
+          key={text.id}
+          className={`absolute cursor-move ${ui.selectedTextId === text.id ? 'ring-2 ring-primary-500' : ''}`}
+          style={{
+            zIndex: 50, // Always on top of video/images
+            left: `${text.x}%`,
+            top: `${text.y}%`,
+            transform: `translate(-50%, -50%) scale(${text.scaleX ?? 1}, ${text.scaleY ?? 1})`,
+            fontSize: `${scaledFontSize}px`,
+            fontFamily: text.fontFamily,
+            color: text.color,
+            backgroundColor: text.backgroundColor,
+            fontWeight: text.bold ? 'bold' : 'normal',
+            fontStyle: text.italic ? 'italic' : 'normal',
+            padding: text.backgroundColor ? '4px 8px' : 0,
+            borderRadius: '4px',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'auto',
+          }}
+          onMouseDown={(e) => handleTextMouseDown(e, text.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (player.isPlaying) pause();
+            selectText(text.id);
+          }}
+          onDoubleClick={(e) => handleTextDoubleClick(e, text.id, text.text)}
+        >
+          {text.id === editingTextId ? (
+            <input
+              type="text"
+              value={editingTextValue}
+              onChange={handleTextEditChange}
+              onBlur={handleTextEditSubmit}
+              onKeyDown={handleTextEditKeyDown}
+              autoFocus
+              onFocus={(e) => e.target.select()}
+              className="w-full h-full p-0 bg-transparent border-none outline-none"
+              style={{
+                fontSize: `${scaledFontSize}px`,
+                fontFamily: text.fontFamily,
+                color: text.color,
+                backgroundColor: text.backgroundColor,
+                fontWeight: text.bold ? 'bold' : 'normal',
+                fontStyle: text.italic ? 'italic' : 'normal',
+                padding: text.backgroundColor ? '4px 8px' : 0,
+                borderRadius: '4px',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'auto',
+                width: 'auto',
+                minWidth: '50px',
+              }}
+            />
+          ) : (
+            text.text
+          )}
+
+          {/* Resize handles for text - with inverse scale to counteract parent's scale transform */}
+          {ui.selectedTextId === text.id && !editingTextId && (
+            <>
+              <div
+                className="absolute -top-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'nw')}
+              />
+              <div
+                className="absolute -top-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'ne')}
+              />
+              <div
+                className="absolute -bottom-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'sw')}
+              />
+              <div
+                className="absolute -bottom-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'se')}
+              />
+              
+              {/* Side handles */}
+              <div
+                className="absolute top-1/2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'w')}
+              />
+              <div
+                className="absolute top-1/2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'e')}
+              />
+              <div
+                className="absolute -top-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 'n')}
+              />
+              <div
+                className="absolute -bottom-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+                style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id, 's')}
+              />
+            </>
+          )}
+        </div>
+      );
+      })}
+    </>
+  );
+};
+
+const VideoPlayerControls = ({
+  showControls,
+  isMinimal,
+  isCompact,
+  seek,
+  player,
+  projectDuration,
+  cropMode,
+  editingTextId,
+  togglePlayPause,
+  showVolumeSlider,
+  setShowVolumeSlider,
+  setVolume,
+  qualityButtonRef,
+  showQualityMenu,
+  setShowQualityMenu,
+  isPerformancePoor,
+  currentFps,
+  autoQualityApplied,
+  hardwareProfile,
+  enhancedProfile,
+  qualityOptions,
+  handleQualityChange,
+  previewSettings,
+  speedButtonRef,
+  showSpeedMenu,
+  setShowSpeedMenu,
+  playbackSpeeds,
+  setPlaybackRate,
+  toggleFullscreen,
+  qualityMenuRef,
+  speedMenuRef
+}: any) => {
+  return (
+    <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Left Controls */}
+      <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+        {/* Skip back - hidden on very small screens */}
+        <button
+          onClick={() => seek(0)}
+          className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+          title="Debut"
+        >
+          <SkipBack className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
+        </button>
+        <button
+          onClick={() => !cropMode && !editingTextId && togglePlayPause()}
+          className={`btn-icon ${isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10'} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title={player.isPlaying ? 'Pause' : 'Lecture'}
+          disabled={cropMode || !!editingTextId}
+        >
+          {player.isPlaying ? <Pause className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'}`} /> : <Play className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'} ml-0.5`} />}
+        </button>
+        {/* Skip forward - hidden on very small screens */}
+        <button
+          onClick={() => seek(projectDuration)}
+          className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+          title="Fin"
+        >
+          <SkipForward className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
+        </button>
+
+        {/* Frame by frame - Hidden on small/foldable screens */}
+        <div className="hidden lg:flex items-center gap-1 ml-2">
+          <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button onClick={() => seek(Math.min(projectDuration, player.currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Time Display - Compact on small screens */}
+      <div className={`font-mono ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small'} text-neutral-400 flex-shrink min-w-0`}>
+        <span className="text-white">{formatTime(player.currentTime)}</span>
+        <span className="mx-0.5 text-neutral-500">/</span>
+        <span>{formatTime(projectDuration)}</span>
+      </div>
+
+      {/* Right Controls */}
+      <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+        {/* Volume - Hidden on minimal and compact screens */}
+        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2`}>
+          <button
+            onClick={() => setShowVolumeSlider(!showVolumeSlider)}
+            className="btn-icon w-9 h-9 touch-target"
+            title="Volume"
+          >
+            {player.isMuted || player.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+          <div
+            className={`hidden md:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
+          >
+            <div className="flex-1 h-6 flex items-center px-1">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round(player.volume * 100)}
+                onChange={(e) => setVolume(parseInt(e.target.value) / 100)}
+                className="volume-slider-horizontal w-full"
+              />
+            </div>
+            <span className="text-xs text-white font-mono w-9 text-right flex-shrink-0">{Math.round(player.volume * 100)}%</span>
+          </div>
+        </div>
+
+        {/* Preview Quality - Hidden on minimal and compact screens */}
+        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
+          <button
+            ref={qualityButtonRef}
+            onClick={() => setShowQualityMenu(!showQualityMenu)}
+            className={`btn-icon ${isCompact ? 'w-9 h-9' : 'w-9 h-9'} touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
+            title="Qualité"
+          >
+            <Gauge className={`${isCompact ? 'w-4 h-4' : 'w-4 h-4'}`} />
+          </button>
+          {showQualityMenu && (
+            <div
+              ref={qualityMenuRef}
+              className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
+              style={{
+                width: '280px',
+                maxWidth: 'calc(100vw - 2rem)',
+                maxHeight: '70vh',
+                overflowY: 'auto',
+                zIndex: 9999,
+                right: '1rem',
+                bottom: '5rem',
+              }}
+            >
+              <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
+                <span>Qualité Preview • {currentFps} FPS</span>
+                {isPerformancePoor && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
+                )}
+              </div>
+              
+              {/* Auto-detection banner */}
+              {autoQualityApplied && hardwareProfile && (
+                <div className="mb-3 px-2 py-2 rounded text-small" style={{ background: 'rgba(117, 122, 237, 0.1)', border: '1px solid rgba(117, 122, 237, 0.3)' }}>
+                  <div className="flex items-center gap-1.5" style={{ color: '#757AED' }}>
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
+                  </div>
+                  <div className="mt-1" style={{ color: '#808080' }}>
+                    {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
+                    {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
+                    {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
+                    {hardwareProfile.isLowEnd && ' • Mode économie'}
+                  </div>
+                  {/* Enhanced GPU info */}
+                  {enhancedProfile && (
+                    <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
+                      <div className="flex items-center gap-1">
+                        <Monitor className="w-3 h-3" />
+                        <span className="text-[10px]">
+                          GPU: {enhancedProfile.gpu.model || enhancedProfile.gpu.vendor}
+                          {enhancedProfile.gpu.tier !== 'unknown' && ` (${enhancedProfile.gpu.tier})`}
+                        </span>
+                      </div>
+                      {enhancedProfile.gpu.supportsWebGPU && (
+                        <span className="text-[9px] ml-4 text-green-400">WebGPU ✓</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <div className="space-y-1">
+                {qualityOptions.map((option: any) => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleQualityChange(option.value)}
+                    className={`w-full px-3 py-2.5 text-left rounded-sm transition-all ${
+                      previewSettings.quality === option.value
+                        ? 'text-white'
+                        : 'hover:bg-[var(--bg-hover)]'
+                    }`}
+                    style={{
+                      background: previewSettings.quality === option.value ? 'var(--primary)' : 'transparent',
+                      border: previewSettings.quality === option.value ? '1px solid var(--primary)' : '1px solid transparent',
+                    }}
+                  >
+                    <div className="text-body font-medium flex items-center gap-2">
+                      {option.label}
+                      {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
+                      )}
+                    </div>
+                    <div className="text-small mt-0.5" style={{
+                      color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
+                    }}>{option.description}</div>
+                  </button>
+                ))}
+              </div>
+              
+              {/* Performance stats */}
+              <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
+                <div className="flex justify-between">
+                  <span>Résolution max:</span>
+                  <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span>FPS cible:</span>
+                  <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
+                </div>
+                {previewSettings.frameSkipping && (
+                  <div className="flex justify-between mt-1">
+                    <span>Frame skip:</span>
+                    <span style={{ color: '#F59E0B' }}>Activé</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Playback Speed - Hidden on minimal and compact screens */}
+        <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
+          <button
+            ref={speedButtonRef}
+            onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+            className="btn-icon w-9 h-9 text-caption font-mono touch-target"
+            title="Vitesse"
+          >
+            {player.playbackRate}x
+          </button>
+          {showSpeedMenu && (
+            <div
+              ref={speedMenuRef}
+              className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50"
+            >
+              {playbackSpeeds.map((speed: any) => (
+                <button
+                  key={speed}
+                  onClick={() => {
+                    setPlaybackRate(speed);
+                    setShowSpeedMenu(false);
+                  }}
+                  className={`w-full px-3 py-1.5 text-small text-left rounded-md transition-colors font-mono ${
+                    player.playbackRate === speed
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'hover:bg-[var(--bg-tertiary)] text-white'
+                  }`}
+                >
+                  {speed}x
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Fullscreen */}
+        <button
+          onClick={toggleFullscreen}
+          className={`btn-icon ${isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
+          title={player.isFullscreen ? 'Quitter' : 'Plein écran'}
+        >
+          {player.isFullscreen ? <Minimize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} /> : <Maximize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const ActiveClipsRenderer = ({
+  activeClips,
+  ui,
+  player,
+  transitions,
+  useMediaBunny,
+  videoRefs,
+  hardwareProfile,
+  getVideoStyle,
+  getCropStyle,
+  setVideoRef,
+  cropMode,
+  editingTextId,
+  filters,
+  selectClip,
+  handleImageTransformStart,
+  handleImageResizeStart,
+  handleImageRotateStart
+}: any) => {
+  return (
+    <>
+      {activeClips.map((item: any, index: number) => {
+        if (item.media.type === 'video') {
+          return (
+            <VideoClipComponent
+              key={item.clip.id}
+              item={item}
+              index={index}
+              ui={ui}
+              player={player}
+              transitions={transitions}
+              useMediaBunny={useMediaBunny}
+              videoRefs={videoRefs}
+              hardwareProfile={hardwareProfile}
+              getVideoStyle={getVideoStyle}
+              getCropStyle={getCropStyle}
+              setVideoRef={setVideoRef}
+            />
+          );
+        }
+
+        if (item.media.type === 'image') {
+          return (
+            <ImageClipComponent
+              key={item.clip.id}
+              item={item}
+              index={index}
+              ui={ui}
+              player={player}
+              transitions={transitions}
+              cropMode={cropMode}
+              editingTextId={editingTextId}
+              filters={filters}
+              getCropStyle={getCropStyle}
+              selectClip={selectClip}
+              handleImageTransformStart={handleImageTransformStart}
+              handleImageResizeStart={handleImageResizeStart}
+              handleImageRotateStart={handleImageRotateStart}
+            />
+          );
+        }
+
+        return null;
+      })}
+    </>
+  );
+};
+
+const usePreviewOptimizerInit = (
+  setHardwareProfile: any,
+  setUseMediaBunny: any,
+  isMobileRef: any,
+  setPreviewSettings: any,
+  frameRateLimiterRef: any,
+  performanceMonitorRef: any,
+  setAutoQualityApplied: any,
+  rafIdRef: any
+) => {
+  useEffect(() => {
+    const profile = initializePreviewOptimizer();
+    setHardwareProfile(profile);
+    
+    setUseMediaBunny(false);
+    
+    isMobileRef.current = profile.isMobile;
+    
+    const settings = getOptimalSettings(1920, 1080, profile);
+    settings.quality = profile.recommendedQuality;
+    
+    setPreviewSettings(settings);
+    updateSettings(settings);
+    
+    frameRateLimiterRef.current = new FrameRateLimiter(settings.targetFps, settings.frameSkipping);
+    performanceMonitorRef.current = new PerformanceMonitor();
+    
+    setAutoQualityApplied(true);
+    
+    console.log('🎬 VideoPlayer: Preview optimizer initialized with AUTO quality', {
+      profile,
+      settings,
+      recommendedQuality: profile.recommendedQuality,
+      cpuCores: profile.cpuCores,
+      isLowEnd: profile.isLowEnd,
+      isMobile: profile.isMobile
+    });
+    
+    return () => {
+      frameRateLimiterRef.current = null;
+      performanceMonitorRef.current = null;
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, [setHardwareProfile, setUseMediaBunny, isMobileRef, setPreviewSettings, frameRateLimiterRef, performanceMonitorRef, setAutoQualityApplied, rafIdRef]);
+};
+
+const useEnhancedHardwareDetection = (setEnhancedProfile: any) => {
+  useEffect(() => {
+    const initEnhancedDetection = async () => {
+      try {
+        const { detectHardware } = await import('../utils/hardwareDetection');
+        const enhanced = await detectHardware();
+        setEnhancedProfile(enhanced);
+        
+        console.log('🖥️ Enhanced hardware detection:', {
+          gpu: enhanced.gpu,
+          processor: enhanced.processor,
+          recommendations: enhanced.recommendations
+        });
+      } catch (error) {
+        console.warn('Enhanced hardware detection failed:', error);
+      }
+    };
+    
+    initEnhancedDetection();
+  }, [setEnhancedProfile]);
+};
+
+const usePreviewDimensions = (
+  videoContainerRef: any,
+  aspectRatio: string,
+  isScrubbingRef: any,
+  setPreviewDimensions: any
+) => {
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (isScrubbingRef.current) return;
+      
+      if (videoContainerRef.current) {
+        const rect = videoContainerRef.current.getBoundingClientRect();
+        const containerWidth = rect.width;
+        const containerHeight = rect.height;
+        
+        let aspectWidth = 16, aspectHeight = 9;
+        switch (aspectRatio) {
+          case '16:9': aspectWidth = 16; aspectHeight = 9; break;
+          case '9:16': aspectWidth = 9; aspectHeight = 16; break;
+          case '1:1': aspectWidth = 1; aspectHeight = 1; break;
+          case '4:3': aspectWidth = 4; aspectHeight = 3; break;
+          case '21:9': aspectWidth = 21; aspectHeight = 9; break;
+        }
+        
+        const containerAspect = containerWidth / containerHeight;
+        const videoAspect = aspectWidth / aspectHeight;
+        
+        let displayWidth, displayHeight;
+        if (containerAspect > videoAspect) {
+          displayHeight = containerHeight;
+          displayWidth = containerHeight * videoAspect;
+        } else {
+          displayWidth = containerWidth;
+          displayHeight = containerWidth / videoAspect;
+        }
+        
+        setPreviewDimensions({ width: displayWidth, height: displayHeight });
+      }
+    };
+    
+    updateDimensions();
+    
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (videoContainerRef.current) {
+      resizeObserver.observe(videoContainerRef.current);
+    }
+    
+    window.addEventListener('resize', updateDimensions);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+    };
+  }, [aspectRatio, isScrubbingRef, setPreviewDimensions, videoContainerRef]);
+};
+
+const useKeyboardShortcuts = (
+  player: any,
+  projectDuration: number,
+  togglePlayPause: any,
+  seek: any,
+  toggleMute: any,
+  toggleFullscreen: any,
+  editingTextId: string | null,
+  cropMode: boolean,
+  setCropMode: any,
+  pause: any
+) => {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (editingTextId) return;
+
+      switch (e.key) {
+        case ' ':
+          e.preventDefault();
+          if (!cropMode) {
+            togglePlayPause();
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          seek(Math.max(0, player.currentTime - (e.shiftKey ? 10 : 1)));
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 10 : 1)));
+          break;
+        case 'Home':
+          e.preventDefault();
+          seek(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          seek(projectDuration);
+          break;
+        case 'm':
+          e.preventDefault();
+          toggleMute();
+          break;
+        case 'f':
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case 'c':
+          if (e.ctrlKey || e.metaKey) return;
+          e.preventDefault();
+          setCropMode((prev: boolean) => !prev);
+          break;
+      }
+    };
+
+    const handleToggleCropEvent = () => {
+      setCropMode((prev: boolean) => {
+        const next = !prev;
+        if (next && player.isPlaying) {
+          pause();
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('toggleCropMode', handleToggleCropEvent);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('toggleCropMode', handleToggleCropEvent);
+    };
+  }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode, player.isPlaying, pause, setCropMode]);
+};
+
+const usePreloadClips = (
+  player: any,
+  tracks: any[],
+  mediaFiles: any[],
+  getActiveClips: any,
+  preloadedClipsRef: any
+) => {
+  useEffect(() => {
+    const activeClips = getActiveClips();
+    
+    const upcomingClips: string[] = [];
+    
+    tracks.forEach((track) => {
+      if (track.type !== 'video') return;
+      
+      track.clips.forEach((clip: any) => {
+        const clipStart = clip.startTime;
+        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+        
+        if (clipStart > player.currentTime && clipStart <= player.currentTime + 2) {
+          upcomingClips.push(clip.id);
+        }
+      });
+    });
+    
+    upcomingClips.forEach((clipId) => {
+      if (preloadedClipsRef.current.has(clipId)) return;
+      
+      const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+      if (!clip) return;
+      
+      const media = mediaFiles.find(m => m.id === clip.mediaId);
+      if (!media || media.type !== 'video') return;
+      
+      const preloadVideo = document.createElement('video');
+      preloadVideo.preload = 'auto';
+      preloadVideo.muted = true;
+      preloadVideo.src = media.url;
+      preloadVideo.currentTime = clip.trimStart;
+      
+      preloadedClipsRef.current.add(clipId);
+      
+      setTimeout(() => {
+        preloadedClipsRef.current.delete(clipId);
+        preloadVideo.src = '';
+      }, 10000);
+    });
+  }, [player.currentTime, tracks, mediaFiles, getActiveClips, preloadedClipsRef]);
+};
+
+const useMenuCloseHandlers = (
+  showQualityMenu: boolean,
+  setShowQualityMenu: any,
+  qualityMenuRef: any,
+  qualityButtonRef: any,
+  showSpeedMenu: boolean,
+  setShowSpeedMenu: any,
+  speedMenuRef: any,
+  speedButtonRef: any
+) => {
+  useEffect(() => {
+    if (!showQualityMenu) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (qualityMenuRef.current?.contains(target)) return;
+      if (qualityButtonRef.current?.contains(target)) return;
+      setShowQualityMenu(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowQualityMenu(false);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showQualityMenu, setShowQualityMenu, qualityMenuRef, qualityButtonRef]);
+
+  useEffect(() => {
+    if (!showSpeedMenu) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (speedMenuRef.current?.contains(target)) return;
+      if (speedButtonRef.current?.contains(target)) return;
+      setShowSpeedMenu(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowSpeedMenu(false);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [showSpeedMenu, setShowSpeedMenu, speedMenuRef, speedButtonRef]);
+};
+
+const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: number) => {
+  return useMemo(() => {
+    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+    
+    tracks.forEach((track, index) => {
+      if (track.type !== 'video') return;
+      
+      const clip = track.clips.find((c: any) => {
+        const clipStart = c.startTime;
+        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        return currentTime >= clipStart && currentTime <= clipEnd;
+      });
+      
+      if (clip) {
+        const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
+        if (media) {
+          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+        }
+      }
+    });
+    
+    return result;
+  }, [tracks, mediaFiles, currentTime]);
+};
+
+const useActiveAudioClips = (tracks: any[], mediaFiles: any[], currentTime: number) => {
+  return useCallback(() => {
+    const activeAudio: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+
+    tracks.forEach((track, index) => {
+      if (track.type !== 'audio') return;
+
+      const clip = track.clips.find((c: any) => {
+        const clipStart = c.startTime;
+        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        return currentTime >= clipStart && currentTime <= clipEnd;
+      });
+
+      if (clip) {
+        const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
+        if (media) {
+          activeAudio.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+        }
+      }
+    });
+
+    return activeAudio;
+  }, [tracks, mediaFiles, currentTime]);
+};
+
+const useVideoClipsWithDetachedAudio = (tracks: any[]) => {
+  return useMemo(() => {
+    const audioClipIds = new Set(
+      tracks
+        .filter((t) => t.type === 'audio')
+        .flatMap((t) => t.clips)
+        .map((c: any) => c.id)
+    );
+
+    const set = new Set<string>();
+    tracks
+      .filter((t) => t.type === 'video')
+      .flatMap((t) => t.clips)
+      .forEach((c: any) => {
+        if (c.detachedAudioClipId && audioClipIds.has(c.detachedAudioClipId)) set.add(c.id);
+      });
+
+    return set;
+  }, [tracks]);
+};
+
+const useAllAudioClips = (tracks: any[], mediaFiles: any[]) => {
+  return useMemo(() => {
+    return tracks
+      .filter((t) => t.type === 'audio')
+      .flatMap((t) => t.clips)
+      .map((clip: any) => ({
+        clip,
+        media: mediaFiles.find((m: any) => m.id === clip.mediaId) || null,
+      }))
+      .filter((x: any) => !!x.media) as { clip: TimelineClip; media: MediaFile }[];
+  }, [tracks, mediaFiles]);
+};
+
+const useAudioMutedStates = (tracks: any[]) => {
+  return useMemo(() => {
+    return tracks
+      .flatMap((t) => t.clips)
+      .filter((c: any) => c.type === 'video')
+      .map((c: any) => `${c.id}:${c.audioMuted}`)
+      .join(',');
+  }, [tracks]);
+};
+
+const useCurrentTextOverlays = (textOverlays: any[], currentTime: number) => {
+  return useCallback(() => {
+    return textOverlays.filter((text: any) => {
+      const start = text.startTime;
+      const end = text.startTime + text.duration;
+      return currentTime >= start && currentTime < end;
+    });
+  }, [textOverlays, currentTime]);
+};
+
 export const VideoPlayer: React.FC = () => {
   const {
     mediaFiles,
@@ -603,37 +1572,7 @@ export const VideoPlayer: React.FC = () => {
 
 
 
-  // OPTIMISATION: Utiliser useMemo au lieu de useCallback pour getActiveClips
-  // Cela évite les recalculs à chaque render quand les clips n'ont pas changé
-  // NOTE: track.muted should only affect AUDIO playback, not video display
-  // Video clips should always be visible regardless of mute state
-  const activeClipsData = useMemo(() => {
-    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
-    
-    tracks.forEach((track, index) => {
-      // Only filter by track type, NOT by muted state
-      // Muted tracks should still show video, just without audio
-      if (track.type !== 'video') return;
-      
-      const clip = track.clips.find(c => {
-        const clipStart = c.startTime;
-        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-        // Use <= for clipEnd to include clips at exactly the boundary (important for split clips)
-        // This ensures the preview doesn't disappear when playhead is at the exact split point
-        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
-      });
-      
-      if (clip) {
-        const media = mediaFiles.find(m => m.id === clip.mediaId);
-        if (media) {
-          // Include trackMuted state so audio can be properly controlled
-          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
-        }
-      }
-    });
-    
-    return result;
-  }, [tracks, mediaFiles, player.currentTime]);
+  const activeClipsData = useActiveClipsData(tracks, mediaFiles, player.currentTime);
   
   // Fonction wrapper pour compatibilité avec le code existant
   const getActiveClips = useCallback(() => activeClipsData, [activeClipsData]);
@@ -648,143 +1587,25 @@ export const VideoPlayer: React.FC = () => {
     handleCropResizeStart
   } = useVideoPlayerCrop(videoContainerRef, player, pause, ui, updateClip, getActiveClips);
 
-  // Initialize preview optimizer on mount - AUTO QUALITY FROM START
-  useEffect(() => {
-    const profile = initializePreviewOptimizer();
-    setHardwareProfile(profile);
-    
-    // Enable MediaBunny for high-end desktop GPUs with WebCodecs support
-    // DISABLED: User reported performance regression compared to standard playback.
-    // Reverting to standard HTML5 video engine for stability.
-    /*
-    if (profile.supportsHardwareAcceleration && profile.supportsWebCodecs && !profile.isMobile && !profile.isLowEnd) {
-      console.log('🚀 Enabling MediaBunny preview engine for high-end hardware');
-      setUseMediaBunny(true);
-    }
-    */
-    setUseMediaBunny(false);
-    
-    // Store mobile status in ref for performance
-    isMobileRef.current = profile.isMobile;
-    
-    // Get optimal settings based on detected hardware
-    const settings = getOptimalSettings(1920, 1080, profile);
-    
-    // IMPORTANT: Set the quality to the recommended value from hardware detection
-    // This ensures auto-adaptation from the very beginning
-    settings.quality = profile.recommendedQuality;
-    
-    // Apply the auto-detected settings immediately
-    setPreviewSettings(settings);
-    updateSettings(settings);
-    
-    frameRateLimiterRef.current = new FrameRateLimiter(settings.targetFps, settings.frameSkipping);
-    performanceMonitorRef.current = new PerformanceMonitor();
-    
-    setAutoQualityApplied(true);
-    
-    console.log('🎬 VideoPlayer: Preview optimizer initialized with AUTO quality', {
-      profile,
-      settings,
-      recommendedQuality: profile.recommendedQuality,
-      cpuCores: profile.cpuCores,
-      isLowEnd: profile.isLowEnd,
-      isMobile: profile.isMobile
-    });
-    
-    return () => {
-      frameRateLimiterRef.current = null;
-      performanceMonitorRef.current = null;
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
-    };
-  }, []);
+  usePreviewOptimizerInit(
+    setHardwareProfile,
+    setUseMediaBunny,
+    isMobileRef,
+    setPreviewSettings,
+    frameRateLimiterRef,
+    performanceMonitorRef,
+    setAutoQualityApplied,
+    rafIdRef
+  );
   
-  // Initialize enhanced hardware detection for detailed GPU/processor info
-  useEffect(() => {
-    const initEnhancedDetection = async () => {
-      try {
-        const { detectHardware } = await import('../utils/hardwareDetection');
-        const enhanced = await detectHardware();
-        setEnhancedProfile(enhanced);
-        
-        console.log('🖥️ Enhanced hardware detection:', {
-          gpu: enhanced.gpu,
-          processor: enhanced.processor,
-          recommendations: enhanced.recommendations
-        });
-      } catch (error) {
-        console.warn('Enhanced hardware detection failed:', error);
-      }
-    };
-    
-    initEnhancedDetection();
-  }, []);
+  useEnhancedHardwareDetection(setEnhancedProfile);
   
   // Debug: Log aspect ratio changes
   useEffect(() => {
     console.log('🖼️ VideoPlayer: aspect ratio changed to', aspectRatio);
   }, [aspectRatio]);
   
-  // Track preview container dimensions for text scaling
-  useEffect(() => {
-    const updateDimensions = () => {
-      // OPTIMISATION: Ignorer les mises à jour de resize pendant le scrubbing
-      // pour éviter les re-renders additionnels qui causent des saccades
-      if (isScrubbingRef.current) return;
-      
-      if (videoContainerRef.current) {
-        const rect = videoContainerRef.current.getBoundingClientRect();
-        // Find the actual video display area within the container
-        // The video maintains aspect ratio, so we need to calculate the actual display size
-        const containerWidth = rect.width;
-        const containerHeight = rect.height;
-        
-        // Get the aspect ratio value
-        let aspectWidth = 16, aspectHeight = 9;
-        switch (aspectRatio) {
-          case '16:9': aspectWidth = 16; aspectHeight = 9; break;
-          case '9:16': aspectWidth = 9; aspectHeight = 16; break;
-          case '1:1': aspectWidth = 1; aspectHeight = 1; break;
-          case '4:3': aspectWidth = 4; aspectHeight = 3; break;
-          case '21:9': aspectWidth = 21; aspectHeight = 9; break;
-        }
-        
-        // Calculate the actual display dimensions maintaining aspect ratio
-        const containerAspect = containerWidth / containerHeight;
-        const videoAspect = aspectWidth / aspectHeight;
-        
-        let displayWidth, displayHeight;
-        if (containerAspect > videoAspect) {
-          // Container is wider than video - height is the constraint
-          displayHeight = containerHeight;
-          displayWidth = containerHeight * videoAspect;
-        } else {
-          // Container is taller than video - width is the constraint
-          displayWidth = containerWidth;
-          displayHeight = containerWidth / videoAspect;
-        }
-        
-        setPreviewDimensions({ width: displayWidth, height: displayHeight });
-        console.log('📐 Preview dimensions updated:', { displayWidth, displayHeight, containerWidth, containerHeight });
-      }
-    };
-    
-    updateDimensions();
-    
-    // Use ResizeObserver for more accurate tracking
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    if (videoContainerRef.current) {
-      resizeObserver.observe(videoContainerRef.current);
-    }
-    
-    window.addEventListener('resize', updateDimensions);
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateDimensions);
-    };
-  }, [aspectRatio]);
+  usePreviewDimensions(videoContainerRef, aspectRatio, isScrubbingRef, setPreviewDimensions);
   
   // Calculate text scale factor based on preview size vs export resolution
   const getTextScaleFactor = useCallback(() => {
@@ -861,80 +1682,17 @@ export const VideoPlayer: React.FC = () => {
   
 
 
-  // Audio preview: get all active audio clips at playhead (supports external audio tracks + detached audio)
-  const getActiveAudioClips = useCallback(() => {
-    const activeAudio: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+  const getActiveAudioClips = useActiveAudioClips(tracks, mediaFiles, player.currentTime);
 
-    tracks.forEach((track, index) => {
-      if (track.type !== 'audio') return;
+  const videoClipsWithDetachedAudio = useVideoClipsWithDetachedAudio(tracks);
 
-      const clip = track.clips.find((c) => {
-        const clipStart = c.startTime;
-        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
-      });
+  const getCurrentTextOverlays = useCurrentTextOverlays(textOverlays, player.currentTime);
 
-      if (clip) {
-        const media = mediaFiles.find((m) => m.id === clip.mediaId);
-        if (media) {
-          activeAudio.push({ clip, media, trackIndex: index, trackMuted: track.muted });
-        }
-      }
-    });
-
-    return activeAudio;
-  }, [tracks, mediaFiles, player.currentTime]);
-
-  // If a video clip has a detached audio clip present, mute the video's audio in preview to avoid double sound.
-  const videoClipsWithDetachedAudio = useMemo(() => {
-    const audioClipIds = new Set(
-      tracks
-        .filter((t) => t.type === 'audio')
-        .flatMap((t) => t.clips)
-        .map((c) => c.id)
-    );
-
-    const set = new Set<string>();
-    tracks
-      .filter((t) => t.type === 'video')
-      .flatMap((t) => t.clips)
-      .forEach((c) => {
-        if (c.detachedAudioClipId && audioClipIds.has(c.detachedAudioClipId)) set.add(c.id);
-      });
-
-    return set;
-  }, [tracks]);
-
-  // Get current text overlays
-  const getCurrentTextOverlays = useCallback(() => {
-    return textOverlays.filter(text => {
-      const start = text.startTime;
-      const end = text.startTime + text.duration;
-      return player.currentTime >= start && player.currentTime < end;
-    });
-  }, [textOverlays, player.currentTime]);
-
-  // Create a dependency string for audioMuted states to trigger re-render when they change
-  const audioMutedStates = useMemo(() => {
-    return tracks
-      .flatMap(t => t.clips)
-      .filter(c => c.type === 'video')
-      .map(c => `${c.id}:${c.audioMuted}`)
-      .join(',');
-  }, [tracks]);
+  const audioMutedStates = useAudioMutedStates(tracks);
 
 
 
-  const allAudioClips = useMemo(() => {
-    return tracks
-      .filter((t) => t.type === 'audio')
-      .flatMap((t) => t.clips)
-      .map((clip) => ({
-        clip,
-        media: mediaFiles.find((m) => m.id === clip.mediaId) || null,
-      }))
-      .filter((x) => !!x.media) as { clip: TimelineClip; media: MediaFile }[];
-  }, [tracks, mediaFiles]);
+  const allAudioClips = useAllAudioClips(tracks, mediaFiles);
 
   const { syncVideosDebounced } = useVideoPlayerSync(
     videoRefs,
@@ -966,53 +1724,7 @@ export const VideoPlayer: React.FC = () => {
     };
   }, [syncVideosDebounced, audioMutedStates]);
   
-  // Preload adjacent clips for smoother transitions
-  useEffect(() => {
-    const activeClips = getActiveClips();
-    
-    // Find clips that will be active soon (within 2 seconds)
-    const upcomingClips: string[] = [];
-    
-    tracks.forEach((track) => {
-      if (track.type !== 'video') return;
-      
-      track.clips.forEach((clip) => {
-        const clipStart = clip.startTime;
-        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-        
-        // Check if clip starts within the next 2 seconds
-        if (clipStart > player.currentTime && clipStart <= player.currentTime + 2) {
-          upcomingClips.push(clip.id);
-        }
-      });
-    });
-    
-    // Preload upcoming clips
-    upcomingClips.forEach((clipId) => {
-      if (preloadedClipsRef.current.has(clipId)) return;
-      
-      const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-      if (!clip) return;
-      
-      const media = mediaFiles.find(m => m.id === clip.mediaId);
-      if (!media || media.type !== 'video') return;
-      
-      // Create a hidden video element to preload
-      const preloadVideo = document.createElement('video');
-      preloadVideo.preload = 'auto';
-      preloadVideo.muted = true;
-      preloadVideo.src = media.url;
-      preloadVideo.currentTime = clip.trimStart;
-      
-      preloadedClipsRef.current.add(clipId);
-      
-      // Clean up after 10 seconds
-      setTimeout(() => {
-        preloadedClipsRef.current.delete(clipId);
-        preloadVideo.src = '';
-      }, 10000);
-    });
-  }, [player.currentTime, tracks, mediaFiles, getActiveClips]);
+  usePreloadClips(player, tracks, mediaFiles, getActiveClips, preloadedClipsRef);
 
   useVideoPlayerAnimation(
     player,
@@ -1034,69 +1746,18 @@ export const VideoPlayer: React.FC = () => {
     renderMediaBunny
   );
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (editingTextId) return;
-
-      switch (e.key) {
-        case ' ':
-          e.preventDefault();
-          if (!cropMode) {
-            togglePlayPause();
-          }
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          seek(Math.max(0, player.currentTime - (e.shiftKey ? 10 : 1)));
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 10 : 1)));
-          break;
-        case 'Home':
-          e.preventDefault();
-          seek(0);
-          break;
-        case 'End':
-          e.preventDefault();
-          seek(projectDuration);
-          break;
-        case 'm':
-          e.preventDefault();
-          toggleMute();
-          break;
-        case 'f':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'c':
-          if (e.ctrlKey || e.metaKey) return;
-          e.preventDefault();
-          setCropMode(prev => !prev);
-          break;
-      }
-    };
-
-    const handleToggleCropEvent = () => {
-      setCropMode(prev => {
-        const next = !prev;
-        if (next && player.isPlaying) {
-          pause();
-        }
-        return next;
-      });
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('toggleCropMode', handleToggleCropEvent);
-    
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('toggleCropMode', handleToggleCropEvent);
-    };
-  }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode, player.isPlaying, pause]);
+  useKeyboardShortcuts(
+    player,
+    projectDuration,
+    togglePlayPause,
+    seek,
+    toggleMute,
+    toggleFullscreen,
+    editingTextId,
+    cropMode,
+    setCropMode,
+    pause
+  );
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // OPTIMISATION: Activer le flag isScrubbing pendant l'interaction
@@ -1122,54 +1783,16 @@ export const VideoPlayer: React.FC = () => {
 
   const playbackSpeeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
-  // Close preview quality menu when clicking outside / pressing Escape
-  useEffect(() => {
-    if (!showQualityMenu) return;
-
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (qualityMenuRef.current?.contains(target)) return;
-      if (qualityButtonRef.current?.contains(target)) return;
-      setShowQualityMenu(false);
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowQualityMenu(false);
-    };
-
-    // Use capture so we can close before other handlers run.
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [showQualityMenu]);
-
-  // Close playback speed menu when clicking outside / pressing Escape
-  useEffect(() => {
-    if (!showSpeedMenu) return;
-
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (speedMenuRef.current?.contains(target)) return;
-      if (speedButtonRef.current?.contains(target)) return;
-      setShowSpeedMenu(false);
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowSpeedMenu(false);
-    };
-
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [showSpeedMenu]);
+  useMenuCloseHandlers(
+    showQualityMenu,
+    setShowQualityMenu,
+    qualityMenuRef,
+    qualityButtonRef,
+    showSpeedMenu,
+    setShowSpeedMenu,
+    speedMenuRef,
+    speedButtonRef
+  );
   
   // Get aspect ratio value for inline style
   const getAspectRatioValue = () => {
@@ -1364,262 +1987,57 @@ export const VideoPlayer: React.FC = () => {
           {activeClips.length > 0 ? (
             <>
               {/* Render all active clips (videos and images) layered */}
-              {activeClips.map((item, index) => {
-                if (item.media.type === 'video') {
-                  return (
-                    <VideoClipComponent
-                      key={item.clip.id}
-                      item={item}
-                      index={index}
-                      ui={ui}
-                      player={player}
-                      transitions={transitions}
-                      useMediaBunny={useMediaBunny}
-                      videoRefs={videoRefs}
-                      hardwareProfile={hardwareProfile}
-                      getVideoStyle={getVideoStyle}
-                      getCropStyle={getCropStyle}
-                      setVideoRef={setVideoRef}
-                    />
-                  );
-                }
-
-                if (item.media.type === 'image') {
-                  return (
-                    <ImageClipComponent
-                      key={item.clip.id}
-                      item={item}
-                      index={index}
-                      ui={ui}
-                      player={player}
-                      transitions={transitions}
-                      cropMode={cropMode}
-                      editingTextId={editingTextId}
-                      filters={filters}
-                      getCropStyle={getCropStyle}
-                      selectClip={selectClip}
-                      handleImageTransformStart={handleImageTransformStart}
-                      handleImageResizeStart={handleImageResizeStart}
-                      handleImageRotateStart={handleImageRotateStart}
-                    />
-                  );
-                }
-
-                return null;
-              })}
+              <ActiveClipsRenderer
+                activeClips={activeClips}
+                ui={ui}
+                player={player}
+                transitions={transitions}
+                useMediaBunny={useMediaBunny}
+                videoRefs={videoRefs}
+                hardwareProfile={hardwareProfile}
+                getVideoStyle={getVideoStyle}
+                getCropStyle={getCropStyle}
+                setVideoRef={setVideoRef}
+                cropMode={cropMode}
+                editingTextId={editingTextId}
+                filters={filters}
+                selectClip={selectClip}
+                handleImageTransformStart={handleImageTransformStart}
+                handleImageResizeStart={handleImageResizeStart}
+                handleImageRotateStart={handleImageRotateStart}
+              />
 
               {/* Crop Overlay */}
               {cropMode && (
-                <div className="absolute inset-0 z-[100]">
-                  {/* Visible crop area with shadow for outside */}
-                  <div
-                    className="absolute border-2 border-primary-500 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]"
-                    style={{
-                      left: `${cropArea.x}%`,
-                      top: `${cropArea.y}%`,
-                      width: `${cropArea.width}%`,
-                      height: `${cropArea.height}%`,
-                      cursor: 'move'
-                    }}
-                    onMouseDown={(e) => {
-                      // Allow dragging the entire crop area
-                      if (e.target === e.currentTarget) {
-                        e.stopPropagation();
-                        const rect = videoContainerRef.current?.getBoundingClientRect();
-                        if (!rect) return;
-                        
-                        const startX = e.clientX;
-                        const startY = e.clientY;
-                        const startCrop = { ...cropArea };
-                        
-                        const handleDrag = (moveEvent: MouseEvent) => {
-                          const deltaX = ((moveEvent.clientX - startX) / rect.width) * 100;
-                          const deltaY = ((moveEvent.clientY - startY) / rect.height) * 100;
-                          
-                          setCropArea({
-                            ...startCrop,
-                            x: Math.max(0, Math.min(100 - startCrop.width, startCrop.x + deltaX)),
-                            y: Math.max(0, Math.min(100 - startCrop.height, startCrop.y + deltaY))
-                          });
-                        };
-                        
-                        const handleDragEnd = () => {
-                          window.removeEventListener('mousemove', handleDrag);
-                          window.removeEventListener('mouseup', handleDragEnd);
-                        };
-                        
-                        window.addEventListener('mousemove', handleDrag);
-                        window.addEventListener('mouseup', handleDragEnd);
-                      }
-                    }}
-                  >
-                    {/* Corner handles - Small and unobtrusive */}
-                    <div
-                      className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'nw')}
-                    />
-                    <div
-                      className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'ne')}
-                    />
-                    <div
-                      className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nesw-resize hover:scale-125 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'sw')}
-                    />
-                    <div
-                      className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-primary-500 border border-white rounded-sm cursor-nwse-resize hover:scale-125 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'se')}
-                    />
-                    
-                    {/* Edge handles - Small bars */}
-                    <div
-                      className="absolute -top-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'n')}
-                    />
-                    <div
-                      className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-2 bg-primary-500 border border-white rounded-sm cursor-ns-resize hover:scale-110 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 's')}
-                    />
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 -left-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'w')}
-                    />
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-6 bg-primary-500 border border-white rounded-sm cursor-ew-resize hover:scale-110 transition-transform shadow-md"
-                      onMouseDown={(e) => handleCropResizeStart(e, 'e')}
-                    />
-                    
-                    {/* Grid lines (rule of thirds) */}
-                    <div className="absolute top-1/3 left-0 right-0 h-px bg-white/30 pointer-events-none" />
-                    <div className="absolute top-2/3 left-0 right-0 h-px bg-white/30 pointer-events-none" />
-                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/30 pointer-events-none" />
-                    <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/30 pointer-events-none" />
-                  </div>
-                  
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-[110]">
-                    <button onClick={() => setCropMode(false)} className="btn-secondary px-4 py-2">
-                      Annuler
-                    </button>
-                    <button onClick={handleApplyCrop} className="btn-primary px-4 py-2">
-                      Appliquer
-                    </button>
-                  </div>
-                </div>
+                <CropOverlay
+                  cropArea={cropArea}
+                  setCropArea={setCropArea}
+                  handleCropResizeStart={handleCropResizeStart}
+                  setCropMode={setCropMode}
+                  handleApplyCrop={handleApplyCrop}
+                  videoContainerRef={videoContainerRef}
+                />
               )}
               
               {/* Text Overlays - now draggable */}
-              {!cropMode && currentTexts.map((text) => {
-                // Calculate scaled font size to match export resolution
-                const scaleFactor = getTextScaleFactor();
-                const scaledFontSize = text.fontSize * scaleFactor;
-                
-                return (
-                <div
-                  key={text.id}
-                  className={`absolute cursor-move ${ui.selectedTextId === text.id ? 'ring-2 ring-primary-500' : ''}`}
-                  style={{
-                    zIndex: 50, // Always on top of video/images
-                    left: `${text.x}%`,
-                    top: `${text.y}%`,
-                    transform: `translate(-50%, -50%) scale(${text.scaleX ?? 1}, ${text.scaleY ?? 1})`,
-                    fontSize: `${scaledFontSize}px`,
-                    fontFamily: text.fontFamily,
-                    color: text.color,
-                    backgroundColor: text.backgroundColor,
-                    fontWeight: text.bold ? 'bold' : 'normal',
-                    fontStyle: text.italic ? 'italic' : 'normal',
-                    padding: text.backgroundColor ? '4px 8px' : 0,
-                    borderRadius: '4px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'auto',
-                  }}
-                  onMouseDown={(e) => handleTextMouseDown(e, text.id)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (player.isPlaying) pause();
-                    selectText(text.id);
-                  }}
-                  onDoubleClick={(e) => handleTextDoubleClick(e, text.id, text.text)}
-                >
-                  {text.id === editingTextId ? (
-                    <input
-                      type="text"
-                      value={editingTextValue}
-                      onChange={handleTextEditChange}
-                      onBlur={handleTextEditSubmit}
-                      onKeyDown={handleTextEditKeyDown}
-                      autoFocus
-                      onFocus={(e) => e.target.select()}
-                      className="w-full h-full p-0 bg-transparent border-none outline-none"
-                      style={{
-                        fontSize: `${scaledFontSize}px`,
-                        fontFamily: text.fontFamily,
-                        color: text.color,
-                        backgroundColor: text.backgroundColor,
-                        fontWeight: text.bold ? 'bold' : 'normal',
-                        fontStyle: text.italic ? 'italic' : 'normal',
-                        padding: text.backgroundColor ? '4px 8px' : 0,
-                        borderRadius: '4px',
-                        whiteSpace: 'nowrap',
-                        pointerEvents: 'auto',
-                        width: 'auto',
-                        minWidth: '50px',
-                      }}
-                    />
-                  ) : (
-                    text.text
-                  )}
-
-                  {/* Resize handles for text - with inverse scale to counteract parent's scale transform */}
-                  {ui.selectedTextId === text.id && !editingTextId && (
-                    <>
-                      <div
-                        className="absolute -top-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'nw')}
-                      />
-                      <div
-                        className="absolute -top-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'ne')}
-                      />
-                      <div
-                        className="absolute -bottom-2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'sw')}
-                      />
-                      <div
-                        className="absolute -bottom-2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'se')}
-                      />
-                      
-                      {/* Side handles */}
-                      <div
-                        className="absolute top-1/2 -left-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'w')}
-                      />
-                      <div
-                        className="absolute top-1/2 -right-2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `translateY(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'e')}
-                      />
-                      <div
-                        className="absolute -top-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 'n')}
-                      />
-                      <div
-                        className="absolute -bottom-2 left-1/2 w-3 h-3 bg-primary-500 border border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
-                        style={{ transform: `translateX(-50%) scale(${1 / (text.scaleX ?? 1)}, ${1 / (text.scaleY ?? 1)})` }}
-                        onMouseDown={(e) => handleTextResizeStart(e, text.id, 's')}
-                      />
-                    </>
-                  )}
-                </div>
-              );
-              })}
+              {!cropMode && (
+                <TextOverlays
+                  currentTexts={currentTexts}
+                  getTextScaleFactor={getTextScaleFactor}
+                  ui={ui}
+                  editingTextId={editingTextId}
+                  editingTextValue={editingTextValue}
+                  handleTextMouseDown={handleTextMouseDown}
+                  player={player}
+                  pause={pause}
+                  selectText={selectText}
+                  handleTextDoubleClick={handleTextDoubleClick}
+                  handleTextEditChange={handleTextEditChange}
+                  handleTextEditSubmit={handleTextEditSubmit}
+                  handleTextEditKeyDown={handleTextEditKeyDown}
+                  handleTextResizeStart={handleTextResizeStart}
+                />
+              )}
             </>
           ) : (
             <div className="text-center text-neutral-400 p-2 fold-cover:p-1 fold-open:p-4">
@@ -1662,239 +2080,39 @@ export const VideoPlayer: React.FC = () => {
       </div>
 
       {/* Controls */}
-      <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
-        {/* Left Controls */}
-        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
-          {/* Skip back - hidden on very small screens */}
-          <button
-            onClick={() => seek(0)}
-            className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
-            title="Debut"
-          >
-            <SkipBack className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
-          </button>
-          <button
-            onClick={() => !cropMode && !editingTextId && togglePlayPause()}
-            className={`btn-icon ${isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10'} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${cropMode || editingTextId ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title={player.isPlaying ? 'Pause' : 'Lecture'}
-            disabled={cropMode || !!editingTextId}
-          >
-            {player.isPlaying ? <Pause className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'}`} /> : <Play className={`${isMinimal ? 'w-4 h-4' : 'w-5 h-5'} ml-0.5`} />}
-          </button>
-          {/* Skip forward - hidden on very small screens */}
-          <button
-            onClick={() => seek(projectDuration)}
-            className={`btn-icon ${isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
-            title="Fin"
-          >
-            <SkipForward className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />
-          </button>
-
-          {/* Frame by frame - Hidden on small/foldable screens */}
-          <div className="hidden lg:flex items-center gap-1 ml-2">
-            <button onClick={() => seek(Math.max(0, player.currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button onClick={() => seek(Math.min(projectDuration, player.currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Time Display - Compact on small screens */}
-        <div className={`font-mono ${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small'} text-neutral-400 flex-shrink min-w-0`}>
-          <span className="text-white">{formatTime(player.currentTime)}</span>
-          <span className="mx-0.5 text-neutral-500">/</span>
-          <span>{formatTime(projectDuration)}</span>
-        </div>
-
-        {/* Right Controls */}
-        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
-          {/* Volume - Hidden on minimal and compact screens */}
-          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2`}>
-            <button
-              onClick={() => setShowVolumeSlider(!showVolumeSlider)}
-              className="btn-icon w-9 h-9 touch-target"
-              title="Volume"
-            >
-              {player.isMuted || player.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-            <div
-              className={`hidden md:flex items-center gap-2 transition-all duration-200 overflow-hidden ${showVolumeSlider ? 'w-32 opacity-100' : 'w-0 opacity-0'}`}
-            >
-              <div className="flex-1 h-6 flex items-center px-1">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={Math.round(player.volume * 100)}
-                  onChange={(e) => setVolume(parseInt(e.target.value) / 100)}
-                  className="volume-slider-horizontal w-full"
-                />
-              </div>
-              <span className="text-xs text-white font-mono w-9 text-right flex-shrink-0">{Math.round(player.volume * 100)}%</span>
-            </div>
-          </div>
-
-          {/* Preview Quality - Hidden on minimal and compact screens */}
-          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
-            <button
-              ref={qualityButtonRef}
-              onClick={() => setShowQualityMenu(!showQualityMenu)}
-              className={`btn-icon ${isCompact ? 'w-9 h-9' : 'w-9 h-9'} touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
-              title="Qualité"
-            >
-              <Gauge className={`${isCompact ? 'w-4 h-4' : 'w-4 h-4'}`} />
-            </button>
-            {showQualityMenu && (
-              <div
-                ref={qualityMenuRef}
-                className="glass-panel fixed p-3 shadow-glass-lg custom-scrollbar"
-                style={{
-                  width: '280px',
-                  maxWidth: 'calc(100vw - 2rem)',
-                  maxHeight: '70vh',
-                  overflowY: 'auto',
-                  zIndex: 9999,
-                  right: '1rem',
-                  bottom: '5rem',
-                }}
-              >
-                <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
-                  <span>Qualité Preview • {currentFps} FPS</span>
-                  {isPerformancePoor && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
-                  )}
-                </div>
-                
-                {/* Auto-detection banner */}
-                {autoQualityApplied && hardwareProfile && (
-                  <div className="mb-3 px-2 py-2 rounded text-small" style={{ background: 'rgba(117, 122, 237, 0.1)', border: '1px solid rgba(117, 122, 237, 0.3)' }}>
-                    <div className="flex items-center gap-1.5" style={{ color: '#757AED' }}>
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                      <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
-                    </div>
-                    <div className="mt-1" style={{ color: '#808080' }}>
-                      {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
-                      {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
-                      {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
-                      {hardwareProfile.isLowEnd && ' • Mode économie'}
-                    </div>
-                    {/* Enhanced GPU info */}
-                    {enhancedProfile && (
-                      <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
-                        <div className="flex items-center gap-1">
-                          <Monitor className="w-3 h-3" />
-                          <span className="text-[10px]">
-                            GPU: {enhancedProfile.gpu.model || enhancedProfile.gpu.vendor}
-                            {enhancedProfile.gpu.tier !== 'unknown' && ` (${enhancedProfile.gpu.tier})`}
-                          </span>
-                        </div>
-                        {enhancedProfile.gpu.supportsWebGPU && (
-                          <span className="text-[9px] ml-4 text-green-400">WebGPU ✓</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                <div className="space-y-1">
-                  {qualityOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => handleQualityChange(option.value)}
-                      className={`w-full px-3 py-2.5 text-left rounded-sm transition-all ${
-                        previewSettings.quality === option.value
-                          ? 'text-white'
-                          : 'hover:bg-[var(--bg-hover)]'
-                      }`}
-                      style={{
-                        background: previewSettings.quality === option.value ? 'var(--primary)' : 'transparent',
-                        border: previewSettings.quality === option.value ? '1px solid var(--primary)' : '1px solid transparent',
-                      }}
-                    >
-                      <div className="text-body font-medium flex items-center gap-2">
-                        {option.label}
-                        {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
-                        )}
-                      </div>
-                      <div className="text-small mt-0.5" style={{
-                        color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
-                      }}>{option.description}</div>
-                    </button>
-                  ))}
-                </div>
-                
-                {/* Performance stats */}
-                <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
-                  <div className="flex justify-between">
-                    <span>Résolution max:</span>
-                    <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
-                  </div>
-                  <div className="flex justify-between mt-1">
-                    <span>FPS cible:</span>
-                    <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
-                  </div>
-                  {previewSettings.frameSkipping && (
-                    <div className="flex justify-between mt-1">
-                      <span>Frame skip:</span>
-                      <span style={{ color: '#F59E0B' }}>Activé</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Playback Speed - Hidden on minimal and compact screens */}
-          <div className={`relative ${isMinimal || isCompact ? 'hidden' : 'block'}`}>
-            <button
-              ref={speedButtonRef}
-              onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-              className="btn-icon w-9 h-9 text-caption font-mono touch-target"
-              title="Vitesse"
-            >
-              {player.playbackRate}x
-            </button>
-            {showSpeedMenu && (
-              <div
-                ref={speedMenuRef}
-                className="absolute bottom-full right-0 mb-2 p-1 bg-[var(--bg-secondary)] border border-[var(--bg-tertiary)] rounded-lg min-w-[80px] shadow-lg z-50"
-              >
-                {playbackSpeeds.map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => {
-                      setPlaybackRate(speed);
-                      setShowSpeedMenu(false);
-                    }}
-                    className={`w-full px-3 py-1.5 text-small text-left rounded-md transition-colors font-mono ${
-                      player.playbackRate === speed
-                        ? 'bg-[var(--primary)] text-white'
-                        : 'hover:bg-[var(--bg-tertiary)] text-white'
-                    }`}
-                  >
-                    {speed}x
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Fullscreen */}
-          <button
-            onClick={toggleFullscreen}
-            className={`btn-icon ${isMinimal ? 'w-7 h-7' : isCompact ? 'w-8 h-8' : 'w-9 h-9'} touch-target flex-shrink-0`}
-            title={player.isFullscreen ? 'Quitter' : 'Plein écran'}
-          >
-            {player.isFullscreen ? <Minimize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} /> : <Maximize className={`${isMinimal ? 'w-3 h-3' : 'w-4 h-4'}`} />}
-          </button>
-        </div>
-      </div>
+      <VideoPlayerControls
+        showControls={showControls}
+        isMinimal={isMinimal}
+        isCompact={isCompact}
+        seek={seek}
+        player={player}
+        projectDuration={projectDuration}
+        cropMode={cropMode}
+        editingTextId={editingTextId}
+        togglePlayPause={togglePlayPause}
+        showVolumeSlider={showVolumeSlider}
+        setShowVolumeSlider={setShowVolumeSlider}
+        setVolume={setVolume}
+        qualityButtonRef={qualityButtonRef}
+        showQualityMenu={showQualityMenu}
+        setShowQualityMenu={setShowQualityMenu}
+        isPerformancePoor={isPerformancePoor}
+        currentFps={currentFps}
+        autoQualityApplied={autoQualityApplied}
+        hardwareProfile={hardwareProfile}
+        enhancedProfile={enhancedProfile}
+        qualityOptions={qualityOptions}
+        handleQualityChange={handleQualityChange}
+        previewSettings={previewSettings}
+        speedButtonRef={speedButtonRef}
+        showSpeedMenu={showSpeedMenu}
+        setShowSpeedMenu={setShowSpeedMenu}
+        playbackSpeeds={playbackSpeeds}
+        setPlaybackRate={setPlaybackRate}
+        toggleFullscreen={toggleFullscreen}
+        qualityMenuRef={qualityMenuRef}
+        speedMenuRef={speedMenuRef}
+      />
     </div>
   );
 };
