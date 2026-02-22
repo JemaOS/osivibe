@@ -29,6 +29,76 @@ const handleAudioPlayPause = (audioEl: HTMLAudioElement, isPlaying: boolean) => 
   }
 };
 
+const updateVideoSrc = (videoEl: HTMLVideoElement, url: string) => {
+  if (videoEl.getAttribute('src') !== url) {
+    videoEl.setAttribute('src', url);
+    videoEl.load();
+  }
+};
+
+const updatePlaybackRate = (videoEl: HTMLVideoElement, rate: number) => {
+  if (videoEl.playbackRate !== rate) {
+    videoEl.playbackRate = rate;
+  }
+};
+
+const calculateSeekThreshold = (
+  isMobile: boolean,
+  isScrubbing: boolean,
+  isPlaying: boolean
+): number => {
+  const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
+  const pausedSeekThreshold = 0.05;
+  
+  if (isScrubbing) {
+    return scrubbingSeekThreshold;
+  }
+  return isPlaying ? Infinity : pausedSeekThreshold;
+};
+
+const performSeek = (
+  videoEl: HTMLVideoElement,
+  localTime: number,
+  isSeekingRef: React.MutableRefObject<boolean>,
+  isMobile: boolean
+) => {
+  if (!isSeekingRef.current) {
+    isSeekingRef.current = true;
+    if (videoEl.readyState > 0) {
+      videoEl.currentTime = localTime;
+    }
+    setTimeout(() => {
+      isSeekingRef.current = false;
+    }, isMobile ? 100 : 50);
+  }
+};
+
+const applyVideoFilter = (
+  videoEl: HTMLVideoElement,
+  clipId: string,
+  filters: any
+) => {
+  const clipFilter = filters[clipId];
+  if (clipFilter) {
+    videoEl.style.filter = getCSSFilter(clipFilter);
+  } else {
+    videoEl.style.filter = 'none';
+  }
+};
+
+const handleVideoSeek = (
+  videoEl: HTMLVideoElement,
+  localTime: number,
+  seekThreshold: number,
+  isSeekingRef: React.MutableRefObject<boolean>,
+  isMobile: boolean
+) => {
+  const timeDiff = Math.abs(videoEl.currentTime - localTime);
+  if (timeDiff > seekThreshold) {
+    performSeek(videoEl, localTime, isSeekingRef, isMobile);
+  }
+};
+
 const syncSingleVideoClip = (
   item: any,
   videoEl: HTMLVideoElement,
@@ -39,48 +109,21 @@ const syncSingleVideoClip = (
   isSeekingRef: React.MutableRefObject<boolean>,
   filters: any
 ) => {
-  if (videoEl.getAttribute('src') !== item.media.url) {
-    videoEl.setAttribute('src', item.media.url);
-    videoEl.load();
-  }
-
-  if (videoEl.playbackRate !== player.playbackRate) {
-    videoEl.playbackRate = player.playbackRate;
-  }
-
+  updateVideoSrc(videoEl, item.media.url);
+  
+  updatePlaybackRate(videoEl, player.playbackRate);
+  
   const clipStart = item.clip.startTime;
   const localTime = currentTime - clipStart + item.clip.trimStart;
   
-  const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
-  const pausedSeekThreshold = 0.05;
-  
-  const seekThreshold = isScrubbing
-    ? scrubbingSeekThreshold
-    : (player.isPlaying ? Infinity : pausedSeekThreshold);
-  
-  const timeDiff = Math.abs(videoEl.currentTime - localTime);
+  const seekThreshold = calculateSeekThreshold(isMobile, isScrubbing, player.isPlaying);
   
   if (!player.isPlaying || isScrubbing) {
-    if (timeDiff > seekThreshold) {
-      if (!isSeekingRef.current) {
-        isSeekingRef.current = true;
-        if (videoEl.readyState > 0) {
-          videoEl.currentTime = localTime;
-        }
-        setTimeout(() => {
-          isSeekingRef.current = false;
-        }, isMobile ? 100 : 50);
-      }
-    }
+    handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile);
   }
-
+  
   if (!isMobile || !player.isPlaying) {
-    const clipFilter = filters[item.clip.id];
-    if (clipFilter) {
-      videoEl.style.filter = getCSSFilter(clipFilter);
-    } else {
-      videoEl.style.filter = 'none';
-    }
+    applyVideoFilter(videoEl, item.clip.id, filters);
   }
 };
 
