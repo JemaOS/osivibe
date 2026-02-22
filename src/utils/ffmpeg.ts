@@ -382,7 +382,7 @@ export function buildOptimizedArgs(
   
   const fpsIndex = args.indexOf('-r');
   if (fpsIndex !== -1) {
-    const requested = parseInt(args[fpsIndex + 1] || '0', 10);
+    const requested = Number.parseInt(args[fpsIndex + 1] || '0', 10);
     const effective = requested > 0 ? Math.min(requested, settings.targetFps) : settings.targetFps;
     args[fpsIndex + 1] = String(effective);
   }
@@ -525,7 +525,7 @@ export async function loadFFmpeg(
 
     // Prefer -progress key/value if present
     const prog = /out_time_ms=(\d+)/.exec(message);
-    const tFromProgress = prog ? parseInt(prog[1], 10) / 1_000_000 : null;
+    const tFromProgress = prog ? Number.parseInt(prog[1], 10) / 1_000_000 : null;
 
     let tFromStats: number | null = null;
     const timeIndex = message.indexOf('time=');
@@ -533,9 +533,9 @@ export async function loadFFmpeg(
       const timeStr = message.substring(timeIndex + 5).split(' ')[0]; // Get the time part
       const parts = timeStr.split(':');
       if (parts.length >= 3) {
-        const h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        const s = parseFloat(parts[2]);
+        const h = Number.parseInt(parts[0], 10);
+        const m = Number.parseInt(parts[1], 10);
+        const s = Number.parseFloat(parts[2]);
         if (!isNaN(h) && !isNaN(m) && !isNaN(s)) {
           tFromStats = h * 3600 + m * 60 + s;
         }
@@ -1696,7 +1696,7 @@ async function exportSingleClip(
   onProgress?.(5, 'Traitement de la vidéo...');
 
   const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
-  const requestedFps = parseInt(settings.fps || '30', 10);
+  const requestedFps = Number.parseInt(settings.fps || '30', 10);
   const effectiveFps = Math.min(requestedFps, encodingSettings.targetFps);
 
   const externalAudioClipsSingle = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
@@ -2207,7 +2207,7 @@ async function exportMultiClip(
     ffmpegInstance, externalAudioClips, uniqueFiles, inputFiles, safeMode, onProgress
   );
   
-  const targetFps = parseInt(settings.fps || '30');
+  const targetFps = Number.parseInt(settings.fps || '30');
   
   const { filterComplex, finalVideoLabel, finalAudioLabel } = buildMultiClipFilterChain(
     clips, clipToInputIndex, inputVideoMeta, transitions, textOverlays,
@@ -2227,7 +2227,7 @@ async function exportMultiClip(
     '-crf', quality,
     '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
     '-preset', encodingSettings.preset,
-    '-r', String(Math.min(parseInt(settings.fps || '30'), encodingSettings.targetFps)),
+    '-r', String(Math.min(Number.parseInt(settings.fps || '30'), encodingSettings.targetFps)),
     '-pix_fmt', encodingSettings.pixelFormat,
     '-threads', encodingSettings.threads,
     '-shortest',

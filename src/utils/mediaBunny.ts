@@ -760,7 +760,7 @@ export async function exportProjectWithMediaBunny(
     
     if (!ctx) throw new Error('Could not create canvas context');
 
-    const fps = parseInt(settings.fps) || 30;
+    const fps = Number.parseInt(settings.fps) || 30;
     const frameDuration = 1 / fps;
 
     // Extracted processClip function

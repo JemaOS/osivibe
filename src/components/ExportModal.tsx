@@ -253,10 +253,11 @@ export const ExportModal: React.FC = () => {
             <>
               {/* Filename */}
               <div>
-                <label className="block text-body font-medium text-neutral-700 mb-2">
+                <label htmlFor="export-filename" className="block text-body font-medium text-neutral-700 mb-2">
                   Nom du fichier
                 </label>
                 <input
+                  id="export-filename"
                   type="text"
                   value={exportSettings.filename}
                   onChange={(e) => setExportSettings({ filename: e.target.value })}
@@ -267,7 +268,7 @@ export const ExportModal: React.FC = () => {
 
               {/* Resolution */}
               <div>
-                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                <label id="export-resolution" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Resolution
                 </label>
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
@@ -289,7 +290,7 @@ export const ExportModal: React.FC = () => {
 
               {/* Aspect Ratio */}
               <div>
-                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                <label id="export-aspect" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Ratio d'aspect
                 </label>
                 <div className="grid grid-cols-5 gap-1 sm:gap-2">
@@ -320,7 +321,7 @@ export const ExportModal: React.FC = () => {
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {/* Format */}
                 <div>
-                  <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                  <label id="export-format" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                     Format
                   </label>
                   <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
@@ -342,7 +343,7 @@ export const ExportModal: React.FC = () => {
 
                 {/* FPS */}
                 <div>
-                  <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                  <label id="export-fps" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                     FPS
                   </label>
                   <div className="grid grid-cols-3 gap-1 sm:gap-2">
@@ -365,7 +366,7 @@ export const ExportModal: React.FC = () => {
 
               {/* Quality */}
               <div>
-                <label className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
+                <label id="export-quality" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Qualite
                 </label>
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">

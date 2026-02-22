@@ -2,7 +2,7 @@
 // Distributed under the license specified in the root directory of this project.
 
 export function formatTime(seconds: number): string {
-  if (isNaN(seconds) || seconds < 0) return '00:00';
+  if (Number.isNaN(seconds) || seconds < 0) return '00:00';
   
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -17,7 +17,7 @@ export function formatTime(seconds: number): string {
 }
 
 export function formatTimeWithMs(seconds: number): string {
-  if (isNaN(seconds) || seconds < 0) return '00:00:00';
+  if (Number.isNaN(seconds) || seconds < 0) return '00:00:00';
   
   const minutes = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
@@ -55,7 +55,7 @@ export function formatFileSize(bytes: number): string {
   const sizes = ['B', 'Ko', 'Mo', 'Go'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export function getFileType(file: File): 'video' | 'audio' | 'image' | 'unknown' {
