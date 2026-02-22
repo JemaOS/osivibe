@@ -1332,10 +1332,11 @@ function buildVideoFilter(
   let filter = '';
 
   if (clip.crop) {
-    const w = `iw*${clip.crop.width}/100`;
-    const h = `ih*${clip.crop.height}/100`;
-    const x = `iw*${clip.crop.x}/100`;
-    const y = `ih*${clip.crop.y}/100`;
+    // Force even dimensions and coordinates for crop to prevent yuv420p errors
+    const w = `trunc(iw*${clip.crop.width}/100/2)*2`;
+    const h = `trunc(ih*${clip.crop.height}/100/2)*2`;
+    const x = `trunc(iw*${clip.crop.x}/100/2)*2`;
+    const y = `trunc(ih*${clip.crop.y}/100/2)*2`;
     filter += `crop=${w}:${h}:${x}:${y}`;
   }
 
@@ -1366,8 +1367,9 @@ function buildImageTransformFilter(
   const actualWidthPct = (80 * scaleX) / 100;
   const actualHeightPct = (80 * scaleY) / 100;
   
-  const targetW = Math.max(2, Math.round(resolution.width * actualWidthPct / 100));
-  const targetH = Math.max(2, Math.round(resolution.height * actualHeightPct / 100));
+  // Force even dimensions to prevent scale filter errors with YUV inputs
+  const targetW = Math.max(2, Math.round(resolution.width * actualWidthPct / 100) & ~1);
+  const targetH = Math.max(2, Math.round(resolution.height * actualHeightPct / 100) & ~1);
   
   const centerX = Math.round(resolution.width * clip.transform.x / 100);
   const centerY = Math.round(resolution.height * clip.transform.y / 100);
@@ -1707,7 +1709,8 @@ async function exportSingleClip(
       const pngBlob = await convertImageToPng(fileToLoad);
       fileToLoad = new File([pngBlob], fileToLoad.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
     } catch (e) {
-      console.warn('Failed to convert SVG to PNG:', e);
+      console.error('Failed to convert SVG to PNG:', e);
+      throw new Error(`Impossible de convertir l'image SVG (${fileToLoad.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
     }
   }
 
@@ -1834,7 +1837,8 @@ async function loadUniqueFiles(
         file = new File([pngBlob], file.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
         uniqueFiles[i].file = file;
       } catch (e) {
-        console.warn('Failed to convert SVG to PNG:', e);
+        console.error('Failed to convert SVG to PNG:', e);
+        throw new Error(`Impossible de convertir l'image SVG (${file.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
       }
     }
 
@@ -2583,16 +2587,21 @@ async function convertImageToPng(file: File): Promise<Blob> {
         return reject(new Error('Could not get canvas context'));
       }
       
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      
-      canvas.toBlob((blob) => {
+      try {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(url);
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Could not convert image to PNG'));
+          }
+        }, 'image/png');
+      } catch (e) {
         URL.revokeObjectURL(url);
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Could not convert image to PNG'));
-        }
-      }, 'image/png');
+        reject(e);
+      }
     };
     
     img.onerror = () => {
