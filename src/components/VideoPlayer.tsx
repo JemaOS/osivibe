@@ -62,6 +62,123 @@ const calculateTransitionProgress = (
   return (clipEnd - currentTime) / transitionDuration;
 };
 
+// Apply opacity-based transitions (fade, dissolve, cross-dissolve)
+const applyOpacityTransition = (p: number): React.CSSProperties => {
+  return { opacity: p };
+};
+
+// Apply zoom transitions (zoom-in, zoom-out)
+const applyZoomTransition = (
+  transition: { type: string; position?: string },
+  p: number
+): React.CSSProperties => {
+  const isZoomIn = transition.type === 'zoom-in';
+  return {
+    transform: isZoomIn ? `scale(${p})` : `scale(${1.5 - p * 0.5})`,
+    opacity: p
+  };
+};
+
+// Apply slide transitions (slide-left, slide-right, slide-up, slide-down)
+const applySlideTransition = (
+  transition: { type: string; position?: string },
+  inv: number
+): React.CSSProperties => {
+  const isEnd = transition.position === 'end';
+  const direction = transition.type.replace('slide-', '');
+  
+  switch (direction) {
+    case 'left':
+      return { transform: isEnd ? `translateX(${-inv * 100}%)` : `translateX(${inv * 100}%)` };
+    case 'right':
+      return { transform: isEnd ? `translateX(${inv * 100}%)` : `translateX(${-inv * 100}%)` };
+    case 'up':
+      return { transform: isEnd ? `translateY(${-inv * 100}%)` : `translateY(${inv * 100}%)` };
+    case 'down':
+      return { transform: isEnd ? `translateY(${inv * 100}%)` : `translateY(${-inv * 100}%)` };
+    default:
+      return {};
+  }
+};
+
+// Apply diagonal slide transitions
+const applyDiagonalSlideTransition = (
+  transition: { type: string; position?: string },
+  inv: number
+): React.CSSProperties => {
+  const isEnd = transition.position === 'end';
+  const direction = transition.type.replace('slide-diagonal-', '');
+  
+  switch (direction) {
+    case 'tl':
+      return { 
+        transform: isEnd 
+          ? `translate(${-inv * 100}%, ${-inv * 100}%)` 
+          : `translate(${inv * 100}%, ${inv * 100}%)` 
+      };
+    case 'tr':
+      return { 
+        transform: isEnd 
+          ? `translate(${inv * 100}%, ${-inv * 100}%)` 
+          : `translate(${-inv * 100}%, ${inv * 100}%)` 
+      };
+    default:
+      return {};
+  }
+};
+
+// Apply wipe transitions (wipe-left, wipe-right, wipe-up, wipe-down)
+const applyWipeTransition = (
+  transition: { type: string; position?: string },
+  inv: number
+): React.CSSProperties => {
+  const isEnd = transition.position === 'end';
+  const direction = transition.type.replace('wipe-', '');
+  
+  switch (direction) {
+    case 'left':
+      return { clipPath: isEnd ? `inset(0 ${inv * 100}% 0 0)` : `inset(0 0 0 ${inv * 100}%)` };
+    case 'right':
+      return { clipPath: isEnd ? `inset(0 0 0 ${inv * 100}%)` : `inset(0 ${inv * 100}% 0 0)` };
+    case 'up':
+      return { clipPath: isEnd ? `inset(0 0 ${inv * 100}% 0)` : `inset(${inv * 100}% 0 0 0)` };
+    case 'down':
+      return { clipPath: isEnd ? `inset(${inv * 100}% 0 0 0)` : `inset(0 0 ${inv * 100}% 0)` };
+    default:
+      return {};
+  }
+};
+
+// Apply rotate transitions (rotate-in, rotate-out)
+const applyRotateTransition = (
+  transition: { type: string; position?: string },
+  p: number,
+  inv: number
+): React.CSSProperties => {
+  const isRotateIn = transition.type === 'rotate-in';
+  return {
+    transform: `rotate(${isRotateIn ? inv * -180 : inv * 180}deg) scale(${p})`,
+    opacity: p
+  };
+};
+
+// Apply geometric transitions (circle-wipe, diamond-wipe)
+const applyGeometricTransition = (
+  transition: { type: string },
+  p: number
+): React.CSSProperties => {
+  switch (transition.type) {
+    case 'circle-wipe':
+      return { clipPath: `circle(${p * 100}% at 50% 50%)` };
+    case 'diamond-wipe':
+      return { 
+        clipPath: `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)` 
+      };
+    default:
+      return {};
+  }
+};
+
 // Apply specific transition style
 const applyTransitionStyle = (
   transition: { type: string; position?: string },
@@ -69,91 +186,45 @@ const applyTransitionStyle = (
   inv: number,
   p: number
 ): React.CSSProperties => {
-  const style: React.CSSProperties = {};
+  const { type } = transition;
   
-  switch (transition.type) {
-    case 'fade':
-    case 'dissolve':
-    case 'cross-dissolve':
-      style.opacity = p;
-      break;
-    case 'zoom-in':
-      style.transform = `scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'zoom-out':
-      style.transform = `scale(${1.5 - p * 0.5})`;
-      style.opacity = p;
-      break;
-    case 'slide-left':
-      style.transform = transition.position === 'end' 
-        ? `translateX(${-inv * 100}%)` 
-        : `translateX(${inv * 100}%)`;
-      break;
-    case 'slide-right':
-      style.transform = transition.position === 'end' 
-        ? `translateX(${inv * 100}%)` 
-        : `translateX(${-inv * 100}%)`;
-      break;
-    case 'slide-up':
-      style.transform = transition.position === 'end' 
-        ? `translateY(${-inv * 100}%)` 
-        : `translateY(${inv * 100}%)`;
-      break;
-    case 'slide-down':
-      style.transform = transition.position === 'end' 
-        ? `translateY(${inv * 100}%)` 
-        : `translateY(${-inv * 100}%)`;
-      break;
-    case 'slide-diagonal-tl':
-      style.transform = transition.position === 'end'
-        ? `translate(${-inv * 100}%, ${-inv * 100}%)`
-        : `translate(${inv * 100}%, ${inv * 100}%)`;
-      break;
-    case 'slide-diagonal-tr':
-      style.transform = transition.position === 'end'
-        ? `translate(${inv * 100}%, ${-inv * 100}%)`
-        : `translate(${-inv * 100}%, ${inv * 100}%)`;
-      break;
-    case 'wipe-left':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 ${inv * 100}% 0 0)`
-        : `inset(0 0 0 ${inv * 100}%)`;
-      break;
-    case 'wipe-right':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 0 0 ${inv * 100}%)`
-        : `inset(0 ${inv * 100}% 0 0)`;
-      break;
-    case 'wipe-up':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 0 ${inv * 100}% 0)`
-        : `inset(${inv * 100}% 0 0 0)`;
-      break;
-    case 'wipe-down':
-      style.clipPath = transition.position === 'end'
-        ? `inset(${inv * 100}% 0 0 0)`
-        : `inset(0 0 ${inv * 100}% 0)`;
-      break;
-    case 'rotate-in':
-      style.transform = `rotate(${inv * -180}deg) scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'rotate-out':
-      style.transform = `rotate(${inv * 180}deg) scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'circle-wipe':
-      style.clipPath = `circle(${p * 100}% at 50% 50%)`;
-      break;
-    case 'diamond-wipe':
-      style.clipPath = `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)`;
-      break;
-    default:
-      style.opacity = p;
+  // Handle simple opacity transitions
+  if (['fade', 'dissolve', 'cross-dissolve'].includes(type)) {
+    return applyOpacityTransition(p);
   }
   
-  return style;
+  // Handle zoom transitions
+  if (['zoom-in', 'zoom-out'].includes(type)) {
+    return applyZoomTransition(transition, p);
+  }
+  
+  // Handle basic slide transitions
+  if (['slide-left', 'slide-right', 'slide-up', 'slide-down'].includes(type)) {
+    return applySlideTransition(transition, inv);
+  }
+  
+  // Handle diagonal slide transitions
+  if (['slide-diagonal-tl', 'slide-diagonal-tr'].includes(type)) {
+    return applyDiagonalSlideTransition(transition, inv);
+  }
+  
+  // Handle wipe transitions
+  if (['wipe-left', 'wipe-right', 'wipe-up', 'wipe-down'].includes(type)) {
+    return applyWipeTransition(transition, inv);
+  }
+  
+  // Handle rotate transitions
+  if (['rotate-in', 'rotate-out'].includes(type)) {
+    return applyRotateTransition(transition, p, inv);
+  }
+  
+  // Handle geometric transitions
+  if (['circle-wipe', 'diamond-wipe'].includes(type)) {
+    return applyGeometricTransition(transition, p);
+  }
+  
+  // Default fallback
+  return { opacity: p };
 };
 
 // Calculate transition style for a clip
@@ -1574,63 +1645,88 @@ export const VideoPlayer: React.FC = () => {
     });
   };
 
-  const calculateNewCrop = (deltaX: number, deltaY: number, crop: any) => {
-    const newCrop = { ...cropArea };
-
-    switch (resizingCrop) {
-      case 'nw':
-        {
-          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-          newCrop.width = crop.width + (crop.x - newX);
-          newCrop.height = crop.height + (crop.y - newY);
-          newCrop.x = newX;
-          newCrop.y = newY;
-        }
-        break;
-      case 'ne':
-        {
-          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-          newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-          newCrop.height = crop.height + (crop.y - newY);
-          newCrop.y = newY;
-        }
-        break;
-      case 'sw':
-        {
-          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-          newCrop.width = crop.width + (crop.x - newX);
-          newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-          newCrop.x = newX;
-        }
-        break;
+  const calculateNewCropEdge = (
+    handle: string,
+    deltaX: number,
+    deltaY: number,
+    crop: { x: number; y: number; width: number; height: number }
+  ): { x: number; y: number; width: number; height: number } | null => {
+    switch (handle) {
+      case 'nw': {
+        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+        return {
+          width: crop.width + (crop.x - newX),
+          height: crop.height + (crop.y - newY),
+          x: newX,
+          y: newY
+        };
+      }
+      case 'ne': {
+        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+        return {
+          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
+          height: crop.height + (crop.y - newY),
+          y: newY,
+          x: crop.x
+        };
+      }
+      case 'sw': {
+        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+        return {
+          width: crop.width + (crop.x - newX),
+          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
+          x: newX,
+          y: crop.y
+        };
+      }
       case 'se':
-        newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-        newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-        break;
-      case 'n':
-        {
-          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-          newCrop.height = crop.height + (crop.y - newY);
-          newCrop.y = newY;
-        }
-        break;
+        return {
+          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
+          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
+          x: crop.x,
+          y: crop.y
+        };
+      case 'n': {
+        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+        return {
+          height: crop.height + (crop.y - newY),
+          y: newY,
+          width: crop.width,
+          x: crop.x
+        };
+      }
       case 's':
-        newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-        break;
-      case 'w':
-        {
-          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-          newCrop.width = crop.width + (crop.x - newX);
-          newCrop.x = newX;
-        }
-        break;
+        return {
+          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
+          width: crop.width,
+          x: crop.x,
+          y: crop.y
+        };
+      case 'w': {
+        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+        return {
+          width: crop.width + (crop.x - newX),
+          x: newX,
+          height: crop.height,
+          y: crop.y
+        };
+      }
       case 'e':
-        newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-        break;
+        return {
+          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
+          height: crop.height,
+          x: crop.x,
+          y: crop.y
+        };
+      default:
+        return null;
     }
+  };
 
-    return newCrop;
+  const calculateNewCrop = (deltaX: number, deltaY: number, crop: any) => {
+    const result = calculateNewCropEdge(resizingCrop || '', deltaX, deltaY, crop);
+    return result || { ...cropArea };
   };
 
   useEffect(() => {

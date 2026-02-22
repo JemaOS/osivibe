@@ -68,6 +68,17 @@ const getChevronSize = (layoutMode: string): string => {
   return 'w-4 h-4';
 };
 
+const getAspectRatioDescription = (ratio: string): string => {
+  const descriptions: Record<string, string> = {
+    '16:9': 'Paysage standard',
+    '4:3': 'Format classique',
+    '9:16': 'Portrait (TikTok, Stories)',
+    '1:1': 'Carré (Instagram)',
+    '21:9': 'Cinéma ultra-wide'
+  };
+  return descriptions[ratio] || '';
+};
+
 type TabType = 'clip' | 'text' | 'transitions' | 'filters';
 
 interface PropertiesPanelProps {
@@ -1101,94 +1112,48 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       }
     };
 
-    const getTransitionCategoryLabel = (category: string): string => {
-      const labels: Record<string, string> = {
-        basic: 'Basiques',
-        slide: 'Glissements',
-        wipe: 'Balayages',
-        zoom: 'Zooms',
-        rotate: 'Rotations',
-        shape: 'Formes'
-      };
-      return labels[category] || 'Effets';
+  const getTransitionCategoryLabel = (category: string): string => {
+    const labels: Record<string, string> = {
+      basic: 'Basiques',
+      slide: 'Glissements',
+      wipe: 'Balayages',
+      zoom: 'Zooms',
+      rotate: 'Rotations',
+      shape: 'Formes'
     };
+    return labels[category] || 'Effets';
+  };
 
+  const renderTransitionsList = (category: string, categoryTransitions: typeof AVAILABLE_TRANSITIONS) => {
     return (
-      <div className="p-4 space-y-4">
-        <p className="text-small text-neutral-500">
-          Transition pour : <span className="text-white font-medium">{targetClip.name}</span>
+      <div key={category}>
+        <p className="text-caption text-neutral-500 uppercase mb-2">
+          {getTransitionCategoryLabel(category)}
         </p>
-        
-        {/* Preview area */}
-        {previewTransition && (
-          <div className="glass-panel p-3 rounded-xl">
-            <p className="text-caption text-neutral-600 mb-2">Apercu :</p>
-            <div className="w-full h-24">
-              <TransitionPreview type={previewTransition} />
-            </div>
-            <p className="text-caption text-neutral-700 mt-2">
-              {AVAILABLE_TRANSITIONS.find(t => t.type === previewTransition)?.description}
-            </p>
-          </div>
-        )}
-        
-        {/* Transitions by category */}
-        {categories.map((category) => {
-          const categoryTransitions = AVAILABLE_TRANSITIONS.filter(t => t.category === category);
-          return (
-            <div key={category}>
-              <p className="text-caption text-neutral-500 uppercase mb-2">
-                {getTransitionCategoryLabel(category)}
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {categoryTransitions.map((transition) => (
-                  <button
-                    key={transition.type}
-                    draggable={transition.type !== 'none'}
-                    onDragStart={handleTransitionDragStart(transition)}
-                    onClick={() => handleTransitionClick(transition)}
-                    className={`group relative overflow-hidden p-2 rounded-xl text-caption font-medium transition-all ${
-                      (currentTransition?.type === transition.type) || 
-                      (!currentTransition && transition.type === 'none')
-                        ? 'bg-primary-500 text-white'
-                        : 'glass-panel-medium hover:border-primary-500/50'
-                    } ${transition.type !== 'none' ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                  >
-                    <div className="h-12 mb-1 rounded overflow-hidden opacity-60 group-hover:opacity-100 transition-opacity">
-                      <TransitionPreview type={transition.type} />
-                    </div>
-                    <div className="text-center truncate">{transition.name}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-
-        {currentTransition && currentTransition.type !== 'none' && (
-          <div className="mt-4">
-            <label 
-              className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-              onPointerDown={(e) => handleScrub(e, currentTransition.duration, (val) => setTransition(targetClip!.id, currentTransition.type, val), { min: 0.1, max: 2, step: 0.01 })}
+        <div className="grid grid-cols-2 gap-2">
+          {categoryTransitions.map((transition) => (
+            <button
+              key={transition.type}
+              draggable={transition.type !== 'none'}
+              onDragStart={handleTransitionDragStart(transition)}
+              onClick={() => handleTransitionClick(transition)}
+              className={`group relative overflow-hidden p-2 rounded-xl text-caption font-medium transition-all ${
+                (currentTransition?.type === transition.type) || 
+                (!currentTransition && transition.type === 'none')
+                  ? 'bg-primary-500 text-white'
+                  : 'glass-panel-medium hover:border-primary-500/50'
+              } ${transition.type !== 'none' ? 'cursor-grab active:cursor-grabbing' : ''}`}
             >
-              Duree ({currentTransition.duration}s)
-            </label>
-            <input
-              type="range"
-              min="0.1"
-              max="2"
-              step="0.1"
-              value={currentTransition.duration}
-              onChange={(e) => setTransition(targetClip!.id, currentTransition.type, parseFloat(e.target.value))}
-              onPointerDown={(e) => {
-                handleScrub(e, currentTransition.duration, (val) => setTransition(targetClip!.id, currentTransition.type, val), { min: 0.1, max: 2, step: 0.01 });
-              }}
-              className="w-full cursor-ew-resize"
-            />
-          </div>
-        )}
+              <div className="h-12 mb-1 rounded overflow-hidden opacity-60 group-hover:opacity-100 transition-opacity">
+                <TransitionPreview type={transition.type} />
+              </div>
+              <div className="text-center truncate">{transition.name}</div>
+            </button>
+          ))}
+        </div>
       </div>
     );
+  };
   };
 
   const renderFilters = () => {

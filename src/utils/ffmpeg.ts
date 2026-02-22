@@ -68,20 +68,31 @@ export interface EncodingSettings {
 }
 
 function applyGpuTierSettings(settings: EncodingSettings, gpuTier: string, quality: string) {
+  // Helper to get CRF value based on quality
+  const getCrf = (high: string, mid: string, low: string) => {
+    if (quality === 'high') return high;
+    if (quality === 'medium') return mid;
+    return low;
+  };
+
+  // Helper to get preset value based on quality
+  const getPreset = (high: string, low: string) => quality === 'high' ? high : low;
+
+  // Reset additional flags for this tier
+  settings.additionalFlags = settings.additionalFlags.filter(f => f !== '-tune' && f !== '-g' && f !== '-max_muxing_queue_size');
+
   switch (gpuTier) {
     case 'high':
       settings.preset = 'ultrafast';
-      settings.crf = quality === 'high' ? '23' : quality === 'medium' ? '26' : '30';
+      settings.crf = getCrf('23', '26', '30');
       settings.maxWidth = 3840;
       settings.maxHeight = 2160;
       settings.targetFps = 60;
-      settings.additionalFlags.push('-tune', 'zerolatency');
-      settings.additionalFlags.push('-g', '60');
-      settings.additionalFlags.push('-max_muxing_queue_size', '1024');
+      settings.additionalFlags.push('-tune', 'zerolatency', '-g', '60', '-max_muxing_queue_size', '1024');
       break;
     case 'medium':
-      settings.preset = quality === 'high' ? 'fast' : 'veryfast';
-      settings.crf = quality === 'high' ? '20' : quality === 'medium' ? '24' : '28';
+      settings.preset = getPreset('fast', 'veryfast');
+      settings.crf = getCrf('20', '24', '28');
       settings.maxWidth = 1920;
       settings.maxHeight = 1080;
       settings.targetFps = 30;
@@ -89,7 +100,7 @@ function applyGpuTierSettings(settings: EncodingSettings, gpuTier: string, quali
       break;
     case 'low':
       settings.preset = 'ultrafast';
-      settings.crf = quality === 'high' ? '22' : quality === 'medium' ? '28' : '32';
+      settings.crf = getCrf('22', '28', '32');
       settings.maxWidth = 1280;
       settings.maxHeight = 720;
       settings.targetFps = 30;

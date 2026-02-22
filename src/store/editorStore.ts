@@ -46,6 +46,28 @@ const resolveOverlaps = (clips: TimelineClip[]): TimelineClip[] => {
   return resolvedClips;
 };
 
+// Helper for moveClip to find and remove clip from a track
+const findAndRemoveClip = (track: TimelineTrack, clipId: string, newTrackId: string, newStartTime: number): { track: TimelineTrack; clipToMove: TimelineClip | null } => {
+  const clip = track.clips.find((c) => c.id === clipId);
+  if (clip) {
+    const clipToMove = { ...clip, trackId: newTrackId, startTime: Math.max(0, newStartTime) };
+    const updatedTrack = {
+      ...track,
+      clips: track.clips.filter((c) => c.id !== clipId),
+    };
+    return { track: updatedTrack, clipToMove };
+  }
+  return { track, clipToMove: null };
+};
+
+// Helper for moveClip to add clip to a new track
+const addClipToTrack = (track: TimelineTrack, clipToMove: TimelineClip): TimelineTrack => {
+  if (track.id === clipToMove.trackId) {
+    return { ...track, clips: resolveOverlaps([...track.clips, clipToMove]) };
+  }
+  return track;
+};
+
 interface EditorState {
   // Project data
   projectName: string;
@@ -741,31 +763,18 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     
     set((state) => {
       let clipToMove: TimelineClip | null = null;
-      
-      const removeClipFromTrack = (track: TimelineTrack) => {
-        const clip = track.clips.find((c) => c.id === clipId);
-        if (clip) {
-          clipToMove = { ...clip, trackId: newTrackId, startTime: Math.max(0, newStartTime) };
-        }
-        const filterClip = (c: TimelineClip) => c.id !== clipId;
-        return {
-          ...track,
-          clips: track.clips.filter(filterClip),
-        };
-      };
 
-      // Find and remove the clip from its current track
-      const tracksWithoutClip = state.tracks.map(removeClipFromTrack);
+      // Remove clip from old track
+      const newTracks = state.tracks.map(track => {
+        const result = findAndRemoveClip(track, clipId, newTrackId, newStartTime);
+        if (result.clipToMove) clipToMove = result.clipToMove;
+        return result.track;
+      });
       
-      // Add the clip to the new track
+      // Add clip to new track
       if (clipToMove) {
-        const addClipToNewTrack = (track: TimelineTrack) => 
-          track.id === newTrackId
-            ? { ...track, clips: resolveOverlaps([...track.clips, clipToMove!]) }
-            : track;
-
         return {
-          tracks: tracksWithoutClip.map(addClipToNewTrack),
+          tracks: newTracks.map(track => addClipToTrack(track, clipToMove!)),
         };
       }
       

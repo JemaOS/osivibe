@@ -50,11 +50,18 @@ const applyTransition = (
         ctx.globalAlpha = p;
     }
 
+    // Helper to apply transform
+    const applyTransform = (transform: (ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, p: number, inv: number, width: number, height: number) => void) => {
+        transform(ctx, p, inv, width, height);
+    };
+
     switch (type) {
         case 'zoom-in':
-            ctx.translate(width / 2, height / 2);
-            ctx.scale(p, p);
-            ctx.translate(-width / 2, -height / 2);
+            applyTransform((c, val) => {
+                c.translate(width / 2, height / 2);
+                c.scale(val, val);
+                c.translate(-width / 2, -height / 2);
+            });
             break;
         case 'zoom-out': {
             const s = 1.5 - p * 0.5;
@@ -64,16 +71,20 @@ const applyTransition = (
             break;
         }
         case 'rotate-in':
-            ctx.translate(width / 2, height / 2);
-            ctx.rotate(inv * -Math.PI);
-            ctx.scale(p, p);
-            ctx.translate(-width / 2, -height / 2);
+            applyTransform((c, val, i) => {
+                c.translate(width / 2, height / 2);
+                c.rotate(i * -Math.PI);
+                c.scale(val, val);
+                c.translate(-width / 2, -height / 2);
+            });
             break;
         case 'rotate-out':
-            ctx.translate(width / 2, height / 2);
-            ctx.rotate(inv * Math.PI);
-            ctx.scale(p, p);
-            ctx.translate(-width / 2, -height / 2);
+            applyTransform((c, val, i) => {
+                c.translate(width / 2, height / 2);
+                c.rotate(i * Math.PI);
+                c.scale(val, val);
+                c.translate(-width / 2, -height / 2);
+            });
             break;
         case 'slide-left': {
             const txLeft = isEnd ? -inv * width : inv * width;
@@ -628,12 +639,31 @@ export async function exportProjectWithMediaBunny(
     const fps = parseInt(settings.fps) || 30;
     const frameDuration = 1 / fps;
 
-    for (let i = 0; i < sortedClips.length; i++) {
+    // Extracted processClip function
+    const processClip = async (
+        clip: any,
+        index: number,
+        currentTimelineTime: number,
+        processedDuration: number,
+        totalDuration: number,
+        totalClips: number,
+        onProgress: any,
+        textOverlays: any,
+        transitions: any,
+        audioConfig: any,
+        width: number,
+        height: number,
+        fps: number,
+        frameDuration: number,
+        canvas: HTMLCanvasElement | OffscreenCanvas,
+        ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+        videoSource: any,
+        audioSource: any
+    ) => {
         if (isExportCancelled) {
             throw new Error('Export cancelled');
         }
 
-        const clip = sortedClips[i];
         const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
         
         if (clip.startTime > currentTimelineTime + 0.01) {
@@ -643,7 +673,7 @@ export async function exportProjectWithMediaBunny(
         }
         
         const currentProgress = 5 + (processedDuration / totalDuration) * 90;
-        onProgress?.(Math.round(currentProgress), `Traitement du clip ${i + 1}/${sortedClips.length}...`);
+        onProgress?.(Math.round(currentProgress), `Traitement du clip ${index + 1}/${totalClips}...`);
         
         const url = URL.createObjectURL(clip.file);
         try {
@@ -673,8 +703,8 @@ export async function exportProjectWithMediaBunny(
                 clipDuration,
                 processedDuration,
                 totalDuration,
-                sortedClips.length,
-                i,
+                totalClips,
+                index,
                 onProgress,
                 textOverlays,
                 startTransition,
@@ -692,12 +722,18 @@ export async function exportProjectWithMediaBunny(
             if (isExportCancelled || (err instanceof Error && err.message === 'Export cancelled')) {
                 throw err;
             }
-            console.error(`Error processing clip ${i}:`, err);
+            console.error(`Error processing clip ${index}:`, err);
             throw err; // Throw to trigger FFmpeg fallback
         } finally {
             URL.revokeObjectURL(url);
         }
+    };
+
+    for (let i = 0; i < sortedClips.length; i++) {
+        await processClip(sortedClips[i], i, currentTimelineTime, processedDuration, totalDuration, sortedClips.length, onProgress, textOverlays, transitions, audioConfig, width, height, fps, frameDuration, canvas, ctx, videoSource, audioSource);
         
+        const clip = sortedClips[i];
+        const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
         processedDuration += clipDuration;
         currentTimelineTime = Math.max(currentTimelineTime, clip.startTime + clipDuration);
     }

@@ -40,31 +40,37 @@ const getLabelWidth = (layoutMode: string): number => {
   return 128; // Desktop
 };
 
+// Helper functions for track label based on layout mode
+const getExpandedLabel = (trackName: string): string => trackName;
+
+const getMinimalLabel = (trackName: string): string => {
+  const lowerName = trackName.toLowerCase();
+  if (lowerName.includes('video')) return 'Vid';
+  if (lowerName.includes('image')) return 'Img';
+  if (lowerName.includes('audio')) return 'Aud';
+  if (lowerName.includes('text')) return 'Txt';
+  return trackName.substring(0, 3);
+};
+
+const getCompactLabel = (trackName: string): string => {
+  const lowerName = trackName.toLowerCase();
+  if (lowerName.includes('video')) return 'Video';
+  if (lowerName.includes('image')) return 'Imgs';
+  if (lowerName.includes('audio')) return 'Audio';
+  if (lowerName.includes('text')) return 'Text';
+  return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
+};
+
 const getTrackLabel = (trackName: string, layoutMode: string): string => {
   const isDesktop = layoutMode === 'desktop';
   const isExpanded = layoutMode === 'expanded';
   const isMinimal = layoutMode === 'minimal';
   const isCompact = layoutMode === 'compact' || layoutMode === 'adaptive';
   
-  if (isDesktop || isExpanded) return trackName;
+  if (isDesktop || isExpanded) return getExpandedLabel(trackName);
   
-  const lowerName = trackName.toLowerCase();
-  
-  if (isMinimal) {
-    if (lowerName.includes('video')) return 'Vid';
-    if (lowerName.includes('image')) return 'Img';
-    if (lowerName.includes('audio')) return 'Aud';
-    if (lowerName.includes('text')) return 'Txt';
-    return trackName.substring(0, 3);
-  }
-  
-  if (isCompact) {
-    if (lowerName.includes('video')) return 'Video';
-    if (lowerName.includes('image')) return 'Imgs';
-    if (lowerName.includes('audio')) return 'Audio';
-    if (lowerName.includes('text')) return 'Text';
-    return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
-  }
+  if (isMinimal) return getMinimalLabel(trackName);
+  if (isCompact) return getCompactLabel(trackName);
   
   return trackName;
 };
@@ -870,24 +876,28 @@ export const Timeline: React.FC = () => {
 
   // Check if a clip type is compatible with a track type
   const isClipCompatibleWithTrack = (clipType: string, trackType: string, trackName: string): boolean => {
+    const isAudioClip = clipType === 'audio';
+    const isVideoClip = clipType === 'video';
+    const isImageClip = clipType === 'image';
+    const isVideoTrack = trackType === 'video';
+    const isAudioTrack = trackType === 'audio';
+
     // Audio clips can only go to audio tracks
-    if (clipType === 'audio') {
-      return trackType === 'audio';
-    }
+    if (isAudioClip) return isAudioTrack;
     
     // Video clips can only go to video tracks (not image tracks)
-    if (clipType === 'video') {
+    if (isVideoClip) {
       // Video clips should go to tracks named "Video" or generic video tracks, not "Images"
       const isImageTrack = trackName.toLowerCase().includes('image');
-      return trackType === 'video' && !isImageTrack;
+      return isVideoTrack && !isImageTrack;
     }
     
     // Image clips can only go to image tracks or generic video tracks
-    if (clipType === 'image') {
+    if (isImageClip) {
       // Images should go to tracks named "Images" or generic video tracks, not "Video" named tracks
       const isVideoNamedTrack = trackName.toLowerCase().includes('video');
       // Allow images on video-type tracks that are either named "Images" or are generic
-      return trackType === 'video' && !isVideoNamedTrack;
+      return isVideoTrack && !isVideoNamedTrack;
     }
     
     return false;
@@ -1120,6 +1130,26 @@ export const Timeline: React.FC = () => {
     };
   }, [resizingText, textOverlays, ui.timelineZoom, updateTextOverlay]);
 
+  // Find smart track based on media type
+  const findSmartTrack = (mediaType: string, tracksList: any[]) => {
+    let smartTrack: any = null;
+    
+    if (mediaType === 'image') {
+      smartTrack = tracksList.find(t => t.type === 'video' && (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay')));
+    } else if (mediaType === 'video') {
+      smartTrack = tracksList.find(t => t.type === 'video' && t.name.toLowerCase().includes('video'));
+    } else if (mediaType === 'audio') {
+      smartTrack = tracksList.find(t => t.type === 'audio' && t.name.toLowerCase().includes('audio'));
+    }
+    
+    if (!smartTrack) {
+      const trackType = mediaType === 'audio' ? 'audio' : 'video';
+      smartTrack = tracksList.find(t => t.type === trackType);
+    }
+    
+    return smartTrack;
+  };
+
   const handleMediaDrop = (media: MediaFile, trackId: string, time: number) => {
     const targetTrack = tracks.find(t => t.id === trackId);
     if (!targetTrack) return;
@@ -1131,20 +1161,7 @@ export const Timeline: React.FC = () => {
        const { addClipToTrack } = useEditorStore.getState();
        addClipToTrack(trackId, media, Math.max(0, time));
     } else {
-       let smartTrack: any = null;
-       
-       if (media.type === 'image') {
-         smartTrack = tracks.find(t => t.type === 'video' && (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay')));
-       } else if (media.type === 'video') {
-         smartTrack = tracks.find(t => t.type === 'video' && t.name.toLowerCase().includes('video'));
-       } else if (media.type === 'audio') {
-         smartTrack = tracks.find(t => t.type === 'audio' && t.name.toLowerCase().includes('audio'));
-       }
-       
-       if (!smartTrack) {
-         const trackType = media.type === 'audio' ? 'audio' : 'video';
-         smartTrack = tracks.find(t => t.type === trackType);
-       }
+       const smartTrack = findSmartTrack(media.type, tracks);
 
        if (smartTrack) {
          const { addClipToTrack } = useEditorStore.getState();
@@ -1207,33 +1224,11 @@ export const Timeline: React.FC = () => {
   }, []);
 
   const handleTimelineMediaDrop = (media: MediaFile, time: number) => {
-    let targetTrack: any = null;
+    const smartTrack = findSmartTrack(media.type, tracks);
     
-    if (media.type === 'image') {
-      targetTrack = tracks.find(t => 
-        t.type === 'video' && 
-        (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay'))
-      );
-    } else if (media.type === 'video') {
-      targetTrack = tracks.find(t => 
-        t.type === 'video' && 
-        t.name.toLowerCase().includes('video')
-      );
-    } else if (media.type === 'audio') {
-      targetTrack = tracks.find(t => 
-        t.type === 'audio' && 
-        t.name.toLowerCase().includes('audio')
-      );
-    }
-
-    if (!targetTrack) {
-      const trackType = media.type === 'audio' ? 'audio' : 'video';
-      targetTrack = tracks.find(t => t.type === trackType);
-    }
-    
-    if (targetTrack) {
+    if (smartTrack) {
       const { addClipToTrack } = useEditorStore.getState();
-      addClipToTrack(targetTrack.id, media, Math.max(0, time));
+      addClipToTrack(smartTrack.id, media, Math.max(0, time));
     }
   };
 

@@ -336,6 +336,18 @@ function determineIsLowEnd(
   return false;
 }
 
+function determineQualityFromPerformance(performanceScore: number): { quality: PreviewSettings['quality']; maxSafeResolution: number } {
+  if (performanceScore >= 70) {
+    return { quality: 'original', maxSafeResolution: 1080 };
+  } else if (performanceScore >= 50) {
+    return { quality: 'high', maxSafeResolution: 720 };
+  } else if (performanceScore >= 30) {
+    return { quality: 'medium', maxSafeResolution: 480 };
+  } else {
+    return { quality: 'low', maxSafeResolution: 360 };
+  }
+}
+
 function determineRecommendedQuality(
   isAppleSilicon: boolean,
   isHighEndMobile: boolean,
@@ -348,36 +360,30 @@ function determineRecommendedQuality(
   let maxSafeResolution = 1080;
   
   if (isAppleSilicon) {
-    recommendedQuality = 'original';
-    maxSafeResolution = 2160;
-  } else if (isHighEndMobile && !isChromeOnMobile) {
-    recommendedQuality = 'original';
-    maxSafeResolution = 1080;
-  } else if (isHighEndMobile && isChromeOnMobile) {
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
-  } else if (isChromeOnMobile) {
-    if (performanceScore >= 50) {
-      recommendedQuality = 'medium';
-      maxSafeResolution = 480;
-    } else {
-      recommendedQuality = 'low';
-      maxSafeResolution = 360;
-    }
-  } else if (performanceScore >= 70) {
-    recommendedQuality = 'original';
-    maxSafeResolution = 1080;
-  } else if (performanceScore >= 50) {
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
-  } else if (performanceScore >= 30) {
-    recommendedQuality = 'medium';
-    maxSafeResolution = 480;
-  } else {
-    recommendedQuality = 'low';
-    maxSafeResolution = 360;
+    return { quality: 'original', maxSafeResolution: 2160 };
   }
   
+  if (isHighEndMobile && !isChromeOnMobile) {
+    return { quality: 'original', maxSafeResolution: 1080 };
+  }
+  
+  if (isHighEndMobile && isChromeOnMobile) {
+    return { quality: 'high', maxSafeResolution: 720 };
+  }
+  
+  if (isChromeOnMobile) {
+    if (performanceScore >= 50) {
+      return { quality: 'medium', maxSafeResolution: 480 };
+    } else {
+      return { quality: 'low', maxSafeResolution: 360 };
+    }
+  }
+  
+  const perf = determineQualityFromPerformance(performanceScore);
+  recommendedQuality = perf.quality;
+  maxSafeResolution = perf.maxSafeResolution;
+  
+  // Adjust based on CPU cores
   if (!isHighEndMobile && !isAppleSilicon) {
     if (cpuCores <= 2 && recommendedQuality !== 'low') {
       recommendedQuality = 'low';
@@ -388,6 +394,7 @@ function determineRecommendedQuality(
     }
   }
   
+  // Adjust based on network
   if (connectionQuality === 'slow' && recommendedQuality !== 'low') {
     recommendedQuality = 'low';
     maxSafeResolution = 360;

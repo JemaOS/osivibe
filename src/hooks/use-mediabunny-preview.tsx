@@ -62,6 +62,29 @@ export const useMediaBunnyPreview = (
       }
     };
 
+    // Helper to release MediaBunny resources for a clip
+    const releaseClipResources = (clip: MediaBunnyClip) => {
+      // Close any cached samples
+      if (clip.lastSample) {
+        try { clip.lastSample.close(); } catch(e) { /* ignore */ }
+      }
+      // Close buffer samples
+      clip.buffer.forEach(item => {
+        try { item.sample.close(); } catch(e) { /* ignore */ }
+      });
+      // FIX: Close input and sink to release WebCodecs resources (VideoDecoder, etc.)
+      // These resources must be explicitly closed to prevent memory leaks
+      // Use type assertion since the MediaBunny types may not include close() but runtime does
+      const input = clip.input as unknown as { close?: () => void };
+      if (input && typeof input.close === 'function') {
+        try { input.close(); } catch(e) { /* ignore */ }
+      }
+      const sink = clip.sink as unknown as { close?: () => void };
+      if (sink && typeof sink.close === 'function') {
+        try { sink.close(); } catch(e) { /* ignore */ }
+      }
+    };
+
     const initClips = async () => {
       const currentClips = new Map<string, MediaBunnyClip>();
       const promises: Promise<void>[] = [];
@@ -85,28 +108,10 @@ export const useMediaBunnyPreview = (
 
       await Promise.all(promises);
 
-      // Cleanup old clips - FIX: Properly release MediaBunny resources to prevent memory leaks
+      // Cleanup old clips
       clipsRef.current.forEach((clip, id) => {
         if (!currentClips.has(id)) {
-          // Close any cached samples
-          if (clip.lastSample) {
-            try { clip.lastSample.close(); } catch(e) { /* ignore */ }
-          }
-          // Close buffer samples
-          clip.buffer.forEach(item => {
-            try { item.sample.close(); } catch(e) { /* ignore */ }
-          });
-          // FIX: Close input and sink to release WebCodecs resources (VideoDecoder, etc.)
-          // These resources must be explicitly closed to prevent memory leaks
-          // Use type assertion since the MediaBunny types may not include close() but runtime does
-          const input = clip.input as unknown as { close?: () => void };
-          if (input && typeof input.close === 'function') {
-            try { input.close(); } catch(e) { /* ignore */ }
-          }
-          const sink = clip.sink as unknown as { close?: () => void };
-          if (sink && typeof sink.close === 'function') {
-            try { sink.close(); } catch(e) { /* ignore */ }
-          }
+          releaseClipResources(clip);
         }
       });
 
