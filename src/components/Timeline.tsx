@@ -122,6 +122,61 @@ const getTimeInterval = (zoom: number): number => {
   return 1;
 };
 
+// Helper functions for responsive classes
+const getHeaderTitleClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-xs';
+
+const getToolbarBtnClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-8 h-8';
+
+const getToolbarIconClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-2.5 h-2.5' : isCompact ? 'w-3 h-3' : 'w-4 h-4';
+
+const getDividerClass = (isMinimal: boolean) => 
+  isMinimal ? 'h-4' : 'h-5';
+
+const getZoomBtnClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-5 h-5' : isCompact ? 'w-6 h-6' : 'w-8 h-8';
+
+const getZoomIconClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-4 h-4';
+
+const getZoomTextClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'text-[8px] min-w-[1.5rem]' : isCompact ? 'text-[9px] min-w-[2rem]' : 'text-xs min-w-[3rem]';
+
+const getRatioBtnClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'h-5 text-[8px] px-1' : isCompact ? 'h-6 text-[9px] px-1.5' : 'h-8 text-xs px-2';
+
+const getTrackIconClass = (isMinimal: boolean) => 
+  isMinimal ? 'w-2.5 h-2.5' : 'w-3 h-3';
+
+const getTrackTextClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs';
+
+const getTrackActionBtnClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-4 h-4' : isCompact ? 'w-5 h-5' : 'w-6 h-6';
+
+const getTrackActionIconClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'sm:w-3 sm:h-3';
+
+const getAddTrackBtnClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'h-5 text-[8px]' : isCompact ? 'h-6 text-[9px]' : 'h-8 text-xs';
+
+const getAddTrackIconClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3';
+
+const getRulerTickClass = (isMinimal: boolean) => 
+  isMinimal ? 'h-1' : 'h-2';
+
+const getRulerTextClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]';
+
+const getResizeHandleClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal || isCompact ? 'w-4' : 'w-3';
+
+const getPlayheadHandleClass = (isMinimal: boolean, isCompact: boolean) => 
+  isMinimal || isCompact ? '-left-4 w-8 h-8' : '-left-2 w-4 h-4';
+
 const TimelineClipComponent = ({
   clip,
   track,
@@ -796,7 +851,6 @@ export const Timeline: React.FC = () => {
   const tracksContainerRef = useRef<HTMLDivElement>(null);
   const labelsContainerRef = useRef<HTMLDivElement>(null);
   const [isDraggingText, setIsDraggingText] = useState(false);
-  const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [resizingText, setResizingText] = useState<{ id: string; edge: 'start' | 'end' } | null>(null);
   const [isDraggingTransition, setIsDraggingTransition] = useState(false);
@@ -874,15 +928,15 @@ export const Timeline: React.FC = () => {
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
       {/* Timeline Header */}
       <div className={`px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
-        <h3 className={`${isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-xs'} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
+        <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
         <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
           {/* Cut Tool */}
           <button
             onClick={handleCutClick}
-            className={`btn-icon ${isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-8 h-8'} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
+            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
             title="Couper"
           >
-            <Scissors className={`${isMinimal ? 'w-2.5 h-2.5' : isCompact ? 'w-3 h-3' : 'w-4 h-4'}`} />
+            <Scissors className={getToolbarIconClass(isMinimal, isCompact)} />
           </button>
           
           {/* Crop Tool - Hidden on minimal and compact screens */}
@@ -900,36 +954,34 @@ export const Timeline: React.FC = () => {
             </button>
           )}
           
-          <div className={`w-px ${isMinimal ? 'h-4' : 'h-5'} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
+          <div className={`w-px ${getDividerClass(isMinimal)} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
           
           <span className="text-[9px] hidden sm:inline sm:text-caption text-neutral-400 flex-shrink-0">Zoom:</span>
           <button
             onClick={() => handleZoom(-0.2)}
-            className={`btn-icon ${isMinimal ? 'w-5 h-5' : isCompact ? 'w-6 h-6' : 'w-8 h-8'} touch-target flex-shrink-0`}
+            className={`btn-icon ${getZoomBtnClass(isMinimal, isCompact)} touch-target flex-shrink-0`}
             disabled={ui.timelineZoom <= 0.2}
           >
-            <ZoomOut className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-4 h-4'}`} />
+            <ZoomOut className={getZoomIconClass(isMinimal, isCompact)} />
           </button>
-          <span className={`${isMinimal ? 'text-[8px] min-w-[1.5rem]' : isCompact ? 'text-[9px] min-w-[2rem]' : 'text-xs min-w-[3rem]'} text-neutral-300 text-center flex-shrink-0`}>
+          <span className={`${getZoomTextClass(isMinimal, isCompact)} text-neutral-300 text-center flex-shrink-0`}>
             {Math.round(ui.timelineZoom * 100)}%
           </span>
           <button
             onClick={() => handleZoom(0.2)}
-            className={`btn-icon ${isMinimal ? 'w-5 h-5' : isCompact ? 'w-6 h-6' : 'w-8 h-8'} touch-target flex-shrink-0`}
+            className={`btn-icon ${getZoomBtnClass(isMinimal, isCompact)} touch-target flex-shrink-0`}
             disabled={ui.timelineZoom >= 5}
           >
-            <ZoomIn className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-4 h-4'}`} />
+            <ZoomIn className={getZoomIconClass(isMinimal, isCompact)} />
           </button>
-
-          <div className={`w-px ${isMinimal ? 'h-4' : 'h-5'} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
-
+          <div className={`w-px ${getDividerClass(isMinimal)} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
           {/* Aspect Ratio Button */}
           <button
             onClick={handleAspectRatioClick}
-            className={`btn-secondary ${isMinimal ? 'h-5 text-[8px] px-1' : isCompact ? 'h-6 text-[9px] px-1.5' : 'h-8 text-xs px-2'} flex items-center gap-0.5 touch-target flex-shrink-0`}
+            className={`btn-secondary ${getRatioBtnClass(isMinimal, isCompact)} flex items-center gap-0.5 touch-target flex-shrink-0`}
             title="Ratio"
           >
-            <Monitor className={`${isMinimal ? 'w-2.5 h-2.5' : isCompact ? 'w-3 h-3' : 'w-4 h-4'}`} />
+            <Monitor className={getToolbarIconClass(isMinimal, isCompact)} />
             <span className="hidden xs:inline">{aspectRatio}</span>
           </button>
         </div>
@@ -958,10 +1010,10 @@ export const Timeline: React.FC = () => {
                   <div className="flex items-center gap-1">
                     {/* Show icon on small screens for better identification */}
                     {(isMinimal || isCompact) && (
-                      <TrackIcon className={`${isMinimal ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-neutral-400 flex-shrink-0`} />
+                      <TrackIcon className={`${getTrackIconClass(isMinimal)} text-neutral-400 flex-shrink-0`} />
                     )}
                     <p
-                      className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
+                      className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}
                       title={track.name} // Full name on hover
                     >
                       {getTrackLabel(track.name, layoutMode)}
@@ -970,17 +1022,17 @@ export const Timeline: React.FC = () => {
                   <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
                     <button
                       onClick={() => toggleTrackMute(track.id)}
-                      className={`btn-icon ${isMinimal ? 'w-4 h-4' : isCompact ? 'w-5 h-5' : 'w-6 h-6'} ${track.muted ? 'text-error' : ''} touch-target`}
+                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target`}
                       title={track.muted ? 'Unmute' : 'Mute'}
                     >
-                      {track.muted ? <VolumeX className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} /> : <Volume2 className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} />}
+                      {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                     <button
                       onClick={() => toggleTrackLock(track.id)}
-                      className={`btn-icon ${isMinimal ? 'w-4 h-4' : isCompact ? 'w-5 h-5' : 'w-6 h-6'} ${track.locked ? 'text-warning' : ''} touch-target`}
+                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} touch-target`}
                       title={track.locked ? 'Unlock' : 'Lock'}
                     >
-                      {track.locked ? <Lock className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} /> : <Unlock className={`${isMinimal ? 'w-2 h-2' : 'w-2.5 h-2.5'} sm:w-3 sm:h-3`} />}
+                      {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                   </div>
                 </div>
@@ -995,10 +1047,10 @@ export const Timeline: React.FC = () => {
               <div className="flex items-center gap-1">
                 {/* Show icon on small screens for better identification */}
                 {(isMinimal || isCompact) && (
-                  <Type className={`${isMinimal ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-neutral-400 flex-shrink-0`} />
+                  <Type className={`${getTrackIconClass(isMinimal)} text-neutral-400 flex-shrink-0`} />
                 )}
                 <p
-                  className={`${isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs'} font-medium text-neutral-300 truncate`}
+                  className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}
                   title="Textes" // Full name on hover
                 >
                   {getTrackLabel('Textes', layoutMode)}
@@ -1017,9 +1069,9 @@ export const Timeline: React.FC = () => {
           <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0">
             <button 
               onClick={() => addTrack('video')} 
-              className={`btn-secondary w-full ${isMinimal ? 'h-5 text-[8px]' : isCompact ? 'h-6 text-[9px]' : 'h-8 text-xs'} touch-target`}
+              className={`btn-secondary w-full ${getAddTrackBtnClass(isMinimal, isCompact)} touch-target`}
             >
-              <Plus className={`${isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3'}`} />
+              <Plus className={getAddTrackIconClass(isMinimal, isCompact)} />
               <span className="fold-cover:hidden fold-open:inline">Track</span>
             </button>
           </div>
@@ -1051,8 +1103,8 @@ export const Timeline: React.FC = () => {
                     className="absolute top-0 bottom-0 flex flex-col justify-end"
                     style={{ left: `${x}px` }}
                   >
-                    <div className={`w-px ${isMinimal ? 'h-1' : 'h-2'} bg-neutral-400`} />
-                    <span className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} text-neutral-400 ml-0.5 select-none`}>
+                    <div className={`w-px ${getRulerTickClass(isMinimal)} bg-neutral-400`} />
+                    <span className={`${getRulerTextClass(isMinimal, isCompact)} text-neutral-400 ml-0.5 select-none`}>
                       {formatTime(time)}
                     </span>
                   </div>
@@ -1121,14 +1173,14 @@ export const Timeline: React.FC = () => {
                   >
                     {/* Resize handles - larger for touch */}
                     <div
-                      className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                      className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                       onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
                       title="Étendre le début"
                     >
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
                     </div>
                     <div
-                      className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                      className={`absolute right-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                       onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
                       title="Étendre la fin"
                     >
@@ -1136,7 +1188,7 @@ export const Timeline: React.FC = () => {
                     </div>
 
                     {/* Text content */}
-                    <p className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} font-medium text-white truncate relative z-10`}>
+                    <p className={`${getRulerTextClass(isMinimal, isCompact)} font-medium text-white truncate relative z-10`}>
                       {text.text}
                     </p>
                   </div>
@@ -1150,7 +1202,7 @@ export const Timeline: React.FC = () => {
               style={{ left: `${playheadX}px` }}
             >
               <div
-                className={`absolute -top-1 ${isMinimal || isCompact ? '-left-4 w-8 h-8' : '-left-2 w-4 h-4'} cursor-ew-resize touch-target`}
+                className={`absolute -top-1 ${getPlayheadHandleClass(isMinimal, isCompact)} cursor-ew-resize touch-target`}
                 onMouseDown={handlePlayheadMouseDown}
                 onTouchStart={handlePlayheadTouchStart}
               />
