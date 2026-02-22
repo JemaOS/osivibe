@@ -1055,10 +1055,10 @@ export function getSingleClipTransitionFilter(
         return `fade=t=in:st=0:d=${duration}`;
       case 'zoom-in':
         // Zoom in from smaller to normal size
-        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=iw*2:ih*2,fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=iw:ih,fade=t=in:st=0:d=${duration}`;
       case 'zoom-out':
         // Start zoomed in, zoom out to normal
-        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=iw*2:ih*2,fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=iw:ih,fade=t=in:st=0:d=${duration}`;
       case 'rotate-in':
         // Rotate in effect: start rotated (PI radians = 180°) and rotate to normal (0°)
         // The rotation angle decreases from PI to 0 over the duration
@@ -1397,25 +1397,9 @@ async function exportSingleClipFastPath(
   let videoFilterChain = buildVideoFilter(clip, resolution, isImage);
 
   if (textOverlays && textOverlays.length > 0) {
-    const relevantTexts = textOverlays.filter((text) => {
-      const textEnd = text.startTime + text.duration;
-      return text.text.trim() && text.startTime < clipDuration && textEnd > 0;
-    });
-
-    for (const text of relevantTexts) {
-      const adjustedText = {
-        ...text,
-        startTime: Math.max(0, text.startTime - clip.trimStart),
-        duration: text.duration,
-      };
-
-      const endTime = adjustedText.startTime + adjustedText.duration;
-      if (endTime > clipDuration) {
-        adjustedText.duration = clipDuration - adjustedText.startTime;
-      }
-
-      if (adjustedText.duration > 0) {
-        const textFilter = getTextFilterString(adjustedText, resolution.width, resolution.height);
+    for (const text of textOverlays) {
+      if (text.text.trim() && text.duration > 0) {
+        const textFilter = getTextFilterString(text, resolution.width, resolution.height);
         videoFilterChain += ',' + textFilter;
       }
     }
@@ -1699,25 +1683,32 @@ async function exportSingleClip(
   const requestedFps = Number.parseInt(settings.fps || '30', 10);
   const effectiveFps = Math.min(requestedFps, encodingSettings.targetFps);
 
-  const externalAudioClipsSingle = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
+  const externalAudioClipsSingle = audioClips || [];
   const timeOriginSingle = clip.startTime;
 
   const clipId = clip.id;
   const clipTransitions = (transitions || []).filter((t) => t.clipId === clipId && t.type !== 'none');
   const hasClipTransitions = clipTransitions.length > 0;
 
+  const adjustedTextOverlays = (textOverlays || [])
+    .map(text => ({
+      ...text,
+      startTime: text.startTime - clip.startTime
+    }))
+    .filter(text => text.text.trim() && text.startTime + text.duration > 0 && text.startTime < clipDuration);
+
   if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted) {
     await exportSingleClipFastPath(
       ffmpegInstance, clip, clipDuration, inputFileName, outputFileName,
       resolution, effectiveFps, encodingSettings, quality, outputFormat,
-      execTimeoutMs, textOverlays, onProgress
+      execTimeoutMs, adjustedTextOverlays, onProgress
     );
   } else {
     await exportSingleClipComplexPath(
       ffmpegInstance, clip, clipDuration, inputFileName, outputFileName,
       resolution, effectiveFps, encodingSettings, quality, outputFormat,
       execTimeoutMs, clipTransitions, externalAudioClipsSingle, timeOriginSingle,
-      safeMode, textOverlays, onProgress
+      safeMode, adjustedTextOverlays, onProgress
     );
   }
 
@@ -1775,8 +1766,12 @@ async function loadUniqueFiles(
   
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
-    clipToInputIndex.set(i, uniqueFiles.length);
-    uniqueFiles.push({ file: clip.file, originalIndex: i });
+    let existingIndex = uniqueFiles.findIndex(u => u.file === clip.file);
+    if (existingIndex === -1) {
+      existingIndex = uniqueFiles.length;
+      uniqueFiles.push({ file: clip.file, originalIndex: i });
+    }
+    clipToInputIndex.set(i, existingIndex);
   }
   
   const inputVideoMeta = new Map<number, { width: number; height: number }>();
@@ -1926,7 +1921,8 @@ function processClipFilter(
   inputVideoMeta: Map<number, { width: number; height: number }>,
   filterComplex: string[],
   trackVideoSegments: string[],
-  trackAudioSegments: string[]
+  trackAudioSegments: string[],
+  transitions?: any[]
 ) {
   const videoFilter = getVideoFilterString(
     clip, inputIndex, isImage, duration, resolution, targetFps,
@@ -1938,13 +1934,40 @@ function processClipFilter(
   
   filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
   
+  let finalVideoLabel = clipVideoLabel;
+  if (transitions) {
+    const clipTransitions = transitions.filter(t => t.clipId === clip.id && t.type !== 'none');
+    if (clipTransitions.length > 0) {
+      const startTransition = clipTransitions.find(t => t.position === 'start');
+      const endTransition = clipTransitions.find(t => t.position === 'end');
+      
+      const transFilter = getSingleClipTransitionFilter(startTransition || { type: 'none' } as any, duration);
+      const transFilterEnd = getSingleClipTransitionFilter(endTransition || { type: 'none' } as any, duration);
+      
+      let combinedTransFilter = '';
+      if (transFilter && transFilterEnd) {
+        combinedTransFilter = `${transFilter},${transFilterEnd}`;
+      } else if (transFilter) {
+        combinedTransFilter = transFilter;
+      } else if (transFilterEnd) {
+        combinedTransFilter = transFilterEnd;
+      }
+      
+      if (combinedTransFilter) {
+        const transLabel = `vtrans${originalIndex}`;
+        filterComplex.push(`[${finalVideoLabel}]${combinedTransFilter}[${transLabel}]`);
+        finalVideoLabel = transLabel;
+      }
+    }
+  }
+  
   if (isImage || clip.audioMuted) {
     filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
     filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
   }
   
-  trackVideoSegments.push(`[${clipVideoLabel}]`);
+  trackVideoSegments.push(`[${finalVideoLabel}]`);
   trackAudioSegments.push(`[${clipAudioLabel}]`);
 }
 
@@ -1961,7 +1984,8 @@ function buildTrackSegments(
   needsFpsNormalization: boolean,
   needsPerClipTimebaseNormalization: boolean,
   filterComplex: string[],
-  gapCounterRef: { current: number }
+  gapCounterRef: { current: number },
+  transitions?: any[]
 ) {
   const trackVideoSegments: string[] = [];
   const trackAudioSegments: string[] = [];
@@ -1982,7 +2006,7 @@ function buildTrackSegments(
     processClipFilter(
       clip, originalIndex, inputIndex, isImage, duration, resolution, targetFps,
       needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack,
-      inputVideoMeta, filterComplex, trackVideoSegments, trackAudioSegments
+      inputVideoMeta, filterComplex, trackVideoSegments, trackAudioSegments, transitions
     );
     
     currentTime = clip.startTime + duration;
@@ -2139,7 +2163,7 @@ function buildMultiClipFilterChain(
     const { trackVideoSegments, trackAudioSegments } = buildTrackSegments(
       trackClips, isBaseTrack, timeOrigin, totalDuration, clips, clipToInputIndex,
       inputVideoMeta, resolution, targetFps, needsFpsNormalization,
-      needsPerClipTimebaseNormalization, filterComplex, gapCounterRef
+      needsPerClipTimebaseNormalization, filterComplex, gapCounterRef, transitions
     );
     
     const trackVideoOut = `trackv${trackIndex}`;
@@ -2194,10 +2218,15 @@ async function exportMultiClip(
 ): Promise<Blob> {
   onProgress?.(5, 'Chargement des fichiers...');
   
-  const externalAudioClips = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
+  const externalAudioClips = audioClips || [];
   const timeOrigin = clips.length > 0 ? Math.min(...clips.map((c) => c.startTime)) : 0;
   
-  
+  const adjustedTextOverlays = (textOverlays || [])
+    .map(text => ({
+      ...text,
+      startTime: text.startTime - timeOrigin
+    }))
+    .filter(text => text.text.trim() && text.startTime + text.duration > 0);
   
   const { inputFiles, clipToInputIndex, uniqueFiles, inputVideoMeta } = await loadUniqueFiles(
     ffmpegInstance, clips, safeMode, onProgress
@@ -2210,7 +2239,7 @@ async function exportMultiClip(
   const targetFps = Number.parseInt(settings.fps || '30');
   
   const { filterComplex, finalVideoLabel, finalAudioLabel } = buildMultiClipFilterChain(
-    clips, clipToInputIndex, inputVideoMeta, transitions, textOverlays,
+    clips, clipToInputIndex, inputVideoMeta, transitions, adjustedTextOverlays,
     externalAudioClips, externalAudioFileToInputIndex, resolution, targetFps, timeOrigin, uniqueFiles.length
   );
   

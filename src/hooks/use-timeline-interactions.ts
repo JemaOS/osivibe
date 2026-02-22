@@ -569,7 +569,7 @@ export const useTimelineTransitionDrag = (
     const trackIndex = Math.floor((e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
     const targetTrack = tracks[trackIndex];
 
-    if (targetTrack) {
+    if (targetTrack && targetTrack.type !== 'audio') {
       const targetClip = targetTrack.clips.find(c => {
         const start = c.startTime;
         const end = c.startTime + (c.duration - c.trimStart - c.trimEnd);
@@ -698,7 +698,7 @@ export const useTimelineDrop = (
     }
   }, [mediaFiles, tracksContainerRef, PIXELS_PER_SECOND, ui.timelineZoom, handleMediaDrop]);
 
-  const handleClipDrop = useCallback((e: React.DragEvent, clipId: string) => {
+  const handleClipDrop = useCallback((e: React.DragEvent, clipId: string, trackType?: string) => {
     try {
       const rawData = e.dataTransfer.getData('application/json');
       if (!rawData) return;
@@ -708,6 +708,10 @@ export const useTimelineDrop = (
       if (data.type === 'NEW_TRANSITION') {
         e.preventDefault();
         e.stopPropagation();
+        
+        if (trackType === 'audio') {
+          return;
+        }
         
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left;

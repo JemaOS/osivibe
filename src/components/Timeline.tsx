@@ -216,7 +216,7 @@ const TimelineClipComponent = ({
       onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
       onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
       onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
-      onDrop={(e) => handleClipDrop(e, clip.id)}
+      onDrop={(e) => handleClipDrop(e, clip.id, track.type)}
     >
       {/* Transition Indicators */}
       {clipTransitions.map((transition: any) => {

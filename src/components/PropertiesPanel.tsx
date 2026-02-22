@@ -122,7 +122,7 @@ const handleScrub = (
   e: React.PointerEvent,
   value: number,
   onChange: (val: number, isFinal?: boolean) => void,
-  options: { min?: number; max?: number; step?: number } = {}
+  options: { min?: number; max?: number; step?: number; sensitivity?: number } = {}
 ) => {
   const target = e.target as HTMLElement;
   const isInput = target.tagName === 'INPUT';
@@ -132,7 +132,7 @@ const handleScrub = (
   
   const startX = e.clientX;
   const startValue = value;
-  const { min, max, step = 1 } = options;
+  const { min, max, step = 1, sensitivity = 1 } = options;
   
   let lastValue = startValue;
   let rafId: number | null = null;
@@ -140,9 +140,9 @@ const handleScrub = (
   let hasMoved = false;
 
   const handlePointerMove = (moveEvent: PointerEvent) => {
-    const delta = moveEvent.clientX - startX;
+    const rawDelta = moveEvent.clientX - startX;
     
-    if (!hasMoved && Math.abs(delta) > 3) {
+    if (!hasMoved && Math.abs(rawDelta) > 3) {
       hasMoved = true;
       document.body.style.cursor = 'ew-resize';
       if (isInput) target.blur();
@@ -150,6 +150,7 @@ const handleScrub = (
 
     if (!hasMoved) return;
 
+    const delta = rawDelta * sensitivity;
     lastValue = calculateNewValue(startValue, delta, step, min, max);
     
     if (!pendingUpdate) {
@@ -565,7 +566,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div>
                     <label 
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50 })}
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50, sensitivity: 0.25 })}
                     >
                       Position X ({selectedClip.crop?.x || 0}%)
                     </label>
@@ -577,7 +578,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       value={selectedClip.crop?.x || 0}
                       onChange={(e) => handleUpdateCrop({ x: parseInt(e.target.value) })}
                       onPointerDown={(e) => {
-                        handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50 });
+                        handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50, sensitivity: 0.25 });
                       }}
                       className="w-full cursor-ew-resize"
                     />
@@ -585,7 +586,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div>
                     <label 
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50 })}
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50, sensitivity: 0.25 })}
                     >
                       Position Y ({selectedClip.crop?.y || 0}%)
                     </label>
@@ -597,7 +598,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       value={selectedClip.crop?.y || 0}
                       onChange={(e) => handleUpdateCrop({ y: parseInt(e.target.value) })}
                       onPointerDown={(e) => {
-                        handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50 });
+                        handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50, sensitivity: 0.25 });
                       }}
                       className="w-full cursor-ew-resize"
                     />
@@ -605,7 +606,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div>
                     <label 
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100 })}
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100, sensitivity: 0.45 })}
                     >
                       Largeur ({selectedClip.crop?.width || 100}%)
                     </label>
@@ -617,7 +618,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       value={selectedClip.crop?.width || 100}
                       onChange={(e) => handleUpdateCrop({ width: parseInt(e.target.value) })}
                       onPointerDown={(e) => {
-                        handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100 });
+                        handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100, sensitivity: 0.45 });
                       }}
                       className="w-full cursor-ew-resize"
                     />
@@ -625,7 +626,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div>
                     <label 
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100 })}
+                      onPointerDown={(e) => handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100, sensitivity: 0.45 })}
                     >
                       Hauteur ({selectedClip.crop?.height || 100}%)
                     </label>
@@ -637,7 +638,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       value={selectedClip.crop?.height || 100}
                       onChange={(e) => handleUpdateCrop({ height: parseInt(e.target.value) })}
                       onPointerDown={(e) => {
-                        handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100 });
+                        handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100, sensitivity: 0.45 });
                       }}
                       className="w-full cursor-ew-resize"
                     />
@@ -739,21 +740,21 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     if (!selectedText) return;
     handleScrub(e, selectedText.fontSize, (val, isFinal) => {
       updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
-    }, { min: 1, max: 500 });
+    }, { min: 1, max: 500, sensitivity: 2.5 });
   };
 
   const handlePositionXScrub = (e: React.PointerEvent) => {
     if (!selectedText) return;
     handleScrub(e, selectedText.x, (val, isFinal) => {
       updateTextOverlay(selectedText.id, { x: val }, !isFinal);
-    }, { min: 0, max: 100 });
+    }, { min: 0, max: 100, sensitivity: 0.5 });
   };
 
   const handlePositionYScrub = (e: React.PointerEvent) => {
     if (!selectedText) return;
     handleScrub(e, selectedText.y, (val, isFinal) => {
       updateTextOverlay(selectedText.id, { y: val }, !isFinal);
-    }, { min: 0, max: 100 });
+    }, { min: 0, max: 100, sensitivity: 0.5 });
   };
 
   const renderTextProperties = () => {
@@ -1311,7 +1312,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         <div>
           <label 
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-            onPointerDown={(e) => handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100 })}
+            onPointerDown={(e) => handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             Luminosite ({filter.brightness})
           </label>
@@ -1322,7 +1323,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             value={filter.brightness}
             onChange={(e) => updateFilter({ brightness: parseInt(e.target.value) })}
             onPointerDown={(e) => {
-              handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100 });
+              handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100, sensitivity: 1 });
             }}
             className="w-full cursor-ew-resize"
           />
@@ -1331,7 +1332,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         <div>
           <label 
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-            onPointerDown={(e) => handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100 })}
+            onPointerDown={(e) => handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             Contraste ({filter.contrast})
           </label>
@@ -1342,7 +1343,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             value={filter.contrast}
             onChange={(e) => updateFilter({ contrast: parseInt(e.target.value) })}
             onPointerDown={(e) => {
-              handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100 });
+              handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100, sensitivity: 1 });
             }}
             className="w-full cursor-ew-resize"
           />
@@ -1351,7 +1352,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         <div>
           <label 
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-            onPointerDown={(e) => handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100 })}
+            onPointerDown={(e) => handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             Saturation ({filter.saturation})
           </label>
@@ -1362,7 +1363,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             value={filter.saturation}
             onChange={(e) => updateFilter({ saturation: parseInt(e.target.value) })}
             onPointerDown={(e) => {
-              handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100 });
+              handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100, sensitivity: 1 });
             }}
             className="w-full cursor-ew-resize"
           />
@@ -1371,7 +1372,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         <div>
           <label 
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
-            onPointerDown={(e) => handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20 })}
+            onPointerDown={(e) => handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20, sensitivity: 0.1 })}
           >
             Flou ({filter.blur})
           </label>
@@ -1382,7 +1383,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             value={filter.blur}
             onChange={(e) => updateFilter({ blur: parseInt(e.target.value) })}
             onPointerDown={(e) => {
-              handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20 });
+              handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20, sensitivity: 0.1 });
             }}
             className="w-full cursor-ew-resize"
           />
