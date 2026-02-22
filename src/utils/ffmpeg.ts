@@ -1339,36 +1339,8 @@ function buildVideoFilter(
     filter += `crop=${w}:${h}:${x}:${y}`;
   }
 
-  if (isImage && clip.transform) {
-    const scaleX = clip.transform.scaleX ?? clip.transform.scale;
-    const scaleY = clip.transform.scaleY ?? clip.transform.scale;
-    
-    const actualWidthPct = (80 * scaleX) / 100;
-    const actualHeightPct = (80 * scaleY) / 100;
-    
-    const targetW = Math.max(2, Math.round(resolution.width * actualWidthPct / 100));
-    const targetH = Math.max(2, Math.round(resolution.height * actualHeightPct / 100));
-    
-    if (filter) filter += ',';
-    filter += `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease`;
-    filter += `,format=rgba,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@0`;
-    
-    if (clip.transform.rotation !== 0) {
-      const angle = clip.transform.rotation * Math.PI / 180;
-      filter += `,rotate=${angle}:c=black@0:ow=rotw(${angle}):oh=roth(${angle})`;
-    }
-    
-    const centerX = Math.round(resolution.width * clip.transform.x / 100);
-    const centerY = Math.round(resolution.height * clip.transform.y / 100);
-    
-    const padX = `${centerX}-iw/2`;
-    const padY = `${centerY}-ih/2`;
-    
-    filter += `,pad=${resolution.width}:${resolution.height}:${padX}:${padY}:color=black@0`;
-  } else {
-    if (filter) filter += ',';
-    filter += `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
-  }
+  if (filter) filter += ',';
+  filter += `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
 
   if (clip.filter) {
     const filterString = getFilterString(clip.filter);
@@ -1376,6 +1348,52 @@ function buildVideoFilter(
   }
 
   return filter;
+}
+
+function buildImageTransformFilter(
+  clip: ExportClip,
+  inputIndex: number,
+  duration: number,
+  resolution: { width: number; height: number },
+  targetFps: number,
+  isBaseTrack: boolean,
+  outLabel: string,
+  fc: string[]
+) {
+  const scaleX = clip.transform.scaleX ?? clip.transform.scale;
+  const scaleY = clip.transform.scaleY ?? clip.transform.scale;
+  
+  const actualWidthPct = (80 * scaleX) / 100;
+  const actualHeightPct = (80 * scaleY) / 100;
+  
+  const targetW = Math.max(2, Math.round(resolution.width * actualWidthPct / 100));
+  const targetH = Math.max(2, Math.round(resolution.height * actualHeightPct / 100));
+  
+  const centerX = Math.round(resolution.width * clip.transform.x / 100);
+  const centerY = Math.round(resolution.height * clip.transform.y / 100);
+  
+  let imgFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS`;
+  imgFilter += `,scale=${targetW}:${targetH}`;
+  imgFilter += `,format=rgba`;
+  
+  if (clip.transform.rotation !== 0) {
+    const angle = clip.transform.rotation * Math.PI / 180;
+    imgFilter += `,rotate=${angle}:c=black@0:ow=rotw(${angle}):oh=roth(${angle})`;
+  }
+  
+  if (clip.filter) {
+    const filterString = getFilterString(clip.filter);
+    if (filterString) imgFilter += ',' + filterString;
+  }
+  
+  const imgLabel = `img_${outLabel}`;
+  fc.push(`${imgFilter}[${imgLabel}]`);
+  
+  const bgLabel = `bg_${outLabel}`;
+  const bgColor = isBaseTrack ? 'black' : 'black@0';
+  fc.push(`color=c=${bgColor}:s=${resolution.width}x${resolution.height}:d=${duration}:r=${targetFps},format=rgba[${bgLabel}]`);
+  
+  fc.push(`[${bgLabel}][${imgLabel}]overlay=x=${centerX}-w/2:y=${centerY}-h/2:format=rgba,setsar=1[${outLabel}]`);
 }
 
 async function exportSingleClipFastPath(
@@ -1605,9 +1623,18 @@ async function exportSingleClipComplexPath(
   const fc: string[] = [];
 
   const isImage = clip.file.type.startsWith("image/");
-  const baseFilter = buildVideoFilter(clip, resolution, isImage);
-  const vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
-  fc.push(`${vBase}[v0]`);
+  
+  if (isImage && !clip.crop) {
+    const imageClip = {
+      ...clip,
+      transform: clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 }
+    };
+    buildImageTransformFilter(imageClip, 0, clipDuration, resolution, effectiveFps, true, 'v0', fc);
+  } else {
+    const baseFilter = buildVideoFilter(clip, resolution, isImage);
+    const vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
+    fc.push(`${vBase}[v0]`);
+  }
 
   if (needsBg) {
     fc.push(`[${bgInputIndex}:v]setpts=PTS-STARTPTS[bg]`);
@@ -1708,6 +1735,8 @@ async function exportSingleClip(
   const clipId = clip.id;
   const clipTransitions = (transitions || []).filter((t) => t.clipId === clipId && t.type !== 'none');
   const hasClipTransitions = clipTransitions.length > 0;
+  const isImage = clip.file.type.startsWith("image/");
+  const hasTransform = isImage && !clip.crop;
 
   const adjustedTextOverlays = (textOverlays || [])
     .map(text => ({
@@ -1716,7 +1745,7 @@ async function exportSingleClip(
     }))
     .filter(text => text.text.trim() && text.startTime + text.duration > 0 && text.startTime < clipDuration);
 
-  if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted) {
+  if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted && !hasTransform) {
     await exportSingleClipFastPath(
       ffmpegInstance, clip, clipDuration, inputFileName, outputFileName,
       resolution, effectiveFps, encodingSettings, quality, outputFormat,
@@ -1961,15 +1990,38 @@ function processClipFilter(
   trackAudioSegments: string[],
   transitions?: any[]
 ) {
-  const videoFilter = getVideoFilterString(
-    clip, inputIndex, isImage, duration, resolution, targetFps,
-    needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, inputVideoMeta
-  );
-  
   const clipVideoLabel = `v${originalIndex}`;
   const clipAudioLabel = `a${originalIndex}`;
   
-  filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
+  if (isImage && !clip.crop) {
+    // Ensure images always have a transform to match preview behavior
+    const imageClip = {
+      ...clip,
+      transform: clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 }
+    };
+    const transformOutLabel = `trans_${originalIndex}`;
+    buildImageTransformFilter(imageClip, inputIndex, duration, resolution, targetFps, isBaseTrack, transformOutLabel, filterComplex);
+    
+    let postFilter = '';
+    if (needsFpsNormalization) postFilter += `fps=${targetFps},`;
+    if (needsPerClipTimebaseNormalization) postFilter += `settb=1/${targetFps},`;
+    if (isBaseTrack) postFilter += `format=yuv420p`;
+    else postFilter += `format=rgba`;
+    
+    if (postFilter.endsWith(',')) postFilter = postFilter.slice(0, -1);
+    
+    if (postFilter) {
+      filterComplex.push(`[${transformOutLabel}]${postFilter}[${clipVideoLabel}]`);
+    } else {
+      filterComplex.push(`[${transformOutLabel}]copy[${clipVideoLabel}]`);
+    }
+  } else {
+    const videoFilter = getVideoFilterString(
+      clip, inputIndex, isImage, duration, resolution, targetFps,
+      needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, inputVideoMeta
+    );
+    filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
+  }
   
   let finalVideoLabel = clipVideoLabel;
   if (transitions) {
