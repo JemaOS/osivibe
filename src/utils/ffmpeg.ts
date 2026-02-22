@@ -1402,7 +1402,7 @@ function buildImageTransformFilter(
   const bgColor = isBaseTrack ? 'black' : 'black@0';
   fc.push(`color=c=${bgColor}:s=${resolution.width}x${resolution.height}:d=${duration}:r=${targetFps},format=rgba[${bgLabel}]`);
   
-  fc.push(`[${bgLabel}][${imgLabel}]overlay=x=${centerX}-w/2:y=${centerY}-h/2:format=rgba,setsar=1[${outLabel}]`);
+  fc.push(`[${bgLabel}][${imgLabel}]overlay=x=${centerX}-w/2:y=${centerY}-h/2,setsar=1[${outLabel}]`);
 }
 
 async function exportSingleClipFastPath(
