@@ -47,6 +47,7 @@ import {
   formatHardwareProfileForDisplay,
 } from '../utils/hardwareDetection';
 import { useMediaBunnyPreview } from '../hooks/use-mediabunny-preview';
+import { useVideoPlayerText, useVideoPlayerImage, useVideoPlayerCrop, useVideoPlayerSync, useVideoPlayerAnimation } from '../hooks/use-video-player-interactions';
 
 // Calculate transition progress based on position
 const calculateTransitionProgress = (
@@ -561,21 +562,6 @@ export const VideoPlayer: React.FC = () => {
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
-  const [cropMode, setCropMode] = useState(false);
-  const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
-  const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 100, height: 100, locked: false });
-  const [resizingCrop, setResizingCrop] = useState<string | null>(null); // 'nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w', or null
-  const [cropDragStart, setCropDragStart] = useState({ x: 0, y: 0, crop: { x: 0, y: 0, width: 100, height: 100 } });
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [editingTextValue, setEditingTextValue] = useState('');
-  const [transformingImageId, setTransformingImageId] = useState<string | null>(null);
-  const [transformStart, setTransformStart] = useState<{ x: number; y: number; transform: TransformSettings }>({ x: 0, y: 0, transform: { x: 50, y: 50, scale: 100, rotation: 0 } });
-  const [resizingImageId, setResizingImageId] = useState<string | null>(null);
-  const [resizeCorner, setResizeCorner] = useState<string | null>(null);
-  const [rotatingImageId, setRotatingImageId] = useState<string | null>(null);
-  const [rotationStart, setRotationStart] = useState({ angle: 0, centerX: 0, centerY: 0 });
-  const [resizingTextId, setResizingTextId] = useState<string | null>(null);
-  const [textResizeStart, setTextResizeStart] = useState({ x: 0, y: 0, fontSize: 16, textX: 0, textY: 0, scaleX: 1, scaleY: 1 });
   
   // Preview optimization state
   const [previewSettings, setPreviewSettings] = useState<PreviewSettings>(() => getCurrentSettings());
@@ -591,6 +577,82 @@ export const VideoPlayer: React.FC = () => {
   // MediaBunny integration
   const [useMediaBunny, setUseMediaBunny] = useState(false);
   const { render: renderMediaBunny, isReady: isMediaBunnyReady } = useMediaBunnyPreview(canvasRef, useMediaBunny);
+
+  // Custom hooks for interactions
+  const {
+    draggedTextId,
+    editingTextId,
+    editingTextValue,
+    resizingTextId,
+    handleTextMouseDown,
+    handleTextResizeStart,
+    handleTextDoubleClick,
+    handleTextEditChange,
+    handleTextEditSubmit,
+    handleTextEditKeyDown
+  } = useVideoPlayerText(videoContainerRef, player, pause, selectText, updateTextOverlay, textOverlays);
+
+  const {
+    transformingImageId,
+    resizingImageId,
+    rotatingImageId,
+    handleImageTransformStart,
+    handleImageResizeStart,
+    handleImageRotateStart
+  } = useVideoPlayerImage(videoContainerRef, player, pause, tracks, updateClip);
+
+  // We need getActiveClips for crop hook
+  const activeClipsData = useMemo(() => {
+    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+    
+    tracks.forEach((track, index) => {
+      if (track.type !== 'video') return;
+      
+      const clip = track.clips.find(c => {
+        const clipStart = c.startTime;
+        const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        return player.currentTime >= clipStart && player.currentTime <= clipEnd;
+      });
+      
+      if (clip) {
+        const media = mediaFiles.find(m => m.id === clip.mediaId);
+        if (media) {
+          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+        }
+      }
+    });
+    
+    return result;
+  }, [tracks, mediaFiles, player.currentTime]);
+  
+  const getActiveClips = useCallback(() => activeClipsData, [activeClipsData]);
+
+  const {
+    cropMode,
+    setCropMode,
+    cropArea,
+    setCropArea,
+    handleToggleCrop,
+    handleApplyCrop,
+    handleCropResizeStart
+  } = useVideoPlayerCrop(videoContainerRef, player, pause, ui, updateClip, getActiveClips);
+
+  useVideoPlayerSync(
+    videoRefs,
+    audioRefs,
+    canvasRef,
+    player,
+    filters,
+    getActiveClips,
+    getActiveAudioClips,
+    videoClipsWithDetachedAudio,
+    isMobileRef,
+    isScrubbingRef,
+    useMediaBunny,
+    isMediaBunnyReady,
+    renderMediaBunny,
+    audioMutedStates
+  );
 
   // Initialize preview optimizer on mount - AUTO QUALITY FROM START
   useEffect(() => {
@@ -900,267 +962,22 @@ export const VideoPlayer: React.FC = () => {
       .join(',');
   }, [tracks]);
 
-  // Sync video volume and playback state immediately (no debounce for audio)
-  const syncVideoVolumeAndPlayback = useCallback(() => {
-    const activeClips = getActiveClips();
-    
-    // DEBUG: Log audio sync for video elements
-    console.log('[DEBUG syncVideoVolumeAndPlayback] Called:', {
-      activeClipCount: activeClips.length,
-      isPlaying: player.isPlaying,
-      volume: player.volume,
-      isMuted: player.isMuted,
-      playbackRate: player.playbackRate
-    });
-    
-    const mainVideoId = activeClips.find(c => c.media.type === 'video')?.clip.id;
-
-    activeClips.forEach((item) => {
-      if (item.media.type !== 'video') return;
-      
-      const videoEl = videoRefs.current[item.clip.id];
-      if (!videoEl) return;
-
-      const isMainVideo = mainVideoId === item.clip.id;
-
-      const isAudioMuted =
-        item.clip.audioMuted === true ||
-        item.trackMuted === true ||
-        videoClipsWithDetachedAudio.has(item.clip.id);
-      const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
-      
-      if (videoEl.volume !== targetVolume) {
-        videoEl.volume = targetVolume;
-      }
-      
-      if (videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
-
-      if (player.isPlaying) {
-        if (videoEl.paused) {
-          videoEl.play().catch((err) => {
-            console.error('[DEBUG syncVideoVolumeAndPlayback] Play error:', err);
-          });
-        }
-      } else {
-        if (!videoEl.paused) {
-          videoEl.pause();
-        }
-      }
-    });
-  }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, videoClipsWithDetachedAudio]);
-
-  // Sync audio track playback (external audio + detached audio clips)
-  const syncAudioVolumeAndPlayback = useCallback(() => {
-    const activeAudio = getActiveAudioClips();
-    const activeIds = new Set(activeAudio.map((a) => a.clip.id));
-    
-    // Pause any non-active audio elements
-    Object.entries(audioRefs.current).forEach(([clipId, el]) => {
-      if (!el) return;
-      if (!activeIds.has(clipId)) {
-        if (!el.paused) {
-          el.pause();
-        }
-      }
-    });
-
-    activeAudio.forEach((item) => {
-      const audioEl = audioRefs.current[item.clip.id];
-      if (!audioEl) return;
-
-      // Ensure src
-      if (audioEl.getAttribute('src') !== item.media.url) {
-        audioEl.setAttribute('src', item.media.url);
-        audioEl.load();
-      }
-
-      // Sync time
-      const clipStart = item.clip.startTime;
-      const localTime = player.currentTime - clipStart + item.clip.trimStart;
-      const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
-      
-      const isScrubbing = isScrubbingRef.current;
-      const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
-      
-      if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
-        try {
-          if (audioEl.readyState > 0) {
-            audioEl.currentTime = Math.max(0, localTime);
-          }
-        } catch (err) {
-          console.error('[DEBUG syncAudioVolumeAndPlayback] Seek error:', err);
-        }
-      }
-
-      // Playback properties
-      audioEl.playbackRate = player.playbackRate;
-      const mutedByTrack = item.trackMuted === true;
-      const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
-      
-      if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
-      audioEl.muted = targetVol === 0;
-
-      if (player.isPlaying) {
-        if (audioEl.paused) {
-          audioEl.play().catch((err) => {
-            console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
-          });
-        }
-      } else {
-        if (!audioEl.paused) {
-          audioEl.pause();
-        }
-      }
-    });
-  }, [getActiveAudioClips, player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume]);
-
-  // Debounced video sync function to prevent stuttering during rapid navigation
-  // This only handles time sync and filters, NOT volume/playback
-  // OPTIMISATION: Seuils adaptatifs - bas pour lecture fluide, haut pour scrubbing
-  const syncVideosDebounced = useCallback((forceSync: boolean = false) => {
-    const now = performance.now();
-    const timeSinceLastSync = now - lastSyncTimeRef.current;
-    
-    // DEBUG: Log syncVideosDebounced calls
-    if (forceSync || timeSinceLastSync > 100) {
-      console.log('[DEBUG syncVideosDebounced] Called:', {
-        forceSync,
-        timeSinceLastSync: timeSinceLastSync.toFixed(2) + 'ms',
-        isPlaying: player.isPlaying,
-        isScrubbing: isScrubbingRef.current
-      });
-    }
-    
-    // OPTIMISATION: Seuils adaptatifs selon le contexte
-    // Pendant la lecture: seuils bas pour synchronisation fluide (60fps)
-    // Pendant le scrubbing: seuils hauts pour réduire la charge CPU
-    const isMobile = isMobileRef.current;
-    const isScrubbing = isScrubbingRef.current;
-    
-    // Seuils pour la LECTURE (fluide, 60fps)
-    const PLAYING_SYNC_INTERVAL = isMobile ? 16 : 16; // ~60fps pour synchronisation fluide
-    const PLAYING_SEEK_THRESHOLD = isMobile ? 0.05 : 0.03; // Seuil bas pendant lecture
-    
-    // Seuils pour le SCRUBBING (économie CPU)
-    const SCRUBBING_SYNC_INTERVAL = isMobile ? 100 : 50; // Moins fréquent pendant scrubbing
-    const SCRUBBING_SEEK_THRESHOLD = isMobile ? 0.25 : 0.15; // Seuil haut pendant scrubbing
-    
-    // Choisir les seuils selon le contexte
-    const MIN_SYNC_INTERVAL = isScrubbing ? SCRUBBING_SYNC_INTERVAL : PLAYING_SYNC_INTERVAL;
-    const PAUSED_SYNC_INTERVAL = isMobile ? 50 : 33; // Debounce en pause
-    
-    // If we're playing, sync immediately but throttled
-    // If we're seeking (not playing), debounce more aggressively
-    const shouldSyncNow = forceSync ||
-      (player.isPlaying && timeSinceLastSync >= MIN_SYNC_INTERVAL) ||
-      (!player.isPlaying && timeSinceLastSync >= PAUSED_SYNC_INTERVAL);
-    
-    if (!shouldSyncNow) {
-      // Schedule a sync for later if not already scheduled
-      if (syncDebounceRef.current === null) {
-        syncDebounceRef.current = window.setTimeout(() => {
-          syncDebounceRef.current = null;
-          syncVideosDebounced(true);
-        }, player.isPlaying ? MIN_SYNC_INTERVAL : PAUSED_SYNC_INTERVAL);
-      }
-      return;
-    }
-    
-    lastSyncTimeRef.current = now;
-    
-    // OPTIMISATION: Lire currentTime depuis le store dans le callback
-    // au lieu de l'utiliser comme dépendance du useCallback
-    const currentTime = useEditorStore.getState().player.currentTime;
-    
-    const activeClips = getActiveClips();
-    
-    // DEBUG: Log active clips being synced
-    if (forceSync || activeClips.length > 0) {
-      console.log('[DEBUG syncVideosDebounced] Syncing clips:', {
-        clipCount: activeClips.length,
-        currentTime: currentTime.toFixed(3),
-        isMobile,
-        seekThreshold: isScrubbing ? SCRUBBING_SEEK_THRESHOLD : PLAYING_SEEK_THRESHOLD
-      });
-    }
-    
-    // Sync all active video clips - time and filters only
-    activeClips.forEach((item) => {
-      if (item.media.type !== 'video') return;
-      
-      const videoEl = videoRefs.current[item.clip.id];
-      if (!videoEl) return;
-
-      if (videoEl.getAttribute('src') !== item.media.url) {
-        videoEl.setAttribute('src', item.media.url);
-        videoEl.load();
-      }
-
-      if (videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
-
-      const clipStart = item.clip.startTime;
-      const localTime = currentTime - clipStart + item.clip.trimStart;
-      
-      const isScrubbing = isScrubbingRef.current;
-      const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
-      const pausedSeekThreshold = 0.05;
-      
-      const seekThreshold = isScrubbing
-        ? scrubbingSeekThreshold
-        : (player.isPlaying ? Infinity : pausedSeekThreshold);
-      
-      const timeDiff = Math.abs(videoEl.currentTime - localTime);
-      
-      if (!player.isPlaying || isScrubbing) {
-        if (timeDiff > seekThreshold) {
-          if (!isSeekingRef.current) {
-            isSeekingRef.current = true;
-            if (videoEl.readyState > 0) {
-              videoEl.currentTime = localTime;
-            }
-            setTimeout(() => {
-              isSeekingRef.current = false;
-            }, isMobile ? 100 : 50);
-          }
-        }
-      }
-
-      if (!isMobile || !player.isPlaying) {
-        const clipFilter = filters[item.clip.id];
-        if (clipFilter) {
-          videoEl.style.filter = getCSSFilter(clipFilter);
-        } else {
-          videoEl.style.filter = 'none';
-        }
-      }
-    });
-    
-    // Sync MediaBunny if enabled
-    // CRITICAL OPTIMIZATION: Only sync here if PAUSED.
-    // If playing, the animation loop handles rendering to avoid double-calls and resource contention.
-    if (useMediaBunny && isMediaBunnyReady && canvasRef.current && (!player.isPlaying || forceSync)) {
-      renderMediaBunny(currentTime, canvasRef.current.width, canvasRef.current.height).catch(console.error);
-    }
-    
-    // Always sync volume and playback state immediately after time sync
-    syncVideoVolumeAndPlayback();
-
-    // Also sync audio tracks (not debounced separately for now)
-    syncAudioVolumeAndPlayback();
-    // OPTIMISATION: Ne pas inclure player.currentTime dans les dépendances
-    // Le callback lit currentTime depuis le store, pas comme dépendance
-    // Cela évite les re-renders en cascade lors du scrubbing
-  }, [player.isPlaying, filters, syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback]);
-  
-  // Sync volume and playback immediately when these change (no debounce)
-  useEffect(() => {
-    syncVideoVolumeAndPlayback();
-    syncAudioVolumeAndPlayback();
-  }, [syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback, player.volume, player.isMuted, player.playbackRate, audioMutedStates]);
+  useVideoPlayerSync(
+    videoRefs,
+    audioRefs,
+    canvasRef,
+    player,
+    filters,
+    getActiveClips,
+    getActiveAudioClips,
+    videoClipsWithDetachedAudio,
+    isMobileRef,
+    isScrubbingRef,
+    useMediaBunny,
+    isMediaBunnyReady,
+    renderMediaBunny,
+    audioMutedStates
+  );
 
   const allAudioClips = useMemo(() => {
     return tracks
@@ -1234,157 +1051,25 @@ export const VideoPlayer: React.FC = () => {
     });
   }, [player.currentTime, tracks, mediaFiles, getActiveClips]);
 
-  // Animation loop for playback with frame rate limiting
-  useEffect(() => {
-    if (!player.isPlaying) {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = undefined;
-      }
-      // Reset performance monitor when paused
-      performanceMonitorRef.current?.reset();
-      return;
-    }
-
-    let lastTime = performance.now();
-    let isActive = true;
-    let fpsUpdateCounter = 0;
-    let accumulatedTime = 0;
-    
-    // MOBILE OPTIMIZATION: Use lower update rate on mobile
-    const isMobile = isMobileRef.current;
-    const isLowEnd = previewSettings.quality === 'low';
-    // Use targetFps from settings to determine time step
-    const targetFps = previewSettings.targetFps || 30;
-    const MIN_TIME_STEP = 1000 / targetFps;
-    const FPS_UPDATE_INTERVAL = (isMobile || isLowEnd) ? 60 : 30; // Update FPS display less often on mobile/low-end
-    
-    // DEBUG: Reset diagnostic counters
-    debugLogCounterRef.current = 0;
-    debugLastFrameTimeRef.current = performance.now();
-    debugFrameTimesRef.current = [];
-    debugLastLogTimeRef.current = performance.now();
-
-    const handlePerformanceMonitoring = (currentTime: number) => {
-      const perfMonitor = performanceMonitorRef.current;
-      if (!perfMonitor) return;
-      
-      perfMonitor.recordFrame(currentTime);
-      
-      fpsUpdateCounter++;
-      if (fpsUpdateCounter >= FPS_UPDATE_INTERVAL) {
-        fpsUpdateCounter = 0;
-        const fps = perfMonitor.getAverageFps();
-        
-        if (Math.abs(fps - currentFps) > 2) {
-          setCurrentFps(fps);
-        }
-        
-        const isPoor = perfMonitor.isPerformancePoor();
-        if (isPoor !== isPerformancePoor) {
-          setIsPerformancePoor(isPoor);
-        }
-        
-        const nowPerf = performance.now();
-        const timeSinceLastChange = nowPerf - lastAutoQualityChangeRef.current;
-        
-        if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
-          const recommendation = perfMonitor.getQualityRecommendation();
-          if (recommendation === 'decrease') {
-            lastAutoQualityChangeRef.current = nowPerf;
-            if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
-              handleQualityChange('medium');
-            } else if (previewSettings.quality === 'medium') {
-              handleQualityChange('low');
-            }
-          }
-        }
-      }
-    };
-
-    const animate = (currentTime: number) => {
-      if (!isActive) return;
-      
-      const frameTime = currentTime - debugLastFrameTimeRef.current;
-      debugLastFrameTimeRef.current = currentTime;
-      debugFrameTimesRef.current.push(frameTime);
-      if (debugFrameTimesRef.current.length > 10) debugFrameTimesRef.current.shift();
-      
-      debugLogCounterRef.current++;
-      const now = performance.now();
-      const timeSinceLastLog = now - debugLastLogTimeRef.current;
-      
-      if (debugLogCounterRef.current >= 60 || timeSinceLastLog > 500) {
-        debugLogCounterRef.current = 0;
-        debugLastLogTimeRef.current = now;
-      }
-      
-      const frameLimiter = frameRateLimiterRef.current;
-      if (frameLimiter && !frameLimiter.shouldRenderFrame(currentTime)) {
-        if (isActive) {
-          animationRef.current = requestAnimationFrame(animate);
-        }
-        return;
-      }
-      
-      handlePerformanceMonitoring(currentTime);
-      
-      const deltaTime = currentTime - lastTime;
-      lastTime = currentTime;
-      
-      accumulatedTime += deltaTime;
-      
-      const nowUpdate = performance.now();
-      const timeSinceLastUpdate = nowUpdate - lastStateUpdateRef.current;
-      
-      const isScrubbing = isScrubbingRef.current;
-      const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16;
-      const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50;
-      const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
-      
-      if (accumulatedTime >= MIN_TIME_STEP && timeSinceLastUpdate >= updateThreshold) {
-        const state = useEditorStore.getState();
-        const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
-        const newTime = state.player.currentTime + timeAdvance;
-        
-        accumulatedTime = 0;
-        lastStateUpdateRef.current = nowUpdate;
-        
-        if (newTime >= state.projectDuration) {
-          state.seek(0);
-          state.pause();
-        } else {
-          state.seek(newTime);
-        }
-      }
-
-      if (useMediaBunny && isMediaBunnyReady && canvasRef.current) {
-        const state = useEditorStore.getState();
-        const renderTime = state.player.currentTime; 
-        renderMediaBunny(renderTime, canvasRef.current.width, canvasRef.current.height).catch(e => {
-          console.error('MediaBunny render error:', e);
-        });
-      }
-
-      if (useEditorStore.getState().player.isPlaying && isActive) {
-        animationRef.current = requestAnimationFrame(animate);
-      }
-    };
-
-    // Reset frame limiter when starting playback
-    frameRateLimiterRef.current?.reset();
-    accumulatedTime = 0;
-    lastStateUpdateRef.current = performance.now();
-    animationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      isActive = false;
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = undefined;
-      }
-    };
-  }, [player.isPlaying, previewSettings.quality, handleQualityChange, currentFps, isPerformancePoor]);
+  useVideoPlayerAnimation(
+    player,
+    previewSettings,
+    hardwareProfile,
+    isMobileRef,
+    isScrubbingRef,
+    frameRateLimiterRef,
+    performanceMonitorRef,
+    currentFps,
+    setCurrentFps,
+    isPerformancePoor,
+    setIsPerformancePoor,
+    lastAutoQualityChangeRef,
+    handleQualityChange,
+    useMediaBunny,
+    isMediaBunnyReady,
+    canvasRef,
+    renderMediaBunny
+  );
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1478,536 +1163,6 @@ export const VideoPlayer: React.FC = () => {
       isScrubbingRef.current = false;
     }, 300);
   };
-
-  // Handle text dragging
-  const handleTextMouseDown = (e: React.MouseEvent, textId: string) => {
-    e.stopPropagation();
-    // Pause playback when dragging text
-    if (player.isPlaying) {
-      pause();
-    }
-    setDraggedTextId(textId);
-    selectText(textId);
-  };
-
-  useEffect(() => {
-    if (!draggedTextId || !videoContainerRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = ((e.clientX - rect.left) / rect.width) * 100;
-      const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-      updateTextOverlay(draggedTextId, {
-        x: Math.max(0, Math.min(100, x)),
-        y: Math.max(0, Math.min(100, y))
-      });
-    };
-
-    const handleMouseUp = () => {
-      setDraggedTextId(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [draggedTextId, updateTextOverlay]);
-
-  // Handle text resize
-  const handleTextResizeStart = (e: React.MouseEvent, textId: string, corner: string) => {
-    e.stopPropagation();
-    if (player.isPlaying) pause();
-
-    const text = textOverlays.find(t => t.id === textId);
-    if (!text) return;
-
-    setResizingTextId(textId);
-    setResizeCorner(corner);
-    setTextResizeStart({
-      x: e.clientX,
-      y: e.clientY,
-      fontSize: text.fontSize,
-      textX: text.x,
-      textY: text.y,
-      scaleX: text.scaleX ?? 1,
-      scaleY: text.scaleY ?? 1
-    });
-  };
-
-  useEffect(() => {
-    if (!resizingTextId || !resizeCorner || !videoContainerRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      // Calculate text center in pixels using stored position
-      const centerX = rect.left + (rect.width * textResizeStart.textX) / 100;
-      const centerY = rect.top + (rect.height * textResizeStart.textY) / 100;
-
-      let newScaleX = textResizeStart.scaleX;
-      let newScaleY = textResizeStart.scaleY;
-
-      if (['n', 's'].includes(resizeCorner)) {
-        // Vertical resizing
-        const startDist = Math.abs(textResizeStart.y - centerY);
-        const currentDist = Math.abs(e.clientY - centerY);
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          newScaleY = Math.max(0.1, Math.min(10, textResizeStart.scaleY * ratio));
-        }
-      } else if (['e', 'w'].includes(resizeCorner)) {
-        // Horizontal resizing
-        const startDist = Math.abs(textResizeStart.x - centerX);
-        const currentDist = Math.abs(e.clientX - centerX);
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          newScaleX = Math.max(0.1, Math.min(10, textResizeStart.scaleX * ratio));
-        }
-      } else {
-        // Diagonal resizing - proportional
-        const startDist = Math.sqrt(
-          Math.pow(textResizeStart.x - centerX, 2) + 
-          Math.pow(textResizeStart.y - centerY, 2)
-        );
-        const currentDist = Math.sqrt(
-          Math.pow(e.clientX - centerX, 2) + 
-          Math.pow(e.clientY - centerY, 2)
-        );
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          newScaleX = Math.max(0.1, Math.min(10, textResizeStart.scaleX * ratio));
-          newScaleY = Math.max(0.1, Math.min(10, textResizeStart.scaleY * ratio));
-        }
-      }
-      
-      updateTextOverlay(resizingTextId, { 
-        scaleX: newScaleX,
-        scaleY: newScaleY
-      });
-    };
-
-    const handleMouseUp = () => {
-      setResizingTextId(null);
-      setResizeCorner(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingTextId, resizeCorner, textResizeStart, updateTextOverlay]);
-
-  // Handle crop mode
-  const handleToggleCrop = () => {
-    const nextMode = !cropMode;
-    setCropMode(nextMode);
-    
-    if (nextMode) {
-      if (player.isPlaying) {
-        pause();
-      }
-      const activeClips = getActiveClips();
-      const mainClip = activeClips.find(c => c.clip.id === ui.selectedClipId) || activeClips[0];
-      
-      if (mainClip) {
-        // Initialize crop area from existing crop or default
-        const crop = mainClip.clip.crop || { x: 0, y: 0, width: 100, height: 100, locked: false };
-        setCropArea(crop);
-      }
-    }
-  };
-
-  const handleApplyCrop = () => {
-    if (ui.selectedClipId) {
-      updateClip(ui.selectedClipId, { crop: cropArea });
-      setCropMode(false);
-    }
-  };
-
-  // Handle crop resize
-  const handleCropResizeStart = (e: React.MouseEvent, handle: string) => {
-    e.stopPropagation();
-    setResizingCrop(handle);
-    setCropDragStart({
-      x: e.clientX,
-      y: e.clientY,
-      crop: { ...cropArea }
-    });
-  };
-
-  const calculateNewCropEdge = (
-    handle: string,
-    deltaX: number,
-    deltaY: number,
-    crop: { x: number; y: number; width: number; height: number }
-  ): { x: number; y: number; width: number; height: number } | null => {
-    switch (handle) {
-      case 'nw': {
-        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-        return {
-          width: crop.width + (crop.x - newX),
-          height: crop.height + (crop.y - newY),
-          x: newX,
-          y: newY
-        };
-      }
-      case 'ne': {
-        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-        return {
-          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
-          height: crop.height + (crop.y - newY),
-          y: newY,
-          x: crop.x
-        };
-      }
-      case 'sw': {
-        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-        return {
-          width: crop.width + (crop.x - newX),
-          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
-          x: newX,
-          y: crop.y
-        };
-      }
-      case 'se':
-        return {
-          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
-          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
-          x: crop.x,
-          y: crop.y
-        };
-      case 'n': {
-        const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-        return {
-          height: crop.height + (crop.y - newY),
-          y: newY,
-          width: crop.width,
-          x: crop.x
-        };
-      }
-      case 's':
-        return {
-          height: Math.max(5, Math.min(100 - crop.y, crop.height + deltaY)),
-          width: crop.width,
-          x: crop.x,
-          y: crop.y
-        };
-      case 'w': {
-        const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-        return {
-          width: crop.width + (crop.x - newX),
-          x: newX,
-          height: crop.height,
-          y: crop.y
-        };
-      }
-      case 'e':
-        return {
-          width: Math.max(5, Math.min(100 - crop.x, crop.width + deltaX)),
-          height: crop.height,
-          x: crop.x,
-          y: crop.y
-        };
-      default:
-        return null;
-    }
-  };
-
-  const calculateNewCrop = (deltaX: number, deltaY: number, crop: any) => {
-    const result = calculateNewCropEdge(resizingCrop || '', deltaX, deltaY, crop);
-    return result || { ...cropArea };
-  };
-
-  useEffect(() => {
-    if (!resizingCrop || !videoContainerRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const deltaX = ((e.clientX - cropDragStart.x) / rect.width) * 100;
-      const deltaY = ((e.clientY - cropDragStart.y) / rect.height) * 100;
-
-      const { crop } = cropDragStart;
-      const newCrop = calculateNewCrop(deltaX, deltaY, crop);
-
-      setCropArea(newCrop);
-    };
-
-    const handleMouseUp = () => {
-      setResizingCrop(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingCrop, cropDragStart, cropArea]);
-
-  // Handle text editing
-  const handleTextDoubleClick = (e: React.MouseEvent, textId: string, currentText: string) => {
-    e.stopPropagation();
-    setEditingTextId(textId);
-    setEditingTextValue(currentText);
-    // Pause playback when editing
-    if (player.isPlaying) {
-      pause();
-    }
-  };
-
-  const handleTextEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEditingTextValue(e.target.value);
-  };
-
-  const handleTextEditSubmit = () => {
-    if (editingTextId) {
-      updateTextOverlay(editingTextId, { text: editingTextValue });
-      setEditingTextId(null);
-    }
-  };
-
-  const handleTextEditKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleTextEditSubmit();
-    } else if (e.key === 'Escape') {
-      setEditingTextId(null);
-    }
-    e.stopPropagation(); // Prevent triggering other shortcuts
-  };
-
-  // Handle image transform start (drag to move, scroll to scale, shift+drag to rotate)
-  const handleImageTransformStart = (e: React.MouseEvent, clipId: string) => {
-    e.stopPropagation();
-    if (player.isPlaying) {
-      pause();
-    }
-
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-
-    const currentTransform = clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
-    
-    setTransformingImageId(clipId);
-    setTransformStart({
-      x: e.clientX,
-      y: e.clientY,
-      transform: { ...currentTransform }
-    });
-  };
-
-  // Handle image transform (move, scale, rotate)
-  useEffect(() => {
-    if (!transformingImageId || !videoContainerRef.current) return;
-
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === transformingImageId);
-    if (!clip) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      // Move image with mouse drag
-      const deltaX = ((e.clientX - transformStart.x) / rect.width) * 100;
-      const deltaY = ((e.clientY - transformStart.y) / rect.height) * 100;
-
-      updateClip(transformingImageId, {
-        transform: {
-          ...transformStart.transform,
-          x: Math.max(0, Math.min(100, transformStart.transform.x + deltaX)),
-          y: Math.max(0, Math.min(100, transformStart.transform.y + deltaY))
-        }
-      });
-    };
-
-    const handleMouseUp = () => {
-      setTransformingImageId(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [transformingImageId, transformStart, tracks, updateClip]);
-
-  // Handle image resize with corner handles
-  const handleImageResizeStart = (e: React.MouseEvent, clipId: string, corner: string) => {
-    e.stopPropagation();
-    if (player.isPlaying) pause();
-
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-
-    const currentTransform = clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
-    
-    setResizingImageId(clipId);
-    setResizeCorner(corner);
-    setTransformStart({
-      x: e.clientX,
-      y: e.clientY,
-      transform: { ...currentTransform }
-    });
-  };
-
-  const calculateNewScales = (
-    e: MouseEvent,
-    centerX: number,
-    centerY: number,
-    currentScaleX: number,
-    currentScaleY: number
-  ) => {
-    let newScaleX = currentScaleX;
-    let newScaleY = currentScaleY;
-
-    if (resizeCorner === 'n' || resizeCorner === 's') {
-      const startDist = Math.abs(transformStart.y - centerY);
-      const currentDist = Math.abs(e.clientY - centerY);
-      if (startDist > 0) {
-        const ratio = currentDist / startDist;
-        newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
-      }
-    } else if (resizeCorner === 'e' || resizeCorner === 'w') {
-      const startDist = Math.abs(transformStart.x - centerX);
-      const currentDist = Math.abs(e.clientX - centerX);
-      if (startDist > 0) {
-        const ratio = currentDist / startDist;
-        newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
-      }
-    } else {
-      const startDist = Math.sqrt(
-        Math.pow(transformStart.x - centerX, 2) + 
-        Math.pow(transformStart.y - centerY, 2)
-      );
-      const currentDist = Math.sqrt(
-        Math.pow(e.clientX - centerX, 2) + 
-        Math.pow(e.clientY - centerY, 2)
-      );
-      if (startDist > 0) {
-        const ratio = currentDist / startDist;
-        newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
-        newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
-      }
-    }
-
-    return { newScaleX, newScaleY };
-  };
-
-  useEffect(() => {
-    if (!resizingImageId || !resizeCorner || !videoContainerRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const centerX = rect.left + (rect.width * transformStart.transform.x) / 100;
-      const centerY = rect.top + (rect.height * transformStart.transform.y) / 100;
-
-      const currentScaleX = transformStart.transform.scaleX ?? transformStart.transform.scale;
-      const currentScaleY = transformStart.transform.scaleY ?? transformStart.transform.scale;
-
-      const { newScaleX, newScaleY } = calculateNewScales(e, centerX, centerY, currentScaleX, currentScaleY);
-
-      updateClip(resizingImageId, {
-        transform: {
-          ...transformStart.transform,
-          scaleX: newScaleX,
-          scaleY: newScaleY,
-          scale: Math.max(newScaleX, newScaleY)
-        }
-      });
-    };
-
-    const handleMouseUp = () => {
-      setResizingImageId(null);
-      setResizeCorner(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [resizingImageId, resizeCorner, transformStart, updateClip]);
-
-  // Handle image rotation
-  const handleImageRotateStart = (e: React.MouseEvent, clipId: string) => {
-    e.stopPropagation();
-    if (player.isPlaying) pause();
-
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-
-    const rect = videoContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const transform = clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
-    const centerX = rect.left + (rect.width * transform.x) / 100;
-    const centerY = rect.top + (rect.height * transform.y) / 100;
-    
-    const angle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
-
-    setRotatingImageId(clipId);
-    setRotationStart({
-      angle: angle - transform.rotation,
-      centerX,
-      centerY
-    });
-    setTransformStart({
-      x: e.clientX,
-      y: e.clientY,
-      transform: { ...transform }
-    });
-  };
-
-  useEffect(() => {
-    if (!rotatingImageId || !videoContainerRef.current) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const currentAngle = Math.atan2(
-        e.clientY - rotationStart.centerY,
-        e.clientX - rotationStart.centerX
-      ) * (180 / Math.PI);
-      
-      const rotation = currentAngle - rotationStart.angle;
-
-      updateClip(rotatingImageId, {
-        transform: {
-          ...transformStart.transform,
-          rotation: Math.round(rotation)
-        }
-      });
-    };
-
-    const handleMouseUp = () => {
-      setRotatingImageId(null);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [rotatingImageId, rotationStart, transformStart, updateClip]);
 
   // Utiliser directement activeClipsData (useMemo) au lieu de getActiveClips()
   // pour éviter les appels de fonction inutiles

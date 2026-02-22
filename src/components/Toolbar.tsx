@@ -197,9 +197,9 @@ export const Toolbar: React.FC = () => {
 
   // Get icon size based on layout mode
   const getIconSize = () => {
-    if (isMinimal) return 'w-4 h-4';
+    if (isMinimal) return 'w-3.5 h-3.5';
     if (isCompact) return 'w-4 h-4';
-    return 'w-4 h-4';
+    return 'w-5 h-5';
   };
 
   // Determine if we should show labels

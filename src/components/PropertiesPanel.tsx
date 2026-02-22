@@ -183,58 +183,12 @@ const handleScrub = (
   window.addEventListener('pointerup', handlePointerUp);
 };
 
-export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
-  const {
-    tracks,
-    textOverlays,
-    transitions,
-    filters,
-    ui,
-    mediaFiles,
-    aspectRatio,
-    setAspectRatio,
-    addTextOverlay,
-    updateTextOverlay,
-    removeTextOverlay,
-    selectText,
-    setTransition,
-    removeTransition,
-    setFilter,
-    resetFilter,
-    updateClip,
-    removeClip,
-    detachAudioFromVideo,
-    player,
-    saveState,
-  } = useEditorStore();
-
-  // Use responsive hooks for fold-aware layout
-  const responsive = useResponsive();
-  const layoutMode = useLayoutMode();
-  const isFoldable = useIsFoldable();
-  
-  // Determine layout characteristics
-  const isMinimal = layoutMode === 'minimal';
-  const isCompact = layoutMode === 'compact';
-  const isAdaptive = layoutMode === 'adaptive';
-  const isExpanded = layoutMode === 'expanded';
-  const isDesktop = layoutMode === 'desktop';
-  
-  // Bottom sheet state for fold-cover mode
+const useBottomSheet = () => {
   const [isBottomSheetOpen, setIsBottomSheetOpen] = useState(false);
   const [bottomSheetHeight, setBottomSheetHeight] = useState(50); // percentage
   const bottomSheetRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ y: number; height: number } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'clip');
-  const [expandedSection, setExpandedSection] = useState<string | null>('basic');
-  const [previewTransition, setPreviewTransition] = useState<TransitionType | null>(null);
-  const [cropMode, setCropMode] = useState(false);
-  
-  const colorInputRef = useRef<HTMLInputElement>(null);
-  const bgColorInputRef = useRef<HTMLInputElement>(null);
-  
-  // Handle bottom sheet drag for swipe gestures
   const handleBottomSheetDragStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     dragStartRef.current = { y: clientY, height: bottomSheetHeight };
@@ -284,20 +238,94 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     };
   }, [isBottomSheetOpen, handleBottomSheetDrag, handleBottomSheetDragEnd]);
 
-  const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor') => {
-    if (!window.EyeDropper) {
-      alert('Votre navigateur ne supporte pas la pipette. Utilisez Chrome ou Edge.');
-      return;
-    }
-
-    const eyeDropper = new window.EyeDropper();
-    try {
-      const result = await eyeDropper.open();
-      updateTextOverlay(id, { [property]: result.sRGBHex });
-    } catch (e) {
-      console.log('EyeDropper cancelled');
-    }
+  return {
+    isBottomSheetOpen,
+    setIsBottomSheetOpen,
+    bottomSheetHeight,
+    bottomSheetRef,
+    handleBottomSheetDragStart
   };
+};
+
+const getTransitionCategoryLabel = (category: string): string => {
+  const labels: Record<string, string> = {
+    basic: 'Basiques',
+    slide: 'Glissements',
+    wipe: 'Balayages',
+    zoom: 'Zooms',
+    rotate: 'Rotations',
+    shape: 'Formes'
+  };
+  return labels[category] || 'Effets';
+};
+
+const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor', updateTextOverlay: any) => {
+  if (!window.EyeDropper) {
+    alert('Votre navigateur ne supporte pas la pipette. Utilisez Chrome ou Edge.');
+    return;
+  }
+
+  const eyeDropper = new window.EyeDropper();
+  try {
+    const result = await eyeDropper.open();
+    updateTextOverlay(id, { [property]: result.sRGBHex });
+  } catch (e) {
+    console.log('EyeDropper cancelled');
+  }
+};
+
+export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
+  const {
+    tracks,
+    textOverlays,
+    transitions,
+    filters,
+    ui,
+    mediaFiles,
+    aspectRatio,
+    setAspectRatio,
+    addTextOverlay,
+    updateTextOverlay,
+    removeTextOverlay,
+    selectText,
+    setTransition,
+    removeTransition,
+    setFilter,
+    resetFilter,
+    updateClip,
+    removeClip,
+    detachAudioFromVideo,
+    player,
+    saveState,
+  } = useEditorStore();
+
+  // Use responsive hooks for fold-aware layout
+  const responsive = useResponsive();
+  const layoutMode = useLayoutMode();
+  const isFoldable = useIsFoldable();
+  
+  // Determine layout characteristics
+  const isMinimal = layoutMode === 'minimal';
+  const isCompact = layoutMode === 'compact';
+  const isAdaptive = layoutMode === 'adaptive';
+  const isExpanded = layoutMode === 'expanded';
+  const isDesktop = layoutMode === 'desktop';
+  
+  const {
+    isBottomSheetOpen,
+    setIsBottomSheetOpen,
+    bottomSheetHeight,
+    bottomSheetRef,
+    handleBottomSheetDragStart
+  } = useBottomSheet();
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'clip');
+  const [expandedSection, setExpandedSection] = useState<string | null>('basic');
+  const [previewTransition, setPreviewTransition] = useState<TransitionType | null>(null);
+  const [cropMode, setCropMode] = useState(false);
+  
+  const colorInputRef = useRef<HTMLInputElement>(null);
+  const bgColorInputRef = useRef<HTMLInputElement>(null);
 
   // Update activeTab when prop changes
   React.useEffect(() => {
@@ -864,7 +892,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
                     {/* EyeDropper Button */}
                     <button
-                      onClick={() => handleEyeDropper(selectedText.id, 'color')}
+                      onClick={() => handleEyeDropper(selectedText.id, 'color', updateTextOverlay)}
                       className="w-10 h-10 flex items-center justify-center rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors text-neutral-400 hover:text-white flex-shrink-0"
                       title="Pipette (Selectionner une couleur sur l'ecran)"
                     >
@@ -931,7 +959,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
                     {/* EyeDropper Button */}
                     <button
-                      onClick={() => handleEyeDropper(selectedText.id, 'backgroundColor')}
+                      onClick={() => handleEyeDropper(selectedText.id, 'backgroundColor', updateTextOverlay)}
                       className="w-10 h-10 flex items-center justify-center rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors text-neutral-400 hover:text-white flex-shrink-0"
                       title="Pipette (Selectionner une couleur sur l'ecran)"
                     >
@@ -1074,18 +1102,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         }) || null;
     }
     return targetClip;
-  };
-
-  const getTransitionCategoryLabel = (category: string): string => {
-    const labels: Record<string, string> = {
-      basic: 'Basiques',
-      slide: 'Glissements',
-      wipe: 'Balayages',
-      zoom: 'Zooms',
-      rotate: 'Rotations',
-      shape: 'Formes'
-    };
-    return labels[category] || 'Effets';
   };
 
   const renderTransitionsList = (category: string, categoryTransitions: typeof AVAILABLE_TRANSITIONS, currentTransition: any, targetClipId: string) => {

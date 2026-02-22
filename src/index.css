@@ -1141,9 +1141,6 @@ label {
   @media (max-width: 1024px) {
     /* Optimize video for Chrome on Android */
     video {
-      /* Use optimized decoding */
-      -webkit-video-playable-inline: true;
-      
       /* Reduce memory usage */
       object-fit: contain;
       
@@ -1162,12 +1159,7 @@ label {
 /* iOS Safari specific optimizations */
 @supports (-webkit-touch-callout: none) {
   video {
-    /* Required for inline playback on iOS */
-    -webkit-playsinline: true;
-    playsinline: true;
-    
-    /* Prevent fullscreen on play */
-    webkit-playsinline: true;
+    /* Prevent fullscreen on play (handled via HTML attributes) */
   }
 }
 

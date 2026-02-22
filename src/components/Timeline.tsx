@@ -61,27 +61,34 @@ const getCompactLabel = (trackName: string): string => {
   return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
 };
 
-const getTrackLabel = (trackName: string, layoutMode: string): string => {
+const getTrackTypeFromName = (trackName: string): 'video' | 'image' | 'audio' | 'text' | 'other' => {
   const lowerName = trackName.toLowerCase();
+  if (lowerName.includes('video')) return 'video';
+  if (lowerName.includes('image')) return 'image';
+  if (lowerName.includes('audio')) return 'audio';
+  if (lowerName.includes('text')) return 'text';
+  return 'other';
+};
 
+const getTrackLabel = (trackName: string, layoutMode: string): string => {
   if (layoutMode === 'desktop' || layoutMode === 'expanded') {
     return trackName;
   }
 
+  const type = getTrackTypeFromName(trackName);
+
   if (layoutMode === 'minimal') {
-    if (lowerName.includes('video')) return 'Vid';
-    if (lowerName.includes('image')) return 'Img';
-    if (lowerName.includes('audio')) return 'Aud';
-    if (lowerName.includes('text')) return 'Txt';
-    return trackName.substring(0, 3);
+    const minimalLabels: Record<string, string> = {
+      video: 'Vid', image: 'Img', audio: 'Aud', text: 'Txt'
+    };
+    return minimalLabels[type] || trackName.substring(0, 3);
   }
 
   if (layoutMode === 'compact' || layoutMode === 'adaptive') {
-    if (lowerName.includes('video')) return 'Video';
-    if (lowerName.includes('image')) return 'Imgs';
-    if (lowerName.includes('audio')) return 'Audio';
-    if (lowerName.includes('text')) return 'Text';
-    return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
+    const compactLabels: Record<string, string> = {
+      video: 'Video', image: 'Imgs', audio: 'Audio', text: 'Text'
+    };
+    return compactLabels[type] || (trackName.length > 5 ? trackName.substring(0, 5) : trackName);
   }
 
   return trackName;
@@ -212,6 +219,530 @@ const TimelineClipComponent = ({
   );
 };
 
+const useTimelineKeyboardShortcuts = () => {
+  const {
+    ui, tracks, mediaFiles, textOverlays, player, projectDuration,
+    removeClip, removeTextOverlay, undo, redo, seek
+  } = useEditorStore();
+
+  const [copiedClip, setCopiedClip] = useState<{ clip: TimelineClip; trackId: string } | null>(null);
+  const [copiedText, setCopiedText] = useState<TextOverlay | null>(null);
+
+  const handleUndoRedo = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+      return true;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      e.preventDefault();
+      redo();
+      return true;
+    }
+    return false;
+  }, [undo, redo]);
+
+  const handleDelete = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (ui.selectedClipId) {
+        e.preventDefault();
+        removeClip(ui.selectedClipId);
+        return true;
+      }
+      if (ui.selectedTextId) {
+        e.preventDefault();
+        removeTextOverlay(ui.selectedTextId);
+        return true;
+      }
+    }
+    return false;
+  }, [ui.selectedClipId, ui.selectedTextId, removeClip, removeTextOverlay]);
+
+  const handleCopy = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if (ui.selectedClipId) {
+        e.preventDefault();
+        const clip = tracks.flatMap(t => t.clips).find(c => c.id === ui.selectedClipId);
+        const trackWithClip = tracks.find(t => t.clips.some(c => c.id === ui.selectedClipId));
+        if (clip && trackWithClip) {
+          setCopiedClip({ clip: { ...clip }, trackId: trackWithClip.id });
+          setCopiedText(null);
+        }
+        return true;
+      }
+      if (ui.selectedTextId) {
+        e.preventDefault();
+        const text = textOverlays.find(t => t.id === ui.selectedTextId);
+        if (text) {
+          setCopiedText({ ...text });
+          setCopiedClip(null);
+        }
+        return true;
+      }
+    }
+    return false;
+  }, [ui.selectedClipId, ui.selectedTextId, tracks, textOverlays]);
+
+  const handlePaste = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      if (copiedClip) {
+        e.preventDefault();
+        const media = mediaFiles.find(m => m.id === copiedClip.clip.mediaId);
+        if (media) {
+          const { addClipToTrack } = useEditorStore.getState();
+          addClipToTrack(copiedClip.trackId, media, player.currentTime);
+        }
+        return true;
+      }
+      if (copiedText) {
+        e.preventDefault();
+        const { addTextOverlay } = useEditorStore.getState();
+        addTextOverlay({
+          ...copiedText,
+          id: undefined,
+          startTime: player.currentTime,
+        });
+        return true;
+      }
+    }
+    return false;
+  }, [copiedClip, copiedText, mediaFiles, player.currentTime]);
+
+  const handleSeekKeys = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      seek(Math.max(0, player.currentTime - (e.shiftKey ? 1 : 0.1)));
+      return true;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 1 : 0.1)));
+      return true;
+    }
+    return false;
+  }, [player.currentTime, projectDuration, seek]);
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+      return;
+    }
+
+    if (handleUndoRedo(e)) return;
+    if (handleDelete(e)) return;
+    if (handleCopy(e)) return;
+    if (handlePaste(e)) return;
+    if (handleSeekKeys(e)) return;
+  }, [handleUndoRedo, handleDelete, handleCopy, handlePaste, handleSeekKeys]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
+  return { copiedClip, copiedText, setCopiedClip, setCopiedText };
+};
+
+const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>, PIXELS_PER_SECOND: number) => {
+  const { ui, player, projectDuration, seek } = useEditorStore();
+  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [isTouchScrubbing, setIsTouchScrubbing] = useState(false);
+
+  const handlePlayheadMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDraggingPlayhead(true);
+  };
+
+  const handlePlayheadTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    setIsDraggingPlayhead(true);
+    setIsTouchScrubbing(true);
+  };
+
+  useEffect(() => {
+    if (!isDraggingPlayhead) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+      seek(Math.max(0, Math.min(projectDuration, time)));
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+      seek(Math.max(0, Math.min(projectDuration, time)));
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingPlayhead(false);
+      setIsTouchScrubbing(false);
+    };
+
+    const handleTouchEnd = () => {
+      setIsDraggingPlayhead(false);
+      setIsTouchScrubbing(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDraggingPlayhead, ui.timelineZoom, projectDuration, seek, tracksContainerRef, PIXELS_PER_SECOND]);
+
+  return {
+    isDraggingPlayhead,
+    isTouchScrubbing,
+    setIsTouchScrubbing,
+    handlePlayheadMouseDown,
+    handlePlayheadTouchStart
+  };
+};
+
+const useTimelineContextMenu = () => {
+  const { selectClip, selectText } = useEditorStore();
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+
+  const calculateMenuPosition = (clientX: number, clientY: number) => {
+    const menuWidth = 180;
+    const menuHeight = 200;
+    
+    let x = clientX;
+    let y = clientY;
+    
+    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
+    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
+    if (x < 10) x = 10;
+    if (y < 10) y = 10;
+
+    return { x, y };
+  };
+
+  const handleClipContextMenu = (e: React.MouseEvent, clipId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectClip(clipId);
+    
+    const { x, y } = calculateMenuPosition(e.clientX, e.clientY);
+    
+    setContextMenu({
+      id: clipId,
+      type: 'clip',
+      x,
+      y,
+    });
+  };
+
+  const handleTextContextMenu = (e: React.MouseEvent, textId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectText(textId);
+
+    const { x, y } = calculateMenuPosition(e.clientX, e.clientY);
+
+    setContextMenu({
+      id: textId,
+      type: 'text',
+      x,
+      y,
+    });
+  };
+
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
+
+  return {
+    contextMenu,
+    setContextMenu,
+    handleClipContextMenu,
+    handleTextContextMenu
+  };
+};
+
+const useTimelineTouch = (
+  tracksContainerRef: React.RefObject<HTMLDivElement>,
+  ui: any,
+  setTimelineZoom: any,
+  player: any,
+  isMinimal: boolean,
+  isCompact: boolean,
+  setIsTouchScrubbing: any,
+  setTouchStartX: any,
+  setTouchStartTime: any
+) => {
+  const [lastPinchDistance, setLastPinchDistance] = useState<number | null>(null);
+
+  const getTouchDistance = (touches: React.TouchList) => {
+    if (touches.length < 2) return null;
+    const touch1 = touches[0];
+    const touch2 = touches[1];
+    const dx = touch2.clientX - touch1.clientX;
+    const dy = touch2.clientY - touch1.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const distance = getTouchDistance(e.touches);
+      setLastPinchDistance(distance);
+    } else if (e.touches.length === 1) {
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (rect) {
+        setTouchStartX(e.touches[0].clientX);
+        setTouchStartTime(player.currentTime);
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && lastPinchDistance) {
+      const currentDistance = getTouchDistance(e.touches);
+      if (currentDistance) {
+        const sensitivity = isMinimal || isCompact ? 150 : 100;
+        const delta = (currentDistance - lastPinchDistance) / sensitivity;
+        const newZoom = Math.max(0.2, Math.min(5, ui.timelineZoom + delta));
+        setTimelineZoom(newZoom);
+        setLastPinchDistance(currentDistance);
+      }
+      e.preventDefault();
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (e.touches.length < 2) {
+      setLastPinchDistance(null);
+    }
+    setIsTouchScrubbing(false);
+  };
+
+  return { handleTouchStart, handleTouchMove, handleTouchEnd };
+};
+
+const useTimelineCut = () => {
+  const { player, tracks, textOverlays, updateTextOverlay, addTextOverlay } = useEditorStore();
+
+  const handleCutClick = () => {
+    const cutTime = player.currentTime;
+    const { splitClip } = useEditorStore.getState();
+    
+    const clipsToSplit: string[] = [];
+    
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        const clipStart = clip.startTime;
+        const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+        
+        if (cutTime > clipStart && cutTime < clipEnd) {
+          clipsToSplit.push(clip.id);
+        }
+      });
+    });
+    
+    clipsToSplit.forEach(clipId => {
+      splitClip(clipId, cutTime);
+    });
+
+    textOverlays.forEach(text => {
+      const textEnd = text.startTime + text.duration;
+      if (cutTime > text.startTime && cutTime < textEnd) {
+        const firstDuration = cutTime - text.startTime;
+        const secondDuration = text.duration - firstDuration;
+        
+        updateTextOverlay(text.id, { duration: firstDuration });
+        
+        addTextOverlay({
+          ...text,
+          id: undefined,
+          startTime: cutTime,
+          duration: secondDuration,
+          text: text.text
+        });
+      }
+    });
+  };
+
+  return { handleCutClick };
+};
+
+const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCopiedText }: any) => {
+  const { tracks, mediaFiles, textOverlays, addTextOverlay, removeTextOverlay, removeClip, player } = useEditorStore();
+
+  const handleDetachAudio = (clipId: string) => {
+    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+    if (!clip) return;
+    
+    const media = mediaFiles.find(m => m.id === clip.mediaId);
+    if (!media || media.type !== 'video') return;
+
+    const { detachAudioFromVideo } = useEditorStore.getState();
+    detachAudioFromVideo(clipId);
+
+    setContextMenu(null);
+  };
+
+  const handleCutClip = (clipId: string) => {
+    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+    if (!clip) return;
+
+    const cutTime = player.currentTime;
+    if (cutTime > clip.startTime && cutTime < clip.startTime + clip.duration - clip.trimStart - clip.trimEnd) {
+      const trackWithClip = tracks.find(t => t.clips.some(c => c.id === clipId));
+      if (!trackWithClip) return;
+
+      const { splitClip } = useEditorStore.getState();
+      splitClip(clipId, cutTime);
+    }
+
+    setContextMenu(null);
+  };
+
+  const handleDuplicateClip = (clipId: string) => {
+    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
+    if (!clip) return;
+
+    const trackWithClip = tracks.find(t => t.clips.some(c => c.id === clipId));
+    if (!trackWithClip) return;
+
+    const media = mediaFiles.find(m => m.id === clip.mediaId);
+    if (!media) return;
+
+    const { addClipToTrack } = useEditorStore.getState();
+    const newStartTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd) + 0.1;
+    addClipToTrack(trackWithClip.id, media, newStartTime);
+
+    setContextMenu(null);
+  };
+
+  const handleDeleteClip = (clipId: string) => {
+    removeClip(clipId);
+    setContextMenu(null);
+  };
+
+  if (!contextMenu) return null;
+
+  if (contextMenu.type === 'clip') {
+    const clip = tracks.flatMap(t => t.clips).find(c => c.id === contextMenu.id);
+    const media = clip ? mediaFiles.find(m => m.id === clip.mediaId) : null;
+    const isVideo = media?.type === 'video';
+
+    return (
+      <div
+        className="fixed z-[100] bg-[#0f0f0f] border-2 border-primary-500/50 rounded-lg shadow-2xl py-1 min-w-[180px]"
+        style={{
+          left: `${contextMenu.x}px`,
+          top: `${contextMenu.y}px`,
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(117, 122, 237, 0.3)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => handleCutClip(contextMenu.id)}
+          className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+        >
+          <Scissors className="w-4 h-4" />
+          <span>Couper</span>
+        </button>
+
+        {isVideo && (
+          <button
+            onClick={() => handleDetachAudio(contextMenu.id)}
+            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Music2 className="w-4 h-4" />
+            <span>Detacher audio</span>
+          </button>
+        )}
+
+        <button
+          onClick={() => handleDuplicateClip(contextMenu.id)}
+          className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+        >
+          <Copy className="w-4 h-4" />
+          <span>Dupliquer</span>
+        </button>
+
+        <div className="h-px bg-white/10 my-1" />
+
+        <button
+          onClick={() => handleDeleteClip(contextMenu.id)}
+          className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Supprimer</span>
+        </button>
+      </div>
+    );
+  } else if (contextMenu.type === 'text') {
+    return (
+      <div
+        className="fixed z-[100] bg-[#0f0f0f] border-2 border-primary-500/50 rounded-lg shadow-2xl py-1 min-w-[180px]"
+        style={{
+          left: `${contextMenu.x}px`,
+          top: `${contextMenu.y}px`,
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(117, 122, 237, 0.3)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={() => {
+            const text = textOverlays.find(t => t.id === contextMenu.id);
+            if (text) {
+              setCopiedText({ ...text });
+              setCopiedClip(null);
+              addTextOverlay({
+                ...text,
+                id: undefined,
+                startTime: text.startTime + 0.5,
+              });
+            }
+            setContextMenu(null);
+          }}
+          className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+        >
+          <Copy className="w-4 h-4" />
+          <span>Dupliquer</span>
+        </button>
+
+        <div className="h-px bg-white/10 my-1" />
+
+        <button
+          onClick={() => {
+            removeTextOverlay(contextMenu.id);
+            setContextMenu(null);
+          }}
+          className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
+        >
+          <Trash2 className="w-4 h-4" />
+          <span>Supprimer</span>
+        </button>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const Timeline: React.FC = () => {
   const {
     tracks,
@@ -264,24 +795,24 @@ export const Timeline: React.FC = () => {
   const tracksContainerRef = useRef<HTMLDivElement>(null);
   const labelsContainerRef = useRef<HTMLDivElement>(null);
   const [isDraggingClip, setIsDraggingClip] = useState(false);
-  const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
   const [isDraggingText, setIsDraggingText] = useState(false);
   const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [resizingClip, setResizingClip] = useState<{ id: string; edge: 'start' | 'end' } | null>(null);
   const [resizingText, setResizingText] = useState<{ id: string; edge: 'start' | 'end' } | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
-  const [lastPinchDistance, setLastPinchDistance] = useState<number | null>(null);
-  const [copiedClip, setCopiedClip] = useState<{ clip: TimelineClip; trackId: string } | null>(null);
-  const [copiedText, setCopiedText] = useState<TextOverlay | null>(null);
   const [isDraggingTransition, setIsDraggingTransition] = useState(false);
   const [draggedTransitionId, setDraggedTransitionId] = useState<string | null>(null);
   
   // Touch scrubbing state
-  const [isTouchScrubbing, setIsTouchScrubbing] = useState(false);
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchStartTime, setTouchStartTime] = useState(0);
+
+  const { copiedClip, copiedText, setCopiedClip, setCopiedText } = useTimelineKeyboardShortcuts();
+  const { isDraggingPlayhead, isTouchScrubbing, setIsTouchScrubbing, handlePlayheadMouseDown, handlePlayheadTouchStart } = useTimelinePlayhead(tracksContainerRef, PIXELS_PER_SECOND);
+  const { contextMenu, setContextMenu, handleClipContextMenu, handleTextContextMenu } = useTimelineContextMenu();
+  const { handleTouchStart, handleTouchMove, handleTouchEnd } = useTimelineTouch(tracksContainerRef, ui, setTimelineZoom, player, isMinimal, isCompact, setIsTouchScrubbing, setTouchStartX, setTouchStartTime);
+  const { handleCutClick } = useTimelineCut();
 
   const timelineWidth = Math.max(projectDuration * PIXELS_PER_SECOND * ui.timelineZoom, 1000);
 
@@ -290,122 +821,6 @@ export const Timeline: React.FC = () => {
       labelsContainerRef.current.scrollTop = e.currentTarget.scrollTop;
     }
   };
-
-  const handleUndoRedo = (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-      e.preventDefault();
-      if (e.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
-      return true;
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-      e.preventDefault();
-      redo();
-      return true;
-    }
-    return false;
-  };
-
-  const handleDelete = (e: KeyboardEvent) => {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (ui.selectedClipId) {
-        e.preventDefault();
-        removeClip(ui.selectedClipId);
-        return true;
-      }
-      if (ui.selectedTextId) {
-        e.preventDefault();
-        removeTextOverlay(ui.selectedTextId);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const handleCopy = (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-      if (ui.selectedClipId) {
-        e.preventDefault();
-        const clip = tracks.flatMap(t => t.clips).find(c => c.id === ui.selectedClipId);
-        const trackWithClip = tracks.find(t => t.clips.some(c => c.id === ui.selectedClipId));
-        if (clip && trackWithClip) {
-          setCopiedClip({ clip: { ...clip }, trackId: trackWithClip.id });
-          setCopiedText(null);
-        }
-        return true;
-      }
-      if (ui.selectedTextId) {
-        e.preventDefault();
-        const text = textOverlays.find(t => t.id === ui.selectedTextId);
-        if (text) {
-          setCopiedText({ ...text });
-          setCopiedClip(null);
-        }
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const handlePaste = (e: KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-      if (copiedClip) {
-        e.preventDefault();
-        const media = mediaFiles.find(m => m.id === copiedClip.clip.mediaId);
-        if (media) {
-          const { addClipToTrack } = useEditorStore.getState();
-          addClipToTrack(copiedClip.trackId, media, player.currentTime);
-        }
-        return true;
-      }
-      if (copiedText) {
-        e.preventDefault();
-        const { addTextOverlay } = useEditorStore.getState();
-        addTextOverlay({
-          ...copiedText,
-          id: undefined,
-          startTime: player.currentTime,
-        });
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const handleSeekKeys = (e: KeyboardEvent) => {
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      seek(Math.max(0, player.currentTime - (e.shiftKey ? 1 : 0.1)));
-      return true;
-    }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 1 : 0.1)));
-      return true;
-    }
-    return false;
-  };
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-      return;
-    }
-
-    if (handleUndoRedo(e)) return;
-    if (handleDelete(e)) return;
-    if (handleCopy(e)) return;
-    if (handlePaste(e)) return;
-    if (handleSeekKeys(e)) return;
-  }, [ui.selectedClipId, ui.selectedTextId, copiedClip, copiedText, tracks, mediaFiles, player.currentTime, textOverlays, removeClip, removeTextOverlay, undo, redo, seek, projectDuration]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
 
   // Generate time markers
   const getTimeMarkers = () => {
@@ -431,121 +846,6 @@ export const Timeline: React.FC = () => {
     
     seek(Math.max(0, Math.min(projectDuration, time)));
   };
-
-  // Handle playhead dragging
-  const handlePlayheadMouseDown = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsDraggingPlayhead(true);
-  };
-
-  // Touch-friendly playhead dragging
-  const handlePlayheadTouchStart = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    setIsDraggingPlayhead(true);
-    setIsTouchScrubbing(true);
-  };
-
-  useEffect(() => {
-    if (!isDraggingPlayhead) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = tracksContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-      seek(Math.max(0, Math.min(projectDuration, time)));
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      
-      const rect = tracksContainerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const touch = e.touches[0];
-      const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-      seek(Math.max(0, Math.min(projectDuration, time)));
-    };
-
-    const handleMouseUp = () => {
-      setIsDraggingPlayhead(false);
-      setIsTouchScrubbing(false);
-    };
-
-    const handleTouchEnd = () => {
-      setIsDraggingPlayhead(false);
-      setIsTouchScrubbing(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDraggingPlayhead, ui.timelineZoom, projectDuration, seek]);
-
-  // Helper to calculate menu position
-  const calculateMenuPosition = (clientX: number, clientY: number) => {
-    const menuWidth = 180;
-    const menuHeight = 200;
-    
-    let x = clientX;
-    let y = clientY;
-    
-    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - 10;
-    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - 10;
-    if (x < 10) x = 10;
-    if (y < 10) y = 10;
-
-    return { x, y };
-  };
-
-  // Handle clip context menu
-  const handleClipContextMenu = (e: React.MouseEvent, clipId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    selectClip(clipId);
-    
-    const { x, y } = calculateMenuPosition(e.clientX, e.clientY);
-    
-    setContextMenu({
-      id: clipId,
-      type: 'clip',
-      x,
-      y,
-    });
-  };
-
-  // Handle text context menu
-  const handleTextContextMenu = (e: React.MouseEvent, textId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    selectText(textId);
-
-    const { x, y } = calculateMenuPosition(e.clientX, e.clientY);
-
-    setContextMenu({
-      id: textId,
-      type: 'text',
-      x,
-      y,
-    });
-  };
-
-  // Close context menu
-  useEffect(() => {
-    const handleClick = () => setContextMenu(null);
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
-  }, []);
 
   // Handle clip dragging
   const handleClipMouseDown = (e: React.MouseEvent, clipId: string, trackId: string) => {
@@ -1290,244 +1590,7 @@ export const Timeline: React.FC = () => {
     setAspectRatio(newRatio);
   };
 
-  // Handle cut button click - cuts all clips at playhead position
-  const handleCutClick = () => {
-    const cutTime = player.currentTime;
-    const { splitClip } = useEditorStore.getState();
-    
-    // Find all clips that intersect with the playhead position
-    const clipsToSplit: string[] = [];
-    
-    tracks.forEach(track => {
-      track.clips.forEach(clip => {
-        const clipStart = clip.startTime;
-        const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
-        
-        // Check if playhead is within this clip
-        if (cutTime > clipStart && cutTime < clipEnd) {
-          clipsToSplit.push(clip.id);
-        }
-      });
-    });
-    
-    // Split all clips at the playhead position
-    clipsToSplit.forEach(clipId => {
-      splitClip(clipId, cutTime);
-    });
-
-    // Split text overlays
-    textOverlays.forEach(text => {
-      const textEnd = text.startTime + text.duration;
-      if (cutTime > text.startTime && cutTime < textEnd) {
-        // Split text
-        const firstDuration = cutTime - text.startTime;
-        const secondDuration = text.duration - firstDuration;
-        
-        // Update first part
-        updateTextOverlay(text.id, { duration: firstDuration });
-        
-        // Create second part
-        addTextOverlay({
-          ...text,
-          id: undefined, // let it generate new id
-          startTime: cutTime,
-          duration: secondDuration,
-          text: text.text // copy content
-        });
-      }
-    });
-  };
-
-  // Calculate distance between two touch points
-  const getTouchDistance = (touches: React.TouchList) => {
-    if (touches.length < 2) return null;
-    const touch1 = touches[0];
-    const touch2 = touches[1];
-    const dx = touch2.clientX - touch1.clientX;
-    const dy = touch2.clientY - touch1.clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  // Handle pinch-to-zoom with improved sensitivity
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const distance = getTouchDistance(e.touches);
-      setLastPinchDistance(distance);
-    } else if (e.touches.length === 1) {
-      // Single touch - prepare for scrubbing
-      const rect = tracksContainerRef.current?.getBoundingClientRect();
-      if (rect) {
-        setTouchStartX(e.touches[0].clientX);
-        setTouchStartTime(player.currentTime);
-      }
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && lastPinchDistance) {
-      // Pinch-to-zoom
-      const currentDistance = getTouchDistance(e.touches);
-      if (currentDistance) {
-        // Improved sensitivity for foldable devices
-        const sensitivity = isMinimal || isCompact ? 150 : 100;
-        const delta = (currentDistance - lastPinchDistance) / sensitivity;
-        const newZoom = Math.max(0.2, Math.min(5, ui.timelineZoom + delta));
-        setTimelineZoom(newZoom);
-        setLastPinchDistance(currentDistance);
-      }
-      e.preventDefault(); // Prevent scrolling while pinching
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (e.touches.length < 2) {
-      setLastPinchDistance(null);
-    }
-    setIsTouchScrubbing(false);
-  };
-
   const playheadX = player.currentTime * PIXELS_PER_SECOND * ui.timelineZoom;
-
-  // Context menu actions
-  const handleDetachAudio = (clipId: string) => {
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-    
-    const media = mediaFiles.find(m => m.id === clip.mediaId);
-    if (!media || media.type !== 'video') return;
-
-    // Use the proper detachAudioFromVideo function that establishes bidirectional links
-    const { detachAudioFromVideo } = useEditorStore.getState();
-    detachAudioFromVideo(clipId);
-
-    setContextMenu(null);
-  };
-
-  const handleCutClip = (clipId: string) => {
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-
-    // Split clip at playhead position
-    const cutTime = player.currentTime;
-    if (cutTime > clip.startTime && cutTime < clip.startTime + clip.duration - clip.trimStart - clip.trimEnd) {
-      const trackWithClip = tracks.find(t => t.clips.some(c => c.id === clipId));
-      if (!trackWithClip) return;
-
-      const { splitClip } = useEditorStore.getState();
-      splitClip(clipId, cutTime);
-    }
-
-    setContextMenu(null);
-  };
-
-  const handleDuplicateClip = (clipId: string) => {
-    const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-    if (!clip) return;
-
-    const trackWithClip = tracks.find(t => t.clips.some(c => c.id === clipId));
-    if (!trackWithClip) return;
-
-    const media = mediaFiles.find(m => m.id === clip.mediaId);
-    if (!media) return;
-
-    const { addClipToTrack } = useEditorStore.getState();
-    const newStartTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd) + 0.1;
-    addClipToTrack(trackWithClip.id, media, newStartTime);
-
-    setContextMenu(null);
-  };
-
-  const handleDeleteClip = (clipId: string) => {
-    const { removeClip } = useEditorStore.getState();
-    removeClip(clipId);
-    setContextMenu(null);
-  };
-
-  const renderContextMenuContent = () => {
-    if (contextMenu.type === 'clip') {
-      const clip = tracks.flatMap(t => t.clips).find(c => c.id === contextMenu.id);
-      const media = clip ? mediaFiles.find(m => m.id === clip.mediaId) : null;
-      const isVideo = media?.type === 'video';
-
-      return (
-        <>
-          <button
-            onClick={() => handleCutClip(contextMenu.id)}
-            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-          >
-            <Scissors className="w-4 h-4" />
-            <span>Couper</span>
-          </button>
-
-          {isVideo && (
-            <button
-              onClick={() => handleDetachAudio(contextMenu.id)}
-              className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-            >
-              <Music2 className="w-4 h-4" />
-              <span>Detacher audio</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => handleDuplicateClip(contextMenu.id)}
-            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-          >
-            <Copy className="w-4 h-4" />
-            <span>Dupliquer</span>
-          </button>
-
-          <div className="h-px bg-white/10 my-1" />
-
-          <button
-            onClick={() => handleDeleteClip(contextMenu.id)}
-            className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>Supprimer</span>
-          </button>
-        </>
-      );
-    } else if (contextMenu.type === 'text') {
-      return (
-        <>
-          <button
-            onClick={() => {
-              const text = textOverlays.find(t => t.id === contextMenu.id);
-              if (text) {
-                setCopiedText({ ...text });
-                setCopiedClip(null);
-                addTextOverlay({
-                  ...text,
-                  id: undefined,
-                  startTime: text.startTime + 0.5,
-                });
-              }
-              setContextMenu(null);
-            }}
-            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-          >
-            <Copy className="w-4 h-4" />
-            <span>Dupliquer</span>
-          </button>
-
-          <div className="h-px bg-white/10 my-1" />
-
-          <button
-            onClick={() => {
-              removeTextOverlay(contextMenu.id);
-              setContextMenu(null);
-            }}
-            className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>Supprimer</span>
-          </button>
-        </>
-      );
-    }
-    return null;
-  };
 
   // Get dynamic sizes for UI elements
   const clipHeight = getClipHeight(layoutMode, TRACK_HEIGHT);
@@ -1823,19 +1886,12 @@ export const Timeline: React.FC = () => {
       </div>
 
       {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed z-[100] bg-[#0f0f0f] border-2 border-primary-500/50 rounded-lg shadow-2xl py-1 min-w-[180px]"
-          style={{
-            left: `${contextMenu.x}px`,
-            top: `${contextMenu.y}px`,
-            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(117, 122, 237, 0.3)',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {renderContextMenuContent()}
-        </div>
-      )}
+      <TimelineContextMenu 
+        contextMenu={contextMenu} 
+        setContextMenu={setContextMenu} 
+        setCopiedClip={setCopiedClip} 
+        setCopiedText={setCopiedText} 
+      />
     </div>
   );
 };
