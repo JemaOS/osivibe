@@ -67,6 +67,90 @@ export interface EncodingSettings {
   targetFps: number;
 }
 
+function applyGpuTierSettings(settings: EncodingSettings, gpuTier: string, quality: string) {
+  switch (gpuTier) {
+    case 'high':
+      settings.preset = 'ultrafast';
+      settings.crf = quality === 'high' ? '23' : quality === 'medium' ? '26' : '30';
+      settings.maxWidth = 3840;
+      settings.maxHeight = 2160;
+      settings.targetFps = 60;
+      settings.additionalFlags.push('-tune', 'zerolatency');
+      settings.additionalFlags.push('-g', '60');
+      settings.additionalFlags.push('-max_muxing_queue_size', '1024');
+      break;
+    case 'medium':
+      settings.preset = quality === 'high' ? 'fast' : 'veryfast';
+      settings.crf = quality === 'high' ? '20' : quality === 'medium' ? '24' : '28';
+      settings.maxWidth = 1920;
+      settings.maxHeight = 1080;
+      settings.targetFps = 30;
+      settings.additionalFlags.push('-tune', 'fastdecode');
+      break;
+    case 'low':
+      settings.preset = 'ultrafast';
+      settings.crf = quality === 'high' ? '22' : quality === 'medium' ? '28' : '32';
+      settings.maxWidth = 1280;
+      settings.maxHeight = 720;
+      settings.targetFps = 30;
+      settings.additionalFlags.push('-tune', 'fastdecode');
+      break;
+    default:
+      settings.preset = 'fast';
+      settings.additionalFlags.push('-tune', 'fastdecode');
+      break;
+  }
+}
+
+function applyGpuVendorSettings(settings: EncodingSettings, gpuVendor: string) {
+  switch (gpuVendor) {
+    case 'nvidia':
+    case 'amd':
+    case 'intel':
+      settings.additionalFlags.push('-bf', '0');
+      break;
+    case 'apple':
+      settings.pixelFormat = 'yuv420p';
+      break;
+    case 'arm':
+    case 'qualcomm':
+      settings.preset = 'ultrafast';
+      settings.additionalFlags.push('-tune', 'fastdecode');
+      break;
+  }
+}
+
+function extractProfileInfo(hardwareProfile: AnyHardwareProfile) {
+  let gpuTier = 'unknown';
+  let processorCores = 4;
+  let memoryTier = 'unknown';
+  let isAppleSilicon = false;
+  let gpuVendor = 'unknown';
+
+  if ('gpu' in hardwareProfile && hardwareProfile.gpu && 'processor' in hardwareProfile && hardwareProfile.processor) {
+    gpuTier = hardwareProfile.gpu.tier;
+    processorCores = hardwareProfile.processor.cores;
+    memoryTier = hardwareProfile.memory.tier;
+    isAppleSilicon = hardwareProfile.processor.isAppleSilicon;
+    gpuVendor = hardwareProfile.gpu.vendor;
+  } else if ('cpuCores' in hardwareProfile) {
+    processorCores = hardwareProfile.cpuCores;
+    isAppleSilicon = hardwareProfile.isAppleSilicon;
+    const score = hardwareProfile.performanceScore || 50;
+    if (score > 70) {
+      gpuTier = 'high';
+      memoryTier = 'high';
+    } else if (score > 40) {
+      gpuTier = 'medium';
+      memoryTier = 'medium';
+    } else {
+      gpuTier = 'low';
+      memoryTier = 'low';
+    }
+  }
+  return { gpuTier, processorCores, memoryTier, isAppleSilicon, gpuVendor };
+}
+
 /**
  * Get optimal encoding settings based on hardware profile
  * @param hardwareProfile - The detected hardware profile
@@ -80,17 +164,15 @@ export function getOptimalEncodingSettings(
   quality: 'high' | 'medium' | 'low' = 'medium',
   safeMode: boolean = false
 ): EncodingSettings {
-  // Get thread count from navigator.hardwareConcurrency for optimal multi-threading
   const availableCores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
   
-  // Default settings for unknown hardware - OPTIMIZED FOR SPEED
   const defaultSettings: EncodingSettings = {
     videoCodec: format === 'webm' ? 'libvpx-vp9' : 'libx264',
-    preset: safeMode ? 'ultrafast' : 'fast', // ultrafast for safe mode to ensure completion
-    crf: quality === 'high' ? '20' : quality === 'medium' ? '25' : '30', // Higher CRF = faster encoding
+    preset: safeMode ? 'ultrafast' : 'fast',
+    crf: quality === 'high' ? '20' : quality === 'medium' ? '25' : '30',
     pixelFormat: 'yuv420p',
-    threads: safeMode ? String(Math.min(4, availableCores)) : String(Math.min(8, availableCores)), // Use up to 4 threads in safe mode, cap at 8 for normal
-    additionalFlags: [], // Removed faststart to prevent blocking at 95%
+    threads: safeMode ? String(Math.min(4, availableCores)) : String(Math.min(8, availableCores)),
+    additionalFlags: [],
     maxWidth: 1920,
     maxHeight: 1080,
     targetFps: 30,
@@ -98,12 +180,7 @@ export function getOptimalEncodingSettings(
 
   if (safeMode) {
     console.log('🛡️ FFmpeg: SAFE MODE ACTIVE - Using balanced settings for stability');
-    // In safe mode, we return immediately with conservative settings
-    // We also add -tune fastdecode to ensure decoding is fast
     defaultSettings.additionalFlags.push('-tune', 'fastdecode');
-    // Keep 1080p in safe mode if possible, only downgrade if strictly necessary
-    // defaultSettings.maxWidth = 1280; 
-    // defaultSettings.maxHeight = 720;
     return defaultSettings;
   }
   
@@ -118,171 +195,39 @@ export function getOptimalEncodingSettings(
   
   const settings = { ...defaultSettings };
   
-  // Handle different profile structures safely
-  let gpuTier = 'unknown';
-  let processorCores = 4;
-  let memoryTier = 'unknown';
-  let isAppleSilicon = false;
-  let gpuVendor = 'unknown';
-
-  // Check if it's the DetectionHardwareProfile (has 'gpu' object)
-  if ('gpu' in hardwareProfile && hardwareProfile.gpu && 'processor' in hardwareProfile && hardwareProfile.processor) {
-    gpuTier = hardwareProfile.gpu.tier;
-    processorCores = hardwareProfile.processor.cores;
-    memoryTier = hardwareProfile.memory.tier;
-    isAppleSilicon = hardwareProfile.processor.isAppleSilicon;
-    gpuVendor = hardwareProfile.gpu.vendor;
-  } 
-  // Check if it's the PreviewHardwareProfile (flat structure)
-  else if ('cpuCores' in hardwareProfile) {
-    // Map PreviewHardwareProfile to similar concepts
-    processorCores = hardwareProfile.cpuCores;
-    isAppleSilicon = hardwareProfile.isAppleSilicon;
-    
-    // Infer tiers from performance score if available
-    const score = hardwareProfile.performanceScore || 50;
-    if (score > 70) {
-      gpuTier = 'high';
-      memoryTier = 'high';
-    } else if (score > 40) {
-      gpuTier = 'medium';
-      memoryTier = 'medium';
-    } else {
-      gpuTier = 'low';
-      memoryTier = 'low';
-    }
-    
-    // Try to infer vendor from user agent if needed, or default to unknown
-    // Since PreviewHardwareProfile doesn't have vendor, we rely on generic optimizations
-  }
+  const { gpuTier, processorCores, memoryTier, isAppleSilicon, gpuVendor } = extractProfileInfo(hardwareProfile);
   
-  // SPEED-OPTIMIZED: Adjust based on GPU tier
-  // Priority: SPEED over quality (user can choose quality setting if needed)
-  switch (gpuTier) {
-    case 'high':
-      // High-end GPU: use 'veryfast' preset for maximum speed on powerful hardware
-      // RTX 4090/i9 14th gen can handle this easily with good quality
-      // WASM is CPU bound, so we need faster presets even on high-end hardware
-      // In ffmpeg.wasm, encoding is CPU/WASM bound. Favor ultrafast to avoid stalls.
-      settings.preset = 'ultrafast';
-      settings.crf = quality === 'high' ? '23' : quality === 'medium' ? '26' : '30';
-      settings.maxWidth = 3840;
-      settings.maxHeight = 2160;
-      settings.targetFps = 60;
-      // Use zerolatency tune for faster encoding (removes B-frames, reduces latency)
-      settings.additionalFlags.push('-tune', 'zerolatency');
-      // Add specific flags for high-end CPUs to maximize throughput
-      settings.additionalFlags.push('-g', '60'); // Keyframe interval (2s at 30fps)
-      // Reduce memory pressure for WASM
-      settings.additionalFlags.push('-max_muxing_queue_size', '1024');
-      break;
-      
-    case 'medium':
-      // Mid-range GPU: use 'fast' preset
-      settings.preset = quality === 'high' ? 'fast' : 'veryfast';
-      settings.crf = quality === 'high' ? '20' : quality === 'medium' ? '24' : '28';
-      settings.maxWidth = 1920;
-      settings.maxHeight = 1080;
-      settings.targetFps = 30;
-      settings.additionalFlags.push('-tune', 'fastdecode');
-      break;
-      
-    case 'low':
-      // Low-end GPU: prioritize speed with ultrafast preset
-      settings.preset = 'ultrafast';
-      settings.crf = quality === 'high' ? '22' : quality === 'medium' ? '28' : '32';
-      settings.maxWidth = 1280;
-      settings.maxHeight = 720;
-      settings.targetFps = 30;
-      settings.additionalFlags.push('-tune', 'fastdecode');
-      break;
-      
-    default:
-      // Unknown: use fast defaults
-      settings.preset = 'fast';
-      settings.additionalFlags.push('-tune', 'fastdecode');
-      break;
-  }
+  applyGpuTierSettings(settings, gpuTier, quality);
   
-  // OPTIMIZED: Use available CPU cores but with safe limits for WASM
-  // WASM environment has memory and thread contention limits even on high-end hardware
-  // EXPERIMENTAL: High thread counts (>8) cause deadlocks in browser. 
-  // We cap at 4 to ensure stability while still providing good performance.
   if (processorCores >= 16) {
-    settings.threads = '4'; // Cap at 4 for maximum WASM stability
+    settings.threads = '4';
   } else if (processorCores >= 8) {
-    settings.threads = '4'; // Standard high performance
+    settings.threads = '4';
   } else {
-    settings.threads = String(Math.max(2, processorCores)); // Minimum 2 threads
+    settings.threads = String(Math.max(2, processorCores));
   }
   
-  // Adjust for Apple Silicon - these are very efficient at video encoding
   if (isAppleSilicon) {
-    // Apple Silicon: use 'fast' preset (still excellent quality due to efficient architecture)
     settings.preset = quality === 'high' ? 'medium' : 'fast';
-    settings.threads = '0'; // Let FFmpeg auto-optimize for Apple Silicon
-    // Don't use zerolatency on Apple Silicon - it has efficient B-frame encoding
+    settings.threads = '0';
   }
   
-  // Adjust for memory constraints
   if (memoryTier === 'low') {
-    // Reduce memory usage and use faster settings
     settings.maxWidth = Math.min(settings.maxWidth, 1280);
     settings.maxHeight = Math.min(settings.maxHeight, 720);
-    settings.preset = 'ultrafast'; // Force ultrafast for low memory
+    settings.preset = 'ultrafast';
     settings.additionalFlags.push('-max_muxing_queue_size', '1024');
   }
   
-  // GPU-specific optimizations for speed
-  switch (gpuVendor) {
-    case 'nvidia':
-      // NVIDIA GPUs: optimize for speed
-      // Note: ffmpeg.wasm is software-only, but we optimize for CPU encoding
-      settings.additionalFlags.push('-bf', '0'); // Disable B-frames for faster encoding
-      break;
-      
-    case 'amd':
-      // AMD GPUs: similar speed optimizations
-      settings.additionalFlags.push('-bf', '0');
-      break;
-      
-    case 'apple':
-      // Apple GPUs: VideoToolbox-friendly settings
-      settings.pixelFormat = 'yuv420p';
-      // Apple Silicon is efficient, can use B-frames
-      break;
-      
-    case 'intel':
-      // Intel GPUs: Quick Sync friendly settings
-      settings.additionalFlags.push('-bf', '0'); // Disable B-frames for speed
-      break;
-      
-    case 'arm':
-    case 'qualcomm':
-      // Mobile GPUs: prioritize efficiency and speed
-      settings.preset = 'ultrafast';
-      settings.additionalFlags.push('-tune', 'fastdecode');
-      break;
-  }
+  applyGpuVendorSettings(settings, gpuVendor);
   
-  // WebM-specific optimizations - SPEED FOCUSED
   if (format === 'webm') {
     settings.videoCodec = 'libvpx-vp9';
-    // VP9 doesn't use preset, uses cpu-used instead (0=slowest, 8=fastest)
-    // Higher cpu-used = faster encoding
     const cpuUsed = gpuTier === 'high' ? '4' : gpuTier === 'medium' ? '6' : '8';
     settings.additionalFlags.push('-cpu-used', cpuUsed);
-    settings.additionalFlags.push('-row-mt', '1'); // Enable row-based multithreading
-    settings.additionalFlags.push('-deadline', 'realtime'); // Fastest VP9 encoding mode
+    settings.additionalFlags.push('-row-mt', '1');
+    settings.additionalFlags.push('-deadline', 'realtime');
   }
-  
-  // Always ensure faststart is present for web optimization
-  // REMOVED: faststart causes "stuck at 95%" issue on large files
-  /*
-  if (!settings.additionalFlags.includes('-movflags')) {
-    settings.additionalFlags.push('-movflags', '+faststart');
-  }
-  */
   
   console.log('⚡ FFmpeg: Speed-optimized encoding settings', {
     gpuTier,
@@ -296,21 +241,7 @@ export function getOptimalEncodingSettings(
   return settings;
 }
 
-/**
- * Get recommended codec based on hardware and use case
- * @param hardwareProfile - The detected hardware profile
- * @param useCase - The intended use case
- * @returns Recommended codec string
- */
-export function getRecommendedCodec(
-  hardwareProfile: AnyHardwareProfile | null,
-  useCase: 'streaming' | 'archive' | 'social' | 'general' = 'general'
-): 'h264' | 'h265' | 'vp9' | 'av1' {
-  if (!hardwareProfile) {
-    return 'h264'; // Most compatible
-  }
-  
-  // Handle different profile structures
+function getGpuTierAndWebGPU(hardwareProfile: AnyHardwareProfile) {
   let gpuTier = 'unknown';
   let supportsWebGPU = false;
   
@@ -322,27 +253,42 @@ export function getRecommendedCodec(
     gpuTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
   }
   
+  return { gpuTier, supportsWebGPU };
+}
+
+/**
+ * Get recommended codec based on hardware and use case
+ * @param hardwareProfile - The detected hardware profile
+ * @param useCase - The intended use case
+ * @returns Recommended codec string
+ */
+export function getRecommendedCodec(
+  hardwareProfile: AnyHardwareProfile | null,
+  useCase: 'streaming' | 'archive' | 'social' | 'general' = 'general'
+): 'h264' | 'h265' | 'vp9' | 'av1' {
+  if (!hardwareProfile) {
+    return 'h264';
+  }
+  
+  const { gpuTier, supportsWebGPU } = getGpuTierAndWebGPU(hardwareProfile);
+  
   switch (useCase) {
     case 'streaming':
-      // Streaming: prioritize compatibility and fast encoding
       return 'h264';
       
     case 'archive':
-      // Archive: prioritize compression efficiency
       if (gpuTier === 'high' && supportsWebGPU) {
-        return 'av1'; // Best compression, but slow
+        return 'av1';
       }
       return gpuTier === 'high' ? 'h265' : 'h264';
       
     case 'social':
-      // Social media: balance compatibility and quality
-      return 'h264'; // Most platforms support H.264
+      return 'h264';
       
     case 'general':
     default:
-      // General use: based on hardware capability
       if (gpuTier === 'high') {
-        return 'h265'; // Better quality at same bitrate
+        return 'h265';
       }
       return 'h264';
   }
@@ -380,6 +326,15 @@ export function getHardwareProfile(): AnyHardwareProfile | null {
   return cachedHardwareProfile;
 }
 
+function replaceOrAddArg(args: string[], flag: string, value: string) {
+  const index = args.indexOf(flag);
+  if (index !== -1) {
+    args[index + 1] = value;
+  } else {
+    args.push(flag, value);
+  }
+}
+
 /**
  * Build FFmpeg arguments with hardware-optimized settings
  * @param baseArgs - Base FFmpeg arguments
@@ -392,59 +347,30 @@ export function buildOptimizedArgs(
 ): string[] {
   const args = [...baseArgs];
   
-  // Find and replace codec settings
-  const codecIndex = args.indexOf('-c:v');
-  if (codecIndex !== -1) {
-    args[codecIndex + 1] = settings.videoCodec;
-  }
+  replaceOrAddArg(args, '-c:v', settings.videoCodec);
   
-  // Find and replace preset
   const presetIndex = args.indexOf('-preset');
   if (presetIndex !== -1) {
     args[presetIndex + 1] = settings.preset;
-  } else {
-    // Add preset if not present (for non-VP9 codecs)
-    if (!settings.videoCodec.includes('vpx')) {
-      args.push('-preset', settings.preset);
-    }
+  } else if (!settings.videoCodec.includes('vpx')) {
+    args.push('-preset', settings.preset);
   }
   
-  // Find and replace CRF
-  const crfIndex = args.indexOf('-crf');
-  if (crfIndex !== -1) {
-    args[crfIndex + 1] = settings.crf;
-  }
+  replaceOrAddArg(args, '-crf', settings.crf);
+  replaceOrAddArg(args, '-threads', settings.threads);
+  replaceOrAddArg(args, '-pix_fmt', settings.pixelFormat);
   
-  // Find and replace threads
-  const threadsIndex = args.indexOf('-threads');
-  if (threadsIndex !== -1) {
-    args[threadsIndex + 1] = settings.threads;
-  } else {
-    args.push('-threads', settings.threads);
-  }
-  
-  // Find and replace pixel format
-  const pixFmtIndex = args.indexOf('-pix_fmt');
-  if (pixFmtIndex !== -1) {
-    args[pixFmtIndex + 1] = settings.pixelFormat;
-  }
-  
-  // Find and replace frame rate
   const fpsIndex = args.indexOf('-r');
   if (fpsIndex !== -1) {
-    // Keep the caller's requested fps if it's lower than the hardware profile target.
-    // Forcing 60fps in wasm can double work (dup frames) and slow exports significantly.
     const requested = parseInt(args[fpsIndex + 1] || '0', 10);
     const effective = requested > 0 ? Math.min(requested, settings.targetFps) : settings.targetFps;
     args[fpsIndex + 1] = String(effective);
   }
   
-  // Add additional flags
   for (let i = 0; i < settings.additionalFlags.length; i += 2) {
     const flag = settings.additionalFlags[i];
     const value = settings.additionalFlags[i + 1];
     
-    // Check if flag already exists
     const existingIndex = args.indexOf(flag);
     if (existingIndex !== -1 && value) {
       args[existingIndex + 1] = value;
@@ -460,6 +386,22 @@ export function buildOptimizedArgs(
   return args;
 }
 
+function getMultiplierFromGpuTier(gpuTier: string) {
+  switch (gpuTier) {
+    case 'high': return 0.3;
+    case 'medium': return 0.5;
+    case 'low': return 1.5;
+    default: return 1.0;
+  }
+}
+
+function adjustMultiplierForCores(multiplier: number, cores: number) {
+  if (cores >= 16) return multiplier * 0.5;
+  if (cores >= 8) return multiplier * 0.6;
+  if (cores >= 4) return multiplier * 0.8;
+  return multiplier * 1.2;
+}
+
 /**
  * Get encoding complexity estimate based on hardware
  * With speed-optimized presets, encoding is significantly faster
@@ -473,14 +415,9 @@ export function estimateEncodingTime(
   videoDuration: number,
   resolution: { width: number; height: number }
 ): number {
-  // Base estimate with SPEED-OPTIMIZED presets:
-  // - High-end: ~0.3x realtime (3x faster than realtime)
-  // - Medium: ~0.5x realtime (2x faster than realtime)
-  // - Low-end: ~1.5x realtime
-  let multiplier = 0.8; // Default: faster than realtime with optimized settings
+  let multiplier = 0.8;
   
   if (!hardwareProfile) {
-    // Unknown hardware: assume 1x realtime with fast preset
     multiplier = 1.0;
   } else {
     let gpuTier = 'unknown';
@@ -494,52 +431,24 @@ export function estimateEncodingTime(
     } else if ('cpuCores' in hardwareProfile) {
       cores = hardwareProfile.cpuCores;
       isAppleSilicon = hardwareProfile.isAppleSilicon;
-      // Infer tier
       const score = hardwareProfile.performanceScore || 50;
       gpuTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
     }
     
-    // Adjust for GPU tier (with speed-optimized presets)
-    switch (gpuTier) {
-      case 'high':
-        multiplier = 0.3; // 0.3x realtime (~3x faster than realtime)
-        break;
-      case 'medium':
-        multiplier = 0.5; // 0.5x realtime (~2x faster than realtime)
-        break;
-      case 'low':
-        multiplier = 1.5; // 1.5x realtime (still faster with ultrafast preset)
-        break;
-      default:
-        multiplier = 1.0;
-    }
+    multiplier = getMultiplierFromGpuTier(gpuTier);
+    multiplier = adjustMultiplierForCores(multiplier, cores);
     
-    // Adjust for CPU cores - more cores = faster encoding
-    if (cores >= 16) {
-      multiplier *= 0.5; // 16+ cores: 2x speedup
-    } else if (cores >= 8) {
-      multiplier *= 0.6; // 8-15 cores: 1.67x speedup
-    } else if (cores >= 4) {
-      multiplier *= 0.8; // 4-7 cores: 1.25x speedup
-    } else {
-      multiplier *= 1.2; // Less than 4 cores: slight slowdown
-    }
-    
-    // Adjust for Apple Silicon (very efficient at video encoding)
     if (isAppleSilicon) {
-      multiplier *= 0.5; // Apple Silicon is ~2x faster
+      multiplier *= 0.5;
     }
   }
   
-  // Adjust for resolution
   const pixels = resolution.width * resolution.height;
   const basePixels = 1920 * 1080;
   const resolutionFactor = pixels / basePixels;
   
-  // Encoding time scales roughly with pixel count (square root for better estimate)
   const estimatedTime = videoDuration * multiplier * Math.sqrt(resolutionFactor);
   
-  // Minimum 1 second estimate
   return Math.max(1, Math.ceil(estimatedTime));
 }
 
@@ -1368,22 +1277,12 @@ export async function generateThumbnail(
   }
 }
 
-async function _exportProjectInternal(
-  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean }[],
-  settings: ExportSettings,
-  onProgress?: (progress: number, message: string) => void,
+function checkComplexFeatures(
+  clips: { file: File; filter?: VideoFilter }[],
   textOverlays?: TextOverlay[],
   transitions?: Transition[],
-  aspectRatio?: AspectRatio,
-  hardwareProfile?: AnyHardwareProfile,
-  safeMode: boolean = false,
-  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
-): Promise<Blob> {
-  // Check for complex features that MediaBunny implementation doesn't support yet
-  // Update: MediaBunny now supports Filters, Text, and basic Transitions (Fades)
-  // We only fallback if there are features we absolutely cannot handle efficiently yet
-  // For now, we let MediaBunny try everything. If it fails, the catch block will handle fallback.
-  
+  audioClips?: { file: File }[]
+) {
   const hasTextOverlays = textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim().length > 0);
   const hasTransitions = transitions && transitions.length > 0 && transitions.some(t => t.type !== 'none');
   const hasFilters = clips.some(c => c.filter && (
@@ -1397,13 +1296,26 @@ async function _exportProjectInternal(
   const hasImages = clips.some(c => c.file.type.startsWith('image/'));
   const hasAudioClips = audioClips && audioClips.length > 0;
   
-  // If complex features are present, skip MediaBunny and use FFmpeg
-  if (hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips) {
+  return hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips;
+}
+
+async function _exportProjectInternal(
+  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean }[],
+  settings: ExportSettings,
+  onProgress?: (progress: number, message: string) => void,
+  textOverlays?: TextOverlay[],
+  transitions?: Transition[],
+  aspectRatio?: AspectRatio,
+  hardwareProfile?: AnyHardwareProfile,
+  safeMode: boolean = false,
+  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
+): Promise<Blob> {
+  const hasComplexFeatures = checkComplexFeatures(clips, textOverlays, transitions, audioClips);
+  
+  if (hasComplexFeatures) {
     console.log('⚠️ Complex features detected (Text/Transitions/Filters/Images/Audio), falling back to FFmpeg for full support.');
-    // Fallthrough to FFmpeg implementation below
   } else {
     try {
-        // Try MediaBunny for fast export
         return await exportProjectWithMediaBunny(
             clips,
             settings,
@@ -1503,58 +1415,75 @@ async function _exportProjectInternal(
     console.log(safeMode ? '🛡️ EXPORT SAFE MODE ACTIVE' : '🚀 EXPORT SPEED OPTIMIZATION ACTIVE');
     console.log('═══════════════════════════════════════════════════════════');
     
-    // Safe logging for different profile types
-    let gpuVendor = 'unknown';
-    let gpuTier = 'unknown';
+function getHardwareProfileInfo(effectiveHardwareProfile: AnyHardwareProfile | null | undefined) {
+  let gpuVendor = 'unknown';
+  let gpuTier = 'unknown';
+  let cpuCores: number | string = 'unknown';
+  let isAppleSilicon = false;
+  let memoryTier = 'unknown';
 
-    if (effectiveHardwareProfile && 'gpu' in effectiveHardwareProfile) {
+  if (effectiveHardwareProfile) {
+    if ('gpu' in effectiveHardwareProfile) {
       const profile = effectiveHardwareProfile as DetectionHardwareProfile;
       gpuVendor = profile.gpu?.vendor || 'unknown';
       gpuTier = profile.gpu?.tier || 'unknown';
     }
     
-    let cpuCores: number | string = 'unknown';
-    let isAppleSilicon = false;
-    let memoryTier = 'unknown';
-
-    if (effectiveHardwareProfile) {
-      if ('processor' in effectiveHardwareProfile) {
-        const profile = effectiveHardwareProfile as DetectionHardwareProfile;
-        cpuCores = profile.processor?.cores || 'unknown';
-        isAppleSilicon = profile.processor?.isAppleSilicon || false;
-        memoryTier = profile.memory?.tier || 'unknown';
-      } else if ('cpuCores' in effectiveHardwareProfile) {
-        const profile = effectiveHardwareProfile as PreviewHardwareProfile;
-        cpuCores = profile.cpuCores;
-        isAppleSilicon = profile.isAppleSilicon;
-        // Infer memory tier from score if available
-        const score = profile.performanceScore || 50;
-        memoryTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
-      }
+    if ('processor' in effectiveHardwareProfile) {
+      const profile = effectiveHardwareProfile as DetectionHardwareProfile;
+      cpuCores = profile.processor?.cores || 'unknown';
+      isAppleSilicon = profile.processor?.isAppleSilicon || false;
+      memoryTier = profile.memory?.tier || 'unknown';
+    } else if ('cpuCores' in effectiveHardwareProfile) {
+      const profile = effectiveHardwareProfile as PreviewHardwareProfile;
+      cpuCores = profile.cpuCores;
+      isAppleSilicon = profile.isAppleSilicon;
+      const score = profile.performanceScore || 50;
+      memoryTier = score > 70 ? 'high' : score > 40 ? 'medium' : 'low';
     }
+  }
+  
+  return { gpuVendor, gpuTier, cpuCores, isAppleSilicon, memoryTier };
+}
 
-    console.log('📊 Hardware Profile:', {
-      gpu: gpuVendor,
-      gpuTier: gpuTier,
-      cpuCores: cpuCores || navigator.hardwareConcurrency || 'unknown',
-      isAppleSilicon: isAppleSilicon,
-      memoryTier: memoryTier,
-    });
-    console.log('⚡ Speed-Optimized Encoding Settings:', {
-      preset: encodingSettings.preset,
-      crf: encodingSettings.crf,
-      threads: encodingSettings.threads,
-      targetFps: encodingSettings.targetFps,
-      additionalFlags: encodingSettings.additionalFlags,
-    });
-    console.log('📹 Video Details:', {
-      duration: `${currentTotalDuration.toFixed(1)}s`,
-      resolution: `${resolution.width}x${resolution.height}`,
-      format: outputFormat,
-      quality: settings.quality,
-    });
-    console.log(`⏱️ Estimated encoding time: ${formatEncodingTime(estimatedTime)} for ${currentTotalDuration.toFixed(1)}s video`);
-    console.log('═══════════════════════════════════════════════════════════');
+function logExportDetails(
+  safeMode: boolean,
+  effectiveHardwareProfile: AnyHardwareProfile | null | undefined,
+  encodingSettings: EncodingSettings,
+  currentTotalDuration: number,
+  resolution: { width: number; height: number },
+  outputFormat: string,
+  quality: string,
+  estimatedTime: number
+) {
+  console.log(safeMode ? '🛡️ EXPORT SAFE MODE ACTIVE' : '🚀 EXPORT SPEED OPTIMIZATION ACTIVE');
+  console.log('═══════════════════════════════════════════════════════════');
+  
+  const { gpuVendor, gpuTier, cpuCores, isAppleSilicon, memoryTier } = getHardwareProfileInfo(effectiveHardwareProfile);
+
+  console.log('📊 Hardware Profile:', {
+    gpu: gpuVendor,
+    gpuTier: gpuTier,
+    cpuCores: cpuCores || navigator.hardwareConcurrency || 'unknown',
+    isAppleSilicon: isAppleSilicon,
+    memoryTier: memoryTier,
+  });
+  console.log('⚡ Speed-Optimized Encoding Settings:', {
+    preset: encodingSettings.preset,
+    crf: encodingSettings.crf,
+    threads: encodingSettings.threads,
+    targetFps: encodingSettings.targetFps,
+    additionalFlags: encodingSettings.additionalFlags,
+  });
+  console.log('📹 Video Details:', {
+    duration: `${currentTotalDuration.toFixed(1)}s`,
+    resolution: `${resolution.width}x${resolution.height}`,
+    format: outputFormat,
+    quality: quality,
+  });
+  console.log(`⏱️ Estimated encoding time: ${formatEncodingTime(estimatedTime)} for ${currentTotalDuration.toFixed(1)}s video`);
+  console.log('═══════════════════════════════════════════════════════════');
+}
     
     // Store start time for actual encoding time measurement
     const encodingStartTime = performance.now();

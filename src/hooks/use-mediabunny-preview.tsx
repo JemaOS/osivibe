@@ -33,6 +33,35 @@ export const useMediaBunnyPreview = (
   useEffect(() => {
     if (!isEnabled) return;
 
+    const initClip = async (clip: TimelineClip, media: any, currentClips: Map<string, MediaBunnyClip>) => {
+      try {
+        const source = new UrlSource(media.url);
+        const input = new Input({
+          source: source,
+          formats: ALL_FORMATS,
+        });
+        
+        await input.computeDuration();
+        
+        const videoTrack = await input.getPrimaryVideoTrack();
+        const sink = new VideoSampleSink(videoTrack);
+        
+        currentClips.set(clip.id, {
+          id: clip.id,
+          input,
+          sink,
+          mediaId: media.id,
+          url: media.url,
+          buffer: [],
+          isFetching: false,
+          fetchQueue: Promise.resolve(),
+          pendingFetches: new Map()
+        });
+      } catch (err) {
+        console.error(`Failed to initialize MediaBunny for clip ${clip.id}`, err);
+      }
+    };
+
     const initClips = async () => {
       const currentClips = new Map<string, MediaBunnyClip>();
       const promises: Promise<void>[] = [];
@@ -44,44 +73,13 @@ export const useMediaBunnyPreview = (
           const media = mediaFiles.find(m => m.id === clip.mediaId);
           if (!media || media.type !== 'video') return;
 
-          // Check if we already have this clip initialized
           const existing = clipsRef.current.get(clip.id);
           if (existing && existing.url === media.url) {
             currentClips.set(clip.id, existing);
             return;
           }
 
-          // Initialize new input
-          const p = (async () => {
-            try {
-              const source = new UrlSource(media.url);
-              const input = new Input({
-                source: source,
-                formats: ALL_FORMATS,
-              });
-              
-              // We need to initialize the input to get tracks
-              await input.computeDuration();
-              
-              const videoTrack = await input.getPrimaryVideoTrack();
-              const sink = new VideoSampleSink(videoTrack);
-              
-              currentClips.set(clip.id, {
-                id: clip.id,
-                input,
-                sink,
-                mediaId: media.id,
-                url: media.url,
-                buffer: [],
-                isFetching: false,
-                fetchQueue: Promise.resolve(),
-                pendingFetches: new Map()
-              });
-            } catch (err) {
-              console.error(`Failed to initialize MediaBunny for clip ${clip.id}`, err);
-            }
-          })();
-          promises.push(p);
+          promises.push(initClip(clip, media, currentClips));
         });
       });
 
@@ -157,32 +155,32 @@ export const useMediaBunnyPreview = (
     cacheHits: 0
   });
 
-  // Helper: Find active clips at current time
-  const findActiveClips = (
-    tracks: TimelineTrack[],
-    clipsMap: Map<string, MediaBunnyClip>,
-    currentTime: number
-  ): { clip: TimelineClip, mbClip: MediaBunnyClip }[] => {
-    const activeClips: { clip: TimelineClip, mbClip: MediaBunnyClip }[] = [];
+// Helper: Find active clips at current time
+const findActiveClips = (
+  tracks: TimelineTrack[],
+  clipsMap: Map<string, MediaBunnyClip>,
+  currentTime: number
+): { clip: TimelineClip, mbClip: MediaBunnyClip }[] => {
+  const activeClips: { clip: TimelineClip, mbClip: MediaBunnyClip }[] = [];
+  
+  tracks.forEach(track => {
+    if (track.type !== 'video') return;
     
-    tracks.forEach(track => {
-      if (track.type !== 'video') return;
-      
-      const clip = track.clips.find(c => 
-        currentTime >= c.startTime && 
-        currentTime < c.startTime + (c.duration - c.trimStart - c.trimEnd)
-      );
+    const clip = track.clips.find(c => 
+      currentTime >= c.startTime && 
+      currentTime < c.startTime + (c.duration - c.trimStart - c.trimEnd)
+    );
 
-      if (clip) {
-        const mbClip = clipsMap.get(clip.id);
-        if (mbClip) {
-          activeClips.push({ clip, mbClip });
-        }
+    if (clip) {
+      const mbClip = clipsMap.get(clip.id);
+      if (mbClip) {
+        activeClips.push({ clip, mbClip });
       }
-    });
-    
-    return activeClips;
-  };
+    }
+  });
+  
+  return activeClips;
+};
 
 // Helper: Check if buffered frame matches requested time
 const isBufferMatch = (item: { sample: { timestamp?: number; duration?: number }, time: number }, clipTime: number): boolean => {
@@ -335,253 +333,130 @@ const drawSampleToCanvas = (
     }
   };
 
+  const processBufferMatch = (mbClip: MediaBunnyClip, clipTime: number, bestBufferIndex: number, bestBufferSample: any) => {
+    if (mbClip.lastSample && mbClip.lastSample !== bestBufferSample) {
+      try { mbClip.lastSample.close(); } catch(e) { /* ignore */ }
+    }
+    mbClip.lastSample = bestBufferSample;
+    mbClip.lastSampleTime = clipTime;
+    
+    const used = mbClip.buffer.splice(0, bestBufferIndex + 1);
+    for (let k=0; k<used.length-1; k++) {
+      if (used[k].sample !== bestBufferSample) {
+        try { used[k].sample.close(); } catch(e) { /* ignore */ }
+      }
+    }
+    
+    perfRef.current.cacheHits++;
+    
+    if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
+      refillBuffer(mbClip, clipTime);
+    }
+  };
+
+  const processSampleFetch = async (clip: TimelineClip, mbClip: MediaBunnyClip, clipTime: number) => {
+    try {
+      let bestBufferIndex = -1;
+      let bestBufferSample = null;
+      
+      for (let i = 0; i < mbClip.buffer.length; i++) {
+        const item = mbClip.buffer[i];
+        if (isBufferMatch(item, clipTime)) {
+          bestBufferIndex = i;
+          bestBufferSample = item.sample;
+          break;
+        }
+      }
+      
+      if (bestBufferSample) {
+        processBufferMatch(mbClip, clipTime, bestBufferIndex, bestBufferSample);
+        return { clip, sample: mbClip.lastSample, reused: true };
+      }
+
+      if (mbClip.lastSample) {
+        const reused = canReuseLastSample(mbClip.lastSample, mbClip.lastSampleTime, clipTime);
+        if (reused) {
+          perfRef.current.cacheHits++;
+          if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
+             refillBuffer(mbClip, clipTime);
+          }
+          return { clip, sample: mbClip.lastSample, reused: true };
+        }
+      }
+
+      const sample = await safeGetSample(mbClip, clipTime);
+      
+      if (mbClip.lastSample && mbClip.lastSample !== sample) {
+        try { mbClip.lastSample.close(); } catch(e) { /* ignore */ }
+      }
+      mbClip.lastSample = sample;
+      mbClip.lastSampleTime = clipTime;
+      
+      if (!mbClip.isFetching) {
+         refillBuffer(mbClip, clipTime);
+      }
+
+      return { clip, sample, reused: false };
+    } catch (err) {
+      console.error(`Error rendering clip ${clip.id}`, err);
+      return { clip, sample: null, reused: false };
+    }
+  };
+
+  const drawSamples = (ctx: CanvasRenderingContext2D, samplesToDraw: any[], currentFilters: any, width: number, height: number) => {
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    for (const { clip, sample } of samplesToDraw) {
+      if (sample) {
+        try {
+          ctx.save();
+          
+          const clipFilter = currentFilters[clip.id];
+          if (clipFilter) {
+            ctx.filter = getCSSFilter(clipFilter);
+          }
+
+          drawSampleToCanvas(ctx, sample, clip, width, height);
+          
+          ctx.restore();
+        } catch (e) {
+          console.error("Error drawing sample", e);
+        }
+      }
+    }
+  };
+
   const performRender = async (currentTime: number, width: number, height: number) => {
     const renderStart = performance.now();
 
-    // Check canvas availability FIRST to avoid fetching samples if we can't draw
-    // This prevents memory leaks where samples are fetched but never closed because of early returns
     if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Get latest state directly to avoid stale closures in animation loop
     const state = useEditorStore.getState();
     const currentTracks = state.tracks;
     const currentFilters = state.filters;
 
-    // Find active clips (sorted by track order/z-index)
-    // Assuming tracks are ordered bottom-to-top
-    const activeClips: { clip: TimelineClip, mbClip: MediaBunnyClip }[] = [];
+    const activeClips = findActiveClips(currentTracks, clipsRef.current, currentTime);
 
-    currentTracks.forEach(track => {
-      if (track.type !== 'video') return;
-      
-      const clip = track.clips.find(c => 
-        currentTime >= c.startTime && 
-        currentTime < c.startTime + (c.duration - c.trimStart - c.trimEnd)
-      );
-
-      if (clip) {
-        const mbClip = clipsRef.current.get(clip.id);
-        if (mbClip) {
-          activeClips.push({ clip, mbClip });
-        }
-      }
-    });
-
-    // Fetch samples BEFORE clearing canvas to prevent flickering
     const fetchStart = performance.now();
-    const samplesToDraw = await Promise.all(activeClips.map(async ({ clip, mbClip }) => {
-      try {
-        const clipTime = currentTime - clip.startTime + clip.trimStart;
-        
-        // 1. Check Buffer First (Lookahead)
-        // Find the best matching frame in the buffer
-        let bestBufferIndex = -1;
-        let bestBufferSample = null;
-        
-        for (let i = 0; i < mbClip.buffer.length; i++) {
-          const item = mbClip.buffer[i];
-          // Check if this buffered frame covers our time
-          // Use same logic as cache check
-          let isMatch = false;
-          if (typeof item.sample.timestamp === 'number') {
-             const isMicroseconds = item.sample.timestamp > 1000; 
-             const scale = isMicroseconds ? 1e-6 : 1;
-             const frameTime = item.sample.timestamp * scale;
-             const frameDuration = (item.sample.duration ? item.sample.duration * scale : 0.033);
-             
-             if (clipTime >= frameTime - 0.01 && clipTime < frameTime + frameDuration + 0.015) {
-               isMatch = true;
-             }
-          } else {
-             // Fallback
-             if (Math.abs(clipTime - item.time) < 0.045) {
-               isMatch = true;
-             }
-          }
-          
-          if (isMatch) {
-            bestBufferIndex = i;
-            bestBufferSample = item.sample;
-            break;
-          }
-        }
-        
-        if (bestBufferSample) {
-          // Found in buffer!
-          // Move from buffer to lastSample
-          if (mbClip.lastSample && mbClip.lastSample !== bestBufferSample) {
-             try { mbClip.lastSample.close(); } catch(e) { /* ignore */ }
-          }
-          mbClip.lastSample = bestBufferSample;
-          mbClip.lastSampleTime = clipTime; // Approximate
-          
-          // Remove this and all older frames from buffer (they are passed)
-          // We keep newer frames
-          const used = mbClip.buffer.splice(0, bestBufferIndex + 1);
-          // Close skipped frames (if any)
-          for (let k=0; k<used.length-1; k++) {
-             if (used[k].sample !== bestBufferSample) {
-                try { used[k].sample.close(); } catch(e) { /* ignore */ }
-             }
-          }
-          
-          perfRef.current.cacheHits++;
-          
-          // Trigger refill if buffer is low
-          if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
-             refillBuffer(mbClip, clipTime);
-          }
-          
-          return { clip, sample: mbClip.lastSample, reused: true };
-        }
-
-        // 2. Check Last Sample (Current Cache)
-        // Optimization: Reuse last sample if we are within its duration
-        if (mbClip.lastSample) {
-          const sample = mbClip.lastSample;
-          let reused = false;
-
-          // Try to use exact frame timing if available (VideoFrame standard)
-          if (typeof sample.timestamp === 'number') {
-            // Detect time unit (microseconds vs seconds)
-            // VideoFrame uses microseconds, so values are usually large
-            const isMicroseconds = sample.timestamp > 1000; 
-            const scale = isMicroseconds ? 1e-6 : 1;
-            
-            const frameTime = sample.timestamp * scale;
-            // Default to 33ms (30fps) if duration is missing
-            const frameDuration = (sample.duration ? sample.duration * scale : 0.033);
-            
-            // If the requested time is within this frame's window, reuse it
-            // We add a small buffer (0.005s) to be lenient
-            // INCREASED TOLERANCE: Allow up to 15ms "late" reuse to avoid blocking on decoder
-            // This prefers holding a frame slightly too long over stuttering
-            if (clipTime >= frameTime - 0.01 && clipTime < frameTime + frameDuration + 0.015) {
-              reused = true;
-            }
-          } 
-          
-          // Fallback to simple delta check if timestamp logic failed or wasn't applicable
-          // We use a slightly larger threshold (45ms) to cover 24/25fps content
-          if (!reused && mbClip.lastSampleTime !== undefined) {
-            const delta = Math.abs(clipTime - mbClip.lastSampleTime);
-            if (delta < 0.045) { 
-               reused = true;
-            }
-          }
-
-          if (reused) {
-            perfRef.current.cacheHits++;
-            // Trigger refill if buffer is low
-            if (mbClip.buffer.length < 2 && !mbClip.isFetching) {
-               refillBuffer(mbClip, clipTime);
-            }
-            return { clip, sample: mbClip.lastSample, reused: true };
-          }
-        }
-
-        // 3. Synchronous Fetch (Fallback - causes stutter but necessary)
-        // Use safeGetSample to ensure we don't race with background buffer
-        const sample = await safeGetSample(mbClip, clipTime);
-        
-        // Update cache
-        // CRITICAL FIX: Check if the new sample is actually different from the old one
-        // before closing the old one. MediaBunny might return the same object.
-        if (mbClip.lastSample && mbClip.lastSample !== sample) {
-          try { mbClip.lastSample.close(); } catch(e) { /* ignore */ }
-        }
-        mbClip.lastSample = sample; // Keep it open!
-        mbClip.lastSampleTime = clipTime;
-        
-        // Trigger refill
-        if (!mbClip.isFetching) {
-           refillBuffer(mbClip, clipTime);
-        }
-
-        return { clip, sample, reused: false };
-      } catch (err) {
-        console.error(`Error rendering clip ${clip.id}`, err);
-        return { clip, sample: null, reused: false };
-      }
+    const samplesToDraw = await Promise.all(activeClips.map(({ clip, mbClip }) => {
+      const clipTime = currentTime - clip.startTime + clip.trimStart;
+      return processSampleFetch(clip, mbClip, clipTime);
     }));
     const fetchTime = performance.now() - fetchStart;
 
     try {
-      // Clear canvas only when we are ready to draw
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw clips
-      for (const { clip, sample } of samplesToDraw) {
-        if (sample) {
-          try {
-            ctx.save();
-            
-            // Apply filters
-            const clipFilter = currentFilters[clip.id];
-            if (clipFilter) {
-              ctx.filter = getCSSFilter(clipFilter);
-            }
-
-            // Handle transforms
-            if (clip.crop) {
-               // Crop logic
-               const sx = (clip.crop.x / 100) * sample.displayWidth;
-               const sy = (clip.crop.y / 100) * sample.displayHeight;
-               const sWidth = (clip.crop.width / 100) * sample.displayWidth;
-               const sHeight = (clip.crop.height / 100) * sample.displayHeight;
-               
-               // Draw to full canvas (object-cover behavior)
-               sample.draw(ctx, 0, 0, width, height, sx, sy, sWidth, sHeight);
-               
-            } else {
-              // Standard video rendering (object-contain)
-              const videoAspect = sample.displayWidth / sample.displayHeight;
-              const canvasAspect = width / height;
-              
-              let drawWidth, drawHeight, dx, dy;
-              
-              if (videoAspect > canvasAspect) {
-                // Video is wider than canvas (fit width)
-                drawWidth = width;
-                drawHeight = width / videoAspect;
-                dx = 0;
-                dy = (height - drawHeight) / 2;
-              } else {
-                // Video is taller than canvas (fit height)
-                drawHeight = height;
-                drawWidth = height * videoAspect;
-                dy = 0;
-                dx = (width - drawWidth) / 2;
-              }
-              
-              sample.draw(ctx, dx, dy, drawWidth, drawHeight);
-            }
-            
-            ctx.restore();
-          } catch (e) {
-            console.error("Error drawing sample", e);
-          }
-        }
-      }
+      drawSamples(ctx, samplesToDraw, currentFilters, width, height);
     } finally {
       // DO NOT close samples here if we are caching them!
-      // We only close them when we replace them or unmount.
-      // But if we failed to cache (e.g. error), we should close.
-      // Actually, we updated the cache in the map loop.
-      // So the samples in `samplesToDraw` are either the cached ones (don't close)
-      // or the new ones which are NOW cached (don't close).
-      // The only thing to close is if we had a temporary sample that we didn't cache?
-      // No, we always cache.
     }
 
     const renderEnd = performance.now();
     const renderDuration = renderEnd - renderStart;
     
-    // Update performance stats
     perfRef.current.frameCount++;
     perfRef.current.totalRenderTime += renderDuration;
     perfRef.current.maxRenderTime = Math.max(perfRef.current.maxRenderTime, renderDuration);

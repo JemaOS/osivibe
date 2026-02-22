@@ -6,7 +6,7 @@ import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, 
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { formatTime } from '../utils/helpers';
-import type { TimelineClip, TextOverlay } from '../types';
+import type { TimelineClip, TextOverlay, MediaFile } from '../types';
 
 // Base scale - will be adjusted based on screen size
 const BASE_PIXELS_PER_SECOND = 50;
@@ -96,6 +96,104 @@ const getTimeInterval = (zoom: number): number => {
   return 1;
 };
 
+const TimelineClipComponent = ({
+  clip,
+  track,
+  ui,
+  PIXELS_PER_SECOND,
+  clipTop,
+  clipHeight,
+  transitions,
+  draggedClipId,
+  isMinimal,
+  isCompact,
+  handleClipMouseDown,
+  handleClipTouchStart,
+  handleClipContextMenu,
+  handleClipDrop,
+  handleTransitionMouseDown,
+  handleResizeMouseDown
+}: any) => {
+  const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
+  const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
+  const isSelected = ui.selectedClipId === clip.id;
+  const clipTransitions = transitions.filter((t: any) => t.clipId === clip.id);
+
+  return (
+    <div
+      className={`timeline-clip absolute ${
+        track.type === 'audio' ? 'timeline-clip-audio' : ''
+      } ${isSelected ? 'selected' : ''} ${
+        draggedClipId === clip.id ? 'dragging' : ''
+      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
+      style={{
+        left: `${clipX}px`,
+        width: `${clipWidth}px`,
+        top: clipTop,
+        height: clipHeight,
+      }}
+      onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
+      onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
+      onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
+      onDrop={(e) => handleClipDrop(e, clip.id)}
+    >
+      {/* Transition Indicators */}
+      {clipTransitions.map((transition: any) => {
+        const handleMouseDown = (e: React.MouseEvent) => handleTransitionMouseDown(e, transition.id);
+        return (
+          <div
+            key={transition.id}
+            className="absolute top-0 bottom-0 bg-blue-500/80 z-20 cursor-move flex items-center justify-center hover:bg-blue-600 transition-colors"
+            style={{ 
+              width: `${Math.min(transition.duration * PIXELS_PER_SECOND * ui.timelineZoom, clipWidth)}px`,
+              left: transition.position === 'end' ? 'auto' : 0,
+              right: transition.position === 'end' ? 0 : 'auto',
+            }}
+            onMouseDown={handleMouseDown}
+            title={`Transition: ${transition.type} (${transition.position})`}
+          >
+             <Move className={`${isMinimal ? 'w-2 h-2' : 'w-3 h-3'} text-white`} />
+          </div>
+        );
+      })}
+
+      {/* Resize handles - larger for touch */}
+      {!track.locked && (
+        <>
+          <div
+            className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
+            onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'start')}
+            title="Étendre le début"
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
+          </div>
+          <div
+            className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
+            onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'end')}
+            title="Étendre la fin"
+          >
+            <div className="absolute right-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
+          </div>
+        </>
+      )}
+
+      {/* Thumbnail */}
+      {clip.thumbnail && (
+        <img
+          src={clip.thumbnail}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover opacity-20"
+        />
+      )}
+
+      {/* Clip name */}
+      <p className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} font-medium text-white truncate relative z-10`}>
+        {clip.name}
+      </p>
+    </div>
+  );
+};
+
 export const Timeline: React.FC = () => {
   const {
     tracks,
@@ -175,13 +273,7 @@ export const Timeline: React.FC = () => {
     }
   };
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    // Ignore if typing in an input field
-    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-      return;
-    }
-
-    // Undo/Redo
+  const handleUndoRedo = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -189,30 +281,33 @@ export const Timeline: React.FC = () => {
       } else {
         undo();
       }
-      return;
+      return true;
     }
-
     if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
       e.preventDefault();
       redo();
-      return;
+      return true;
     }
+    return false;
+  };
 
-    // Delete key - remove selected clip or text
+  const handleDelete = (e: KeyboardEvent) => {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (ui.selectedClipId) {
         e.preventDefault();
         removeClip(ui.selectedClipId);
-        return;
+        return true;
       }
       if (ui.selectedTextId) {
         e.preventDefault();
         removeTextOverlay(ui.selectedTextId);
-        return;
+        return true;
       }
     }
+    return false;
+  };
 
-    // Ctrl+C or Cmd+C - copy selected clip or text
+  const handleCopy = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
       if (ui.selectedClipId) {
         e.preventDefault();
@@ -222,7 +317,7 @@ export const Timeline: React.FC = () => {
           setCopiedClip({ clip: { ...clip }, trackId: trackWithClip.id });
           setCopiedText(null);
         }
-        return;
+        return true;
       }
       if (ui.selectedTextId) {
         e.preventDefault();
@@ -231,52 +326,61 @@ export const Timeline: React.FC = () => {
           setCopiedText({ ...text });
           setCopiedClip(null);
         }
-        return;
+        return true;
       }
     }
+    return false;
+  };
 
-    // Ctrl+V or Cmd+V - paste copied clip or text
+  const handlePaste = (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
       if (copiedClip) {
         e.preventDefault();
         const media = mediaFiles.find(m => m.id === copiedClip.clip.mediaId);
         if (media) {
           const { addClipToTrack } = useEditorStore.getState();
-          // Paste at playhead position
           addClipToTrack(copiedClip.trackId, media, player.currentTime);
         }
-        return;
+        return true;
       }
       if (copiedText) {
         e.preventDefault();
         const { addTextOverlay } = useEditorStore.getState();
         addTextOverlay({
           ...copiedText,
-          id: undefined, // Generate new ID
+          id: undefined,
           startTime: player.currentTime,
         });
-        return;
+        return true;
       }
     }
+    return false;
+  };
 
-    // Arrow keys for seeking
+  const handleSeekKeys = (e: KeyboardEvent) => {
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      seek(Math.max(0, player.currentTime - 0.1));
+      seek(Math.max(0, player.currentTime - (e.shiftKey ? 1 : 0.1)));
+      return true;
     }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      seek(Math.min(projectDuration, player.currentTime + 0.1));
+      seek(Math.min(projectDuration, player.currentTime + (e.shiftKey ? 1 : 0.1)));
+      return true;
     }
-    
-    if (e.shiftKey && e.key === 'ArrowLeft') {
-      e.preventDefault();
-      seek(Math.max(0, player.currentTime - 1));
+    return false;
+  };
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+      return;
     }
-    if (e.shiftKey && e.key === 'ArrowRight') {
-      e.preventDefault();
-      seek(Math.min(projectDuration, player.currentTime + 1));
-    }
+
+    if (handleUndoRedo(e)) return;
+    if (handleDelete(e)) return;
+    if (handleCopy(e)) return;
+    if (handlePaste(e)) return;
+    if (handleSeekKeys(e)) return;
   }, [ui.selectedClipId, ui.selectedTextId, copiedClip, copiedText, tracks, mediaFiles, player.currentTime, textOverlays, removeClip, removeTextOverlay, undo, redo, seek, projectDuration]);
 
   // Keyboard shortcuts
@@ -480,6 +584,38 @@ export const Timeline: React.FC = () => {
     setDragOffset({ x: offsetX, y: e.clientY });
   };
 
+  const calculateTextCollision = (newTime: number, currentText: TextOverlay, otherTexts: TextOverlay[]) => {
+    const hasCollision = otherTexts.some(t => 
+      (newTime < t.startTime + t.duration) && (newTime + currentText.duration > t.startTime)
+    );
+    
+    if (!hasCollision) return newTime;
+
+    let bestTime = newTime;
+    let minDistance = Infinity;
+    
+    for (let i = 0; i <= otherTexts.length; i++) {
+      const t1End = (i === 0) ? 0 : (otherTexts[i-1].startTime + otherTexts[i-1].duration);
+      const t2Start = (i < otherTexts.length) ? otherTexts[i].startTime : Infinity;
+      
+      const gapSize = t2Start - t1End;
+      if (gapSize >= currentText.duration) {
+        const minValid = t1End;
+        const maxValid = t2Start - currentText.duration;
+        
+        const clamped = Math.max(minValid, Math.min(maxValid, newTime));
+        const dist = Math.abs(clamped - newTime);
+        
+        if (dist < minDistance) {
+          minDistance = dist;
+          bestTime = clamped;
+        }
+      }
+    }
+    
+    return bestTime;
+  };
+
   useEffect(() => {
     if (!isDraggingText || !draggedTextId) return;
 
@@ -490,43 +626,10 @@ export const Timeline: React.FC = () => {
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
       let newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
       
-      // Check for collisions with other text overlays
       const currentText = textOverlays.find(t => t.id === draggedTextId);
       if (currentText) {
         const otherTexts = textOverlays.filter(t => t.id !== draggedTextId).sort((a, b) => a.startTime - b.startTime);
-        
-        // Check if we have a collision at the preferred position
-        const hasCollision = otherTexts.some(t => 
-            (newTime < t.startTime + t.duration) && (newTime + currentText.duration > t.startTime)
-        );
-        
-        if (hasCollision) {
-            // Find the closest valid position (gap)
-            let bestTime = newTime;
-            let minDistance = Infinity;
-            
-            for (let i = 0; i <= otherTexts.length; i++) {
-                const t1End = (i === 0) ? 0 : (otherTexts[i-1].startTime + otherTexts[i-1].duration);
-                const t2Start = (i < otherTexts.length) ? otherTexts[i].startTime : Infinity;
-                
-                const gapSize = t2Start - t1End;
-                if (gapSize >= currentText.duration) {
-                    // Valid range for startTime: [t1End, t2Start - duration]
-                    const minValid = t1End;
-                    const maxValid = t2Start - currentText.duration;
-                    
-                    const clamped = Math.max(minValid, Math.min(maxValid, newTime));
-                    const dist = Math.abs(clamped - newTime);
-                    
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        bestTime = clamped;
-                    }
-                }
-            }
-            
-            newTime = bestTime;
-        }
+        newTime = calculateTextCollision(newTime, currentText, otherTexts);
       }
 
       updateTextOverlay(draggedTextId, { startTime: newTime });
@@ -553,6 +656,37 @@ export const Timeline: React.FC = () => {
     setIsDraggingTransition(true);
   };
 
+  const handleTransitionDrop = (e: MouseEvent, rect: DOMRect) => {
+    const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+    const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+
+    const trackIndex = Math.floor((e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
+    const targetTrack = tracks[trackIndex];
+
+    if (targetTrack) {
+      const targetClip = targetTrack.clips.find(c => {
+        const start = c.startTime;
+        const end = c.startTime + (c.duration - c.trimStart - c.trimEnd);
+        return time >= start && time < end;
+      });
+
+      if (targetClip) {
+        const transition = transitions.find(t => t.id === draggedTransitionId);
+        if (transition) {
+          const clipStart = targetClip.startTime;
+          const clipDuration = targetClip.duration - targetClip.trimStart - targetClip.trimEnd;
+          const relativeTime = time - clipStart;
+          const newPosition = relativeTime < clipDuration / 2 ? 'start' : 'end';
+
+          if (transition.clipId !== targetClip.id || transition.position !== newPosition) {
+            removeTransition(transition.clipId, transition.position);
+            setTransition(targetClip.id, transition.type, transition.duration, newPosition);
+          }
+        }
+      }
+    }
+  };
+
   useEffect(() => {
     if (!isDraggingTransition || !draggedTransitionId) return;
 
@@ -568,37 +702,7 @@ export const Timeline: React.FC = () => {
         return;
       }
 
-      const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-
-      // Find target track and clip
-      const trackIndex = Math.floor((e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
-      const targetTrack = tracks[trackIndex];
-
-      if (targetTrack) {
-        const targetClip = targetTrack.clips.find(c => {
-          const start = c.startTime;
-          const end = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-          return time >= start && time < end;
-        });
-
-        if (targetClip) {
-          const transition = transitions.find(t => t.id === draggedTransitionId);
-          if (transition) {
-            // Calculate position relative to clip
-            const clipStart = targetClip.startTime;
-            const clipDuration = targetClip.duration - targetClip.trimStart - targetClip.trimEnd;
-            const relativeTime = time - clipStart;
-            const newPosition = relativeTime < clipDuration / 2 ? 'start' : 'end';
-
-            if (transition.clipId !== targetClip.id || transition.position !== newPosition) {
-              // Move transition: remove from old, add to new
-              removeTransition(transition.clipId, transition.position);
-              setTransition(targetClip.id, transition.type, transition.duration, newPosition);
-            }
-          }
-        }
-      }
+      handleTransitionDrop(e, rect);
 
       setIsDraggingTransition(false);
       setDraggedTransitionId(null);
@@ -703,48 +807,16 @@ export const Timeline: React.FC = () => {
     return Math.max(0, snappedTime);
   };
 
-  // Find position without collision (next available slot)
-  const findNonCollidingPosition = (trackId: string, preferredTime: number, clipDuration: number, excludeClipId?: string) => {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track) return preferredTime;
-
-    // Get all clips on the track (excluding the one being moved)
-    const clipsOnTrack = track.clips
-      .filter(c => c.id !== excludeClipId)
-      .map(c => ({
-        start: c.startTime,
-        end: c.startTime + (c.duration - c.trimStart - c.trimEnd)
-      }))
-      .sort((a, b) => a.start - b.start);
-
-    // If no clips, return preferred time
-    if (clipsOnTrack.length === 0) return Math.max(0, preferredTime);
-
-    const clipEnd = preferredTime + clipDuration;
-
-    // Check if preferred position is free
-    let hasCollision = false;
-    for (const existing of clipsOnTrack) {
-      if (preferredTime < existing.end && clipEnd > existing.start) {
-        hasCollision = true;
-        break;
-      }
-    }
-
-    if (!hasCollision) return Math.max(0, preferredTime);
-
-    // Find the closest gap before or after preferred position
+  const findBestGapPosition = (clipsOnTrack: any[], preferredTime: number, clipDuration: number) => {
     let bestPosition = preferredTime;
     let bestDistance = Infinity;
 
-    // Try to place before each clip
     for (let i = 0; i < clipsOnTrack.length; i++) {
       const gapEnd = clipsOnTrack[i].start;
       const gapStart = i > 0 ? clipsOnTrack[i - 1].end : 0;
 
-      // Check if clip fits in this gap
       if (gapEnd - gapStart >= clipDuration) {
-        const position = gapEnd - clipDuration; // Snap to the end of the gap
+        const position = gapEnd - clipDuration;
         const distance = Math.abs(position - preferredTime);
         
         if (distance < bestDistance) {
@@ -754,7 +826,6 @@ export const Timeline: React.FC = () => {
       }
     }
 
-    // Try to place after the last clip
     if (clipsOnTrack.length > 0) {
       const lastClipEnd = clipsOnTrack[clipsOnTrack.length - 1].end;
       const distance = Math.abs(lastClipEnd - preferredTime);
@@ -765,6 +836,36 @@ export const Timeline: React.FC = () => {
     }
 
     return Math.max(0, bestPosition);
+  };
+
+  // Find position without collision (next available slot)
+  const findNonCollidingPosition = (trackId: string, preferredTime: number, clipDuration: number, excludeClipId?: string) => {
+    const track = tracks.find(t => t.id === trackId);
+    if (!track) return preferredTime;
+
+    const clipsOnTrack = track.clips
+      .filter(c => c.id !== excludeClipId)
+      .map(c => ({
+        start: c.startTime,
+        end: c.startTime + (c.duration - c.trimStart - c.trimEnd)
+      }))
+      .sort((a, b) => a.start - b.start);
+
+    if (clipsOnTrack.length === 0) return Math.max(0, preferredTime);
+
+    const clipEnd = preferredTime + clipDuration;
+
+    let hasCollision = false;
+    for (const existing of clipsOnTrack) {
+      if (preferredTime < existing.end && clipEnd > existing.start) {
+        hasCollision = true;
+        break;
+      }
+    }
+
+    if (!hasCollision) return Math.max(0, preferredTime);
+
+    return findBestGapPosition(clipsOnTrack, preferredTime, clipDuration);
   };
 
   // Check if a clip type is compatible with a track type
@@ -792,6 +893,11 @@ export const Timeline: React.FC = () => {
     return false;
   };
 
+  const getTargetTrackForDrag = (clientY: number, rect: DOMRect) => {
+    const trackIndex = Math.floor((clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
+    return tracks[trackIndex];
+  };
+
   const handleClipDragMove = useCallback((clientX: number, clientY: number) => {
     const rect = tracksContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -799,37 +905,28 @@ export const Timeline: React.FC = () => {
     const x = clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0) - dragOffset.x;
     const newTime = Math.max(0, x / (PIXELS_PER_SECOND * ui.timelineZoom));
 
-    // Determine target track based on mouse position
-    const trackIndex = Math.floor((clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0) - RULER_HEIGHT) / TRACK_HEIGHT);
-    let targetTrack = tracks[trackIndex];
+    let targetTrack = getTargetTrackForDrag(clientY, rect);
 
     if (targetTrack && !targetTrack.locked) {
       const draggedClip = tracks.flatMap(t => t.clips).find(c => c.id === draggedClipId);
       if (!draggedClip) return;
 
-      // Check if clip type is compatible with target track
       if (!isClipCompatibleWithTrack(draggedClip.type, targetTrack.type, targetTrack.name)) {
-        // Find the original track of the clip and only allow horizontal movement
         const originalTrack = tracks.find(t => t.clips.some(c => c.id === draggedClipId));
         if (originalTrack) {
           targetTrack = originalTrack;
         } else {
-          return; // Can't move to incompatible track
+          return;
         }
       }
 
       const clipDuration = draggedClip.duration - draggedClip.trimStart - draggedClip.trimEnd;
-
-      // Apply snapping
       const snappedTime = applySnapping(newTime, targetTrack.id, clipDuration, draggedClipId!);
 
-      // Check if there's a collision at snapped position
       if (hasCollision(targetTrack.id, snappedTime, clipDuration, draggedClipId!)) {
-        // Find next available position without collision
         const adjustedTime = findNonCollidingPosition(targetTrack.id, snappedTime, clipDuration, draggedClipId!);
         moveClip(draggedClipId!, targetTrack.id, adjustedTime);
       } else {
-        // No collision, use snapped position
         moveClip(draggedClipId!, targetTrack.id, snappedTime);
       }
     }
@@ -883,6 +980,42 @@ export const Timeline: React.FC = () => {
     setResizingText({ id: textId, edge });
   };
 
+  const handleImageResize = (clip: TimelineClip, time: number) => {
+    if (resizingClip?.edge === 'start') {
+      const currentEndTime = clip.startTime + clip.duration;
+      const newStartTime = Math.min(currentEndTime - 0.1, Math.max(0, time));
+      const newDuration = currentEndTime - newStartTime;
+      
+      updateClip(clip.id, { 
+        startTime: newStartTime,
+        duration: newDuration
+      });
+    } else {
+      const newDuration = Math.max(0.1, time - clip.startTime);
+      updateClip(clip.id, { duration: newDuration });
+    }
+  };
+
+  const handleVideoAudioResize = (clip: TimelineClip, time: number) => {
+    if (resizingClip?.edge === 'start') {
+      const maxTrimStart = clip.duration - clip.trimEnd - 0.1;
+      const newTrimStart = Math.max(0, Math.min(maxTrimStart, clip.trimStart + (time - clip.startTime)));
+      const newStartTime = time;
+      
+      updateClip(clip.id, { 
+        trimStart: newTrimStart,
+        startTime: newStartTime,
+      });
+    } else {
+      const clipEndTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+      const newEndTime = time;
+      const delta = newEndTime - clipEndTime;
+      const newTrimEnd = Math.max(0, clip.trimEnd - delta);
+      
+      updateClip(clip.id, { trimEnd: newTrimEnd });
+    }
+  };
+
   useEffect(() => {
     if (!resizingClip) return;
 
@@ -896,43 +1029,10 @@ export const Timeline: React.FC = () => {
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
       const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-      // Special handling for images (infinite duration)
       if (clip.type === 'image') {
-        if (resizingClip.edge === 'start') {
-          // Calculate new start time, ensuring we don't go past the end
-          // For images, duration is the actual length on timeline
-          const currentEndTime = clip.startTime + clip.duration;
-          const newStartTime = Math.min(currentEndTime - 0.1, Math.max(0, time));
-          const newDuration = currentEndTime - newStartTime;
-          
-          updateClip(clip.id, { 
-            startTime: newStartTime,
-            duration: newDuration
-          });
-        } else {
-          // Just update duration based on new end time
-          const newDuration = Math.max(0.1, time - clip.startTime);
-          updateClip(clip.id, { duration: newDuration });
-        }
+        handleImageResize(clip, time);
       } else {
-        // Standard handling for video/audio (fixed source duration with trims)
-        if (resizingClip.edge === 'start') {
-          const maxTrimStart = clip.duration - clip.trimEnd - 0.1;
-          const newTrimStart = Math.max(0, Math.min(maxTrimStart, clip.trimStart + (time - clip.startTime)));
-          const newStartTime = time;
-          
-          updateClip(clip.id, { 
-            trimStart: newTrimStart,
-            startTime: newStartTime,
-          });
-        } else {
-          const clipEndTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-          const newEndTime = time;
-          const delta = newEndTime - clipEndTime;
-          const newTrimEnd = Math.max(0, clip.trimEnd - delta);
-          
-          updateClip(clip.id, { trimEnd: newTrimEnd });
-        }
+        handleVideoAudioResize(clip, time);
       }
     };
 
@@ -949,6 +1049,42 @@ export const Timeline: React.FC = () => {
     };
   }, [resizingClip, tracks, ui.timelineZoom, updateClip]);
 
+  const handleTextResizeStart = (time: number, text: TextOverlay, otherTexts: TextOverlay[]) => {
+    const currentEndTime = text.startTime + text.duration;
+    
+    let limit = 0;
+    for (const t of otherTexts) {
+      const tEnd = t.startTime + t.duration;
+      if (tEnd <= currentEndTime) {
+        if (tEnd > limit) limit = tEnd;
+      }
+    }
+
+    const newStartTime = Math.max(limit, Math.min(currentEndTime - 0.1, Math.max(0, time)));
+    const newDuration = currentEndTime - newStartTime;
+    
+    updateTextOverlay(text.id, { 
+      startTime: newStartTime,
+      duration: newDuration
+    });
+  };
+
+  const handleTextResizeEnd = (time: number, text: TextOverlay, otherTexts: TextOverlay[]) => {
+    const currentStartTime = text.startTime;
+    
+    let limit = Infinity;
+    for (const t of otherTexts) {
+      if (t.startTime >= currentStartTime) {
+        if (t.startTime < limit) limit = t.startTime;
+      }
+    }
+
+    const maxDuration = limit - currentStartTime;
+    const newDuration = Math.max(0.1, Math.min(maxDuration, time - currentStartTime));
+    
+    updateTextOverlay(text.id, { duration: newDuration });
+  };
+
   useEffect(() => {
     if (!resizingText) return;
 
@@ -962,47 +1098,12 @@ export const Timeline: React.FC = () => {
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
       const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-      // Calculate constraints to prevent overlap
       const otherTexts = textOverlays.filter(t => t.id !== resizingText.id);
 
       if (resizingText.edge === 'start') {
-        const currentEndTime = text.startTime + text.duration;
-        
-        // Find the closest neighbor to the left (limit for start time)
-        let limit = 0;
-        for (const t of otherTexts) {
-          const tEnd = t.startTime + t.duration;
-          // Check if this clip is to our left (or overlapping us from left)
-          if (tEnd <= currentEndTime) {
-            if (tEnd > limit) limit = tEnd;
-          }
-        }
-
-        const newStartTime = Math.max(limit, Math.min(currentEndTime - 0.1, Math.max(0, time)));
-        const newDuration = currentEndTime - newStartTime;
-        
-        updateTextOverlay(text.id, { 
-          startTime: newStartTime,
-          duration: newDuration
-        });
+        handleTextResizeStart(time, text, otherTexts);
       } else {
-        const currentStartTime = text.startTime;
-        
-        // Find closest neighbor to the right (limit for end time)
-        let limit = Infinity;
-        for (const t of otherTexts) {
-          // Check if this clip is to our right (or overlapping us from right)
-          if (t.startTime >= currentStartTime) {
-            if (t.startTime < limit) limit = t.startTime;
-          }
-        }
-
-        // Calculate new duration, constrained by the limit
-        // time is the new end time cursor position
-        const maxDuration = limit - currentStartTime;
-        const newDuration = Math.max(0.1, Math.min(maxDuration, time - currentStartTime));
-        
-        updateTextOverlay(text.id, { duration: newDuration });
+        handleTextResizeEnd(time, text, otherTexts);
       }
     };
 
@@ -1018,6 +1119,39 @@ export const Timeline: React.FC = () => {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [resizingText, textOverlays, ui.timelineZoom, updateTextOverlay]);
+
+  const handleMediaDrop = (media: MediaFile, trackId: string, time: number) => {
+    const targetTrack = tracks.find(t => t.id === trackId);
+    if (!targetTrack) return;
+
+    const isCompatible = (media.type === 'audio' && targetTrack.type === 'audio') ||
+                         ((media.type === 'video' || media.type === 'image') && targetTrack.type === 'video');
+
+    if (isCompatible) {
+       const { addClipToTrack } = useEditorStore.getState();
+       addClipToTrack(trackId, media, Math.max(0, time));
+    } else {
+       let smartTrack: any = null;
+       
+       if (media.type === 'image') {
+         smartTrack = tracks.find(t => t.type === 'video' && (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay')));
+       } else if (media.type === 'video') {
+         smartTrack = tracks.find(t => t.type === 'video' && t.name.toLowerCase().includes('video'));
+       } else if (media.type === 'audio') {
+         smartTrack = tracks.find(t => t.type === 'audio' && t.name.toLowerCase().includes('audio'));
+       }
+       
+       if (!smartTrack) {
+         const trackType = media.type === 'audio' ? 'audio' : 'video';
+         smartTrack = tracks.find(t => t.type === trackType);
+       }
+
+       if (smartTrack) {
+         const { addClipToTrack } = useEditorStore.getState();
+         addClipToTrack(smartTrack.id, media, Math.max(0, time));
+       }
+    }
+  };
 
   // Handle media drop from library
   const handleDrop = useCallback((e: React.DragEvent, trackId: string) => {
@@ -1040,41 +1174,7 @@ export const Timeline: React.FC = () => {
         const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
         const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-        const targetTrack = tracks.find(t => t.id === trackId);
-        if (!targetTrack) return;
-
-        // Check compatibility
-        // Audio files go to audio tracks
-        // Video and Image files go to video tracks
-        const isCompatible = (media.type === 'audio' && targetTrack.type === 'audio') ||
-                             ((media.type === 'video' || media.type === 'image') && targetTrack.type === 'video');
-
-        if (isCompatible) {
-           const { addClipToTrack } = useEditorStore.getState();
-           addClipToTrack(trackId, media, Math.max(0, time));
-        } else {
-           // If not compatible, redirect to smart placement
-           let smartTrack: any = null;
-           
-           if (media.type === 'image') {
-             smartTrack = tracks.find(t => t.type === 'video' && (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay')));
-           } else if (media.type === 'video') {
-             smartTrack = tracks.find(t => t.type === 'video' && t.name.toLowerCase().includes('video'));
-           } else if (media.type === 'audio') {
-             smartTrack = tracks.find(t => t.type === 'audio' && t.name.toLowerCase().includes('audio'));
-           }
-           
-           // Fallback
-           if (!smartTrack) {
-             const trackType = media.type === 'audio' ? 'audio' : 'video';
-             smartTrack = tracks.find(t => t.type === trackType);
-           }
-
-           if (smartTrack) {
-             const { addClipToTrack } = useEditorStore.getState();
-             addClipToTrack(smartTrack.id, media, Math.max(0, time));
-           }
-        }
+        handleMediaDrop(media, trackId, time);
       }
     } catch (error) {
       console.error('Error handling drop:', error);
@@ -1106,6 +1206,37 @@ export const Timeline: React.FC = () => {
     }
   }, []);
 
+  const handleTimelineMediaDrop = (media: MediaFile, time: number) => {
+    let targetTrack: any = null;
+    
+    if (media.type === 'image') {
+      targetTrack = tracks.find(t => 
+        t.type === 'video' && 
+        (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay'))
+      );
+    } else if (media.type === 'video') {
+      targetTrack = tracks.find(t => 
+        t.type === 'video' && 
+        t.name.toLowerCase().includes('video')
+      );
+    } else if (media.type === 'audio') {
+      targetTrack = tracks.find(t => 
+        t.type === 'audio' && 
+        t.name.toLowerCase().includes('audio')
+      );
+    }
+
+    if (!targetTrack) {
+      const trackType = media.type === 'audio' ? 'audio' : 'video';
+      targetTrack = tracks.find(t => t.type === trackType);
+    }
+    
+    if (targetTrack) {
+      const { addClipToTrack } = useEditorStore.getState();
+      addClipToTrack(targetTrack.id, media, Math.max(0, time));
+    }
+  };
+
   // Handle drop on the timeline background (empty space)
   const handleTimelineDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1127,39 +1258,7 @@ export const Timeline: React.FC = () => {
         const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
         const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-        // Smart track selection
-        let targetTrack: any = null;
-        
-        if (media.type === 'image') {
-          // Prefer tracks named "Images" or "Overlay"
-          targetTrack = tracks.find(t => 
-            t.type === 'video' && 
-            (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay'))
-          );
-        } else if (media.type === 'video') {
-          // Prefer tracks named "Video"
-          targetTrack = tracks.find(t => 
-            t.type === 'video' && 
-            t.name.toLowerCase().includes('video')
-          );
-        } else if (media.type === 'audio') {
-          // Prefer tracks named "Audio"
-          targetTrack = tracks.find(t => 
-            t.type === 'audio' && 
-            t.name.toLowerCase().includes('audio')
-          );
-        }
-
-        // Fallback to any suitable track if no specific preference found
-        if (!targetTrack) {
-          const trackType = media.type === 'audio' ? 'audio' : 'video';
-          targetTrack = tracks.find(t => t.type === trackType);
-        }
-        
-        if (targetTrack) {
-          const { addClipToTrack } = useEditorStore.getState();
-          addClipToTrack(targetTrack.id, media, Math.max(0, time));
-        }
+        handleTimelineMediaDrop(media, time);
       }
     } catch (error) {
       console.error('Error handling timeline drop:', error);
@@ -1541,87 +1640,27 @@ export const Timeline: React.FC = () => {
                 style={{ width: timelineWidth, height: TRACK_HEIGHT }}
               >
                 {/* Track clips */}
-                {track.clips.map((clip) => {
-                  const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
-                  const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
-                  const media = mediaFiles.find(m => m.id === clip.mediaId);
-                  const isSelected = ui.selectedClipId === clip.id;
-                  const clipTransitions = transitions.filter(t => t.clipId === clip.id);
-
-                  return (
-                    <div
-                      key={clip.id}
-                      className={`timeline-clip absolute ${
-                        track.type === 'audio' ? 'timeline-clip-audio' : ''
-                      } ${isSelected ? 'selected' : ''} ${
-                        draggedClipId === clip.id ? 'dragging' : ''
-                      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
-                      style={{
-                        left: `${clipX}px`,
-                        width: `${clipWidth}px`,
-                        top: clipTop,
-                        height: clipHeight,
-                      }}
-                      onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
-                      onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
-                      onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
-                      onDrop={(e) => handleClipDrop(e, clip.id)}
-                    >
-                      {/* Transition Indicators */}
-                      {clipTransitions.map(transition => {
-                        const handleMouseDown = (e: React.MouseEvent) => handleTransitionMouseDown(e, transition.id);
-                        return (
-                        <div
-                          key={transition.id}
-                          className="absolute top-0 bottom-0 bg-blue-500/80 z-20 cursor-move flex items-center justify-center hover:bg-blue-600 transition-colors"
-                          style={{ 
-                            width: `${Math.min(transition.duration * PIXELS_PER_SECOND * ui.timelineZoom, clipWidth)}px`,
-                            left: transition.position === 'end' ? 'auto' : 0,
-                            right: transition.position === 'end' ? 0 : 'auto',
-                          }}
-                          onMouseDown={handleMouseDown}
-                          title={`Transition: ${transition.type} (${transition.position})`}
-                        >
-                           <Move className={`${isMinimal ? 'w-2 h-2' : 'w-3 h-3'} text-white`} />
-                        </div>
-                      )})}
-
-                      {/* Resize handles - larger for touch */}
-                      {!track.locked && (
-                        <>
-                          <div
-                            className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
-                            onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'start')}
-                            title="Étendre le début"
-                          >
-                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
-                          </div>
-                          <div
-                            className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
-                            onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'end')}
-                            title="Étendre la fin"
-                          >
-                            <div className="absolute right-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
-                          </div>
-                        </>
-                      )}
-
-                      {/* Thumbnail */}
-                      {clip.thumbnail && (
-                        <img
-                          src={clip.thumbnail}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover opacity-20"
-                        />
-                      )}
-
-                      {/* Clip name */}
-                      <p className={`${isMinimal ? 'text-[7px]' : isCompact ? 'text-[8px]' : 'text-[0.6rem]'} font-medium text-white truncate relative z-10`}>
-                        {clip.name}
-                      </p>
-                    </div>
-                  );
-                })}
+                {track.clips.map((clip) => (
+                  <TimelineClipComponent
+                    key={clip.id}
+                    clip={clip}
+                    track={track}
+                    ui={ui}
+                    PIXELS_PER_SECOND={PIXELS_PER_SECOND}
+                    clipTop={clipTop}
+                    clipHeight={clipHeight}
+                    transitions={transitions}
+                    draggedClipId={draggedClipId}
+                    isMinimal={isMinimal}
+                    isCompact={isCompact}
+                    handleClipMouseDown={handleClipMouseDown}
+                    handleClipTouchStart={handleClipTouchStart}
+                    handleClipContextMenu={handleClipContextMenu}
+                    handleClipDrop={handleClipDrop}
+                    handleTransitionMouseDown={handleTransitionMouseDown}
+                    handleResizeMouseDown={handleResizeMouseDown}
+                  />
+                ))}
               </div>
             ))}
 

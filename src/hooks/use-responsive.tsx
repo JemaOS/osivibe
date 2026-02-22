@@ -388,61 +388,40 @@ export function useResponsive(): ResponsiveState {
     const { width, height } = dimensions;
     const aspectRatio = width / height;
     
-    // Detect foldable model and characteristics
     const foldableModel = detectFoldableModel(width, height);
     const isFoldable = isFoldableDevice(width, height, aspectRatio);
     const foldState = getFoldState(width, aspectRatio, isSpanning);
     const hingeWidth = isSpanning ? spanningHingeWidth : (isFoldable ? getHingeWidth(foldableModel) : 0);
     
-    // Determine aspect ratio category
     const aspectRatioCategory = getAspectRatioCategory(aspectRatio);
-    
-    // Determine orientation
     const orientation: Orientation = aspectRatio >= 1 ? 'landscape' : 'portrait';
     
-    // Get layout mode, device type, and UI recommendations
     const { layoutMode, deviceType, touchTargetSize, timelineTracks, panelVisibility } = 
       getLayoutRecommendations(width, aspectRatio, isFoldable);
     
-    // Backward compatibility flags
     const isMobile = width < BREAKPOINTS.md;
     const isTablet = width >= BREAKPOINTS.md && width < BREAKPOINTS.lg;
     const isDesktop = width >= BREAKPOINTS.lg;
     
     return {
-      // Dimensions
       width,
       height,
       aspectRatio,
-      
-      // Layout
       layoutMode,
       deviceType,
-      
-      // Foldable-specific
       foldState,
       isFoldable,
       isSpanning,
       hingeWidth,
       foldableModel,
-      
-      // Aspect ratio
       aspectRatioCategory,
-      
-      // Capabilities
       hasTouch: inputCapabilities.hasTouch,
       hasMouse: inputCapabilities.hasMouse,
       hasStylus: inputCapabilities.hasStylus,
-      
-      // Orientation
       orientation,
-      
-      // UI recommendations
       touchTargetSize,
       timelineTracks,
       panelVisibility,
-      
-      // Backward compatibility
       isMobile,
       isTablet,
       isDesktop,

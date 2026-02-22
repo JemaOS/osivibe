@@ -162,6 +162,57 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
     }
   };
 
+  const renderProjectName = () => {
+    if (isEditingName) {
+      return (
+        <input
+          type="text"
+          value={tempName}
+          onChange={(e) => setTempName(e.target.value)}
+          onBlur={handleNameSubmit}
+          onKeyDown={handleKeyDown}
+          autoFocus
+          className="bg-white/10 border border-white/20 rounded-lg h-8 text-sm px-3 w-48 text-white focus:border-primary-500 focus:outline-none"
+          placeholder="Nom du projet"
+        />
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => {
+            setTempName(projectName);
+            setIsEditingName(true);
+          }}
+          className="text-sm text-white font-medium hover:text-primary-400 transition-colors truncate max-w-[200px]"
+          title="Renommer le projet"
+        >
+          {projectName}
+        </button>
+        
+        {/* Project Menu */}
+        <div className="relative">
+          <button
+            onClick={() => setIsProjectMenuOpen(!isProjectMenuOpen)}
+            className="w-6 h-6 rounded flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target-sm"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          
+          <ProjectMenu 
+            projects={projects}
+            currentProjectId={currentProjectId}
+            loadProject={loadProject}
+            deleteProject={deleteProject}
+            isProjectMenuOpen={isProjectMenuOpen}
+            setIsProjectMenuOpen={setIsProjectMenuOpen}
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <header className={`${getHeaderHeight(layoutMode)} bg-[#0f0f0f] border-b border-white/10 flex items-center justify-between px-2 fold-cover:px-1.5 fold-open:px-3 sm:px-4 z-50 relative flex-shrink-0`}>
       {/* Left Section */}
@@ -195,50 +246,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         
         {/* Project Name & Management - Hidden on minimal/compact */}
         <div className={`${layoutMode === 'minimal' || layoutMode === 'compact' ? 'hidden' : 'hidden md:flex'} items-center gap-2`}>
-          {isEditingName ? (
-            <input
-              type="text"
-              value={tempName}
-              onChange={(e) => setTempName(e.target.value)}
-              onBlur={handleNameSubmit}
-              onKeyDown={handleKeyDown}
-              autoFocus
-              className="bg-white/10 border border-white/20 rounded-lg h-8 text-sm px-3 w-48 text-white focus:border-primary-500 focus:outline-none"
-              placeholder="Nom du projet"
-            />
-          ) : (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  setTempName(projectName);
-                  setIsEditingName(true);
-                }}
-                className="text-sm text-white font-medium hover:text-primary-400 transition-colors truncate max-w-[200px]"
-                title="Renommer le projet"
-              >
-                {projectName}
-              </button>
-              
-              {/* Project Menu */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsProjectMenuOpen(!isProjectMenuOpen)}
-                  className="w-6 h-6 rounded flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target-sm"
-                >
-                  <ChevronDown className="w-3 h-3" />
-                </button>
-                
-                <ProjectMenu 
-                  projects={projects}
-                  currentProjectId={currentProjectId}
-                  loadProject={loadProject}
-                  deleteProject={deleteProject}
-                  isProjectMenuOpen={isProjectMenuOpen}
-                  setIsProjectMenuOpen={setIsProjectMenuOpen}
-                />
-              </div>
-            </div>
-          )}
+          {renderProjectName()}
           
           {/* New Project Button */}
           <button

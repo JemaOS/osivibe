@@ -440,19 +440,12 @@ function classifyMemoryTier(deviceMemory: number): MemoryTier {
   return 'low';
 }
 
-/**
- * Generate video recommendations based on hardware profile
- */
-function generateRecommendations(
+function determineMaxResolution(
   gpu: GPUProfile,
   processor: ProcessorProfile,
   memory: MemoryProfile,
-  deviceType: 'desktop' | 'mobile' | 'tablet',
-  performanceScore: number
-): VideoRecommendations {
-  const isMobile = deviceType === 'mobile' || deviceType === 'tablet';
-  
-  // Determine max resolution
+  isMobile: boolean
+): VideoResolution {
   let maxVideoResolution: VideoResolution = '720p';
   
   if (gpu.tier === 'high' && processor.tier === 'high' && memory.tier !== 'low') {
@@ -474,21 +467,48 @@ function generateRecommendations(
     maxVideoResolution = '1080p'; // Cap mobile at 1080p for battery
   }
   
-  // Determine preferred codec
-  let preferredCodec: PreferredCodec = 'h264';
-  
+  return maxVideoResolution;
+}
+
+function determinePreferredCodec(gpu: GPUProfile): PreferredCodec {
   if (gpu.tier === 'high' && gpu.supportsHardwareAcceleration) {
     // High-end with hardware acceleration can handle modern codecs
     if (gpu.vendor === 'apple' || gpu.vendor === 'nvidia') {
-      preferredCodec = 'h265';
+      return 'h265';
     } else if (gpu.supportsWebGPU) {
-      preferredCodec = 'av1';
+      return 'av1';
     } else {
-      preferredCodec = 'vp9';
+      return 'vp9';
     }
   } else if (gpu.tier === 'medium') {
-    preferredCodec = 'h264'; // Safest choice for mid-range
+    return 'h264'; // Safest choice for mid-range
   }
+  return 'h264';
+}
+
+function determineTargetFps(gpu: GPUProfile, performanceScore: number, isMobile: boolean): number {
+  if (gpu.tier === 'high' && !isMobile) {
+    return 60;
+  } else if (gpu.tier === 'low' || performanceScore < 30) {
+    return 24;
+  }
+  return 30;
+}
+
+/**
+ * Generate video recommendations based on hardware profile
+ */
+function generateRecommendations(
+  gpu: GPUProfile,
+  processor: ProcessorProfile,
+  memory: MemoryProfile,
+  deviceType: 'desktop' | 'mobile' | 'tablet',
+  performanceScore: number
+): VideoRecommendations {
+  const isMobile = deviceType === 'mobile' || deviceType === 'tablet';
+  
+  const maxVideoResolution = determineMaxResolution(gpu, processor, memory, isMobile);
+  const preferredCodec = determinePreferredCodec(gpu);
   
   // Hardware decoding
   const useHardwareDecoding = gpu.supportsHardwareAcceleration && gpu.tier !== 'low';
@@ -512,13 +532,7 @@ function generateRecommendations(
     previewQuality = 'low';
   }
   
-  // Target FPS
-  let targetFps = 30;
-  if (gpu.tier === 'high' && !isMobile) {
-    targetFps = 60;
-  } else if (gpu.tier === 'low' || performanceScore < 30) {
-    targetFps = 24;
-  }
+  const targetFps = determineTargetFps(gpu, performanceScore, isMobile);
   
   // Frame skipping
   const enableFrameSkipping = performanceScore < 40 || (isMobile && performanceScore < 60);

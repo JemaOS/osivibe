@@ -48,6 +48,370 @@ import {
 } from '../utils/hardwareDetection';
 import { useMediaBunnyPreview } from '../hooks/use-mediabunny-preview';
 
+// Calculate transition progress based on position
+const calculateTransitionProgress = (
+  currentTime: number,
+  clipStart: number,
+  clipEnd: number,
+  transitionDuration: number,
+  position: string | undefined
+): number => {
+  if (position === 'start' || !position) {
+    return (currentTime - clipStart) / transitionDuration;
+  }
+  return (clipEnd - currentTime) / transitionDuration;
+};
+
+// Apply specific transition style
+const applyTransitionStyle = (
+  transition: { type: string; position?: string },
+  progress: number,
+  inv: number,
+  p: number
+): React.CSSProperties => {
+  const style: React.CSSProperties = {};
+  
+  switch (transition.type) {
+    case 'fade':
+    case 'dissolve':
+    case 'cross-dissolve':
+      style.opacity = p;
+      break;
+    case 'zoom-in':
+      style.transform = `scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'zoom-out':
+      style.transform = `scale(${1.5 - p * 0.5})`;
+      style.opacity = p;
+      break;
+    case 'slide-left':
+      style.transform = transition.position === 'end' 
+        ? `translateX(${-inv * 100}%)` 
+        : `translateX(${inv * 100}%)`;
+      break;
+    case 'slide-right':
+      style.transform = transition.position === 'end' 
+        ? `translateX(${inv * 100}%)` 
+        : `translateX(${-inv * 100}%)`;
+      break;
+    case 'slide-up':
+      style.transform = transition.position === 'end' 
+        ? `translateY(${-inv * 100}%)` 
+        : `translateY(${inv * 100}%)`;
+      break;
+    case 'slide-down':
+      style.transform = transition.position === 'end' 
+        ? `translateY(${inv * 100}%)` 
+        : `translateY(${-inv * 100}%)`;
+      break;
+    case 'slide-diagonal-tl':
+      style.transform = transition.position === 'end'
+        ? `translate(${-inv * 100}%, ${-inv * 100}%)`
+        : `translate(${inv * 100}%, ${inv * 100}%)`;
+      break;
+    case 'slide-diagonal-tr':
+      style.transform = transition.position === 'end'
+        ? `translate(${inv * 100}%, ${-inv * 100}%)`
+        : `translate(${-inv * 100}%, ${inv * 100}%)`;
+      break;
+    case 'wipe-left':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 ${inv * 100}% 0 0)`
+        : `inset(0 0 0 ${inv * 100}%)`;
+      break;
+    case 'wipe-right':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 0 0 ${inv * 100}%)`
+        : `inset(0 ${inv * 100}% 0 0)`;
+      break;
+    case 'wipe-up':
+      style.clipPath = transition.position === 'end'
+        ? `inset(0 0 ${inv * 100}% 0)`
+        : `inset(${inv * 100}% 0 0 0)`;
+      break;
+    case 'wipe-down':
+      style.clipPath = transition.position === 'end'
+        ? `inset(${inv * 100}% 0 0 0)`
+        : `inset(0 0 ${inv * 100}% 0)`;
+      break;
+    case 'rotate-in':
+      style.transform = `rotate(${inv * -180}deg) scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'rotate-out':
+      style.transform = `rotate(${inv * 180}deg) scale(${p})`;
+      style.opacity = p;
+      break;
+    case 'circle-wipe':
+      style.clipPath = `circle(${p * 100}% at 50% 50%)`;
+      break;
+    case 'diamond-wipe':
+      style.clipPath = `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)`;
+      break;
+    default:
+      style.opacity = p;
+  }
+  
+  return style;
+};
+
+// Calculate transition style for a clip
+const calculateTransitionStyle = (
+  clip: TimelineClip,
+  currentTime: number,
+  transitions: Transition[]
+): React.CSSProperties => {
+  const clipTransitions = transitions.filter(t => t.clipId === clip.id);
+  if (clipTransitions.length === 0) return {};
+
+  const style: React.CSSProperties = {};
+
+  clipTransitions.forEach(transition => {
+    if (transition.type === 'none') return;
+
+    const clipStart = clip.startTime;
+    const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+    const progress = calculateTransitionProgress(currentTime, clipStart, clipEnd, transition.duration, transition.position);
+
+    if (progress >= 0 && progress <= 1) {
+      const p = progress;
+      const inv = 1 - p;
+      const transitionStyle = applyTransitionStyle(transition, progress, inv, p);
+      Object.assign(style, transitionStyle);
+    }
+  });
+
+  return style;
+};
+
+const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunny, videoRefs, hardwareProfile, getVideoStyle, getCropStyle, setVideoRef }: any) => {
+  const isSelected = ui.selectedClipId === item.clip.id;
+  const zIndex = 10 + index;
+  const transitionStyle = calculateTransitionStyle(item.clip, player.currentTime, transitions);
+
+  if (useMediaBunny) {
+    return (
+      <audio
+        key={item.clip.id}
+        ref={(el) => {
+          if (el) videoRefs.current[item.clip.id] = el as unknown as HTMLVideoElement;
+        }}
+        src={item.media.url}
+        preload="auto"
+        onError={(e) => console.error('Audio error:', e.currentTarget.error, item.media.url)}
+      />
+    );
+  }
+
+  const videoStyle = getVideoStyle(item.media);
+  
+  if (item.clip.crop) {
+    return (
+      <div
+        key={item.clip.id}
+        className="absolute inset-0 overflow-hidden"
+        style={{ zIndex }}
+      >
+        <div className="w-full h-full" style={transitionStyle}>
+          <video
+            ref={(el) => setVideoRef(item.clip.id, el)}
+            src={item.media.url}
+            className="object-cover"
+            style={{ ...getCropStyle(item.clip), ...videoStyle }}
+            playsInline
+            webkit-playsinline="true"
+            muted={false}
+            controls={false}
+            preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
+            onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
+          />
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div
+      key={item.clip.id}
+      className="absolute inset-0 w-full h-full"
+      style={{ zIndex }}
+    >
+      <div className="w-full h-full" style={transitionStyle}>
+        <video
+          ref={(el) => setVideoRef(item.clip.id, el)}
+          src={item.media.url}
+          className="w-full h-full object-contain"
+          style={videoStyle}
+          playsInline
+          webkit-playsinline="true"
+          muted={false}
+          controls={false}
+          preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
+          onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
+        />
+      </div>
+    </div>
+  );
+};
+
+const ImageClipComponent = ({ item, index, ui, player, transitions, cropMode, editingTextId, filters, getCropStyle, selectClip, handleImageTransformStart, handleImageResizeStart, handleImageRotateStart }: any) => {
+  const isSelected = ui.selectedClipId === item.clip.id;
+  const zIndex = 10 + index;
+  const transitionStyle = calculateTransitionStyle(item.clip, player.currentTime, transitions);
+
+  const transform = item.clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
+  
+  if (item.clip.crop) {
+    return (
+      <div 
+        key={item.clip.id}
+        className="absolute inset-0 overflow-hidden"
+        style={{ zIndex }}
+      >
+        <div className="w-full h-full" style={transitionStyle}>
+          <img
+            src={item.media.url}
+            alt={item.clip.name}
+            className="object-cover"
+            style={getCropStyle(item.clip)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const scaleX = transform.scaleX ?? transform.scale;
+  const scaleY = transform.scaleY ?? transform.scale;
+  
+  const baseSize = 80;
+  const actualWidth = (baseSize * scaleX) / 100;
+  const actualHeight = (baseSize * scaleY) / 100;
+
+  const clipFilter = filters[item.clip.id];
+  const filterStyle = clipFilter ? { filter: getCSSFilter(clipFilter) } : {};
+  
+  return (
+    <div
+      key={item.clip.id}
+      className={`absolute ${isSelected && !cropMode && !editingTextId ? 'ring-4 ring-primary-500' : ''}`}
+      style={{
+        zIndex: isSelected ? 70 : zIndex,
+        left: `${transform.x}%`,
+        top: `${transform.y}%`,
+        width: `${actualWidth}%`,
+        height: `${actualHeight}%`,
+        transform: `translate(-50%, -50%) rotate(${transform.rotation}deg)`,
+        cursor: isSelected && !cropMode && !editingTextId ? 'move' : 'pointer',
+        pointerEvents: 'auto',
+        ...filterStyle
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!cropMode && !editingTextId) {
+          selectClip(item.clip.id);
+        }
+      }}
+      onMouseDown={(e) => {
+        if (!cropMode && !editingTextId) {
+          e.stopPropagation();
+          if (isSelected) {
+            handleImageTransformStart(e, item.clip.id);
+          } else {
+            selectClip(item.clip.id);
+          }
+        }
+      }}
+    >
+      <div className="w-full h-full" style={transitionStyle}>
+        <img
+          src={item.media.url}
+          alt={item.clip.name}
+          className="w-full h-full object-fill"
+          style={{ pointerEvents: 'none' }}
+          onError={(e) => {
+            console.error('Image error:', item.media.url);
+          }}
+        />
+      </div>
+      
+      {isSelected && !cropMode && !editingTextId && (
+        <>
+          <div 
+            className="absolute -top-2 -left-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'nw');
+            }}
+          />
+          <div 
+            className="absolute -top-2 -right-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'ne');
+            }}
+          />
+          <div 
+            className="absolute -bottom-2 -left-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'sw');
+            }}
+          />
+          <div 
+            className="absolute -bottom-2 -right-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'se');
+            }}
+          />
+
+          <div 
+            className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'w');
+            }}
+          />
+          <div 
+            className="absolute top-1/2 -right-2 -translate-y-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'e');
+            }}
+          />
+          <div 
+            className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 'n');
+            }}
+          />
+          <div 
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageResizeStart(e, item.clip.id, 's');
+            }}
+          />
+          
+          <div 
+            className="absolute -top-8 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-125 transition-transform z-10 flex items-center justify-center"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              handleImageRotateStart(e, item.clip.id);
+            }}
+          >
+            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 export const VideoPlayer: React.FC = () => {
   const {
     mediaFiles,
@@ -456,145 +820,6 @@ export const VideoPlayer: React.FC = () => {
     });
   }, [textOverlays, player.currentTime]);
 
-  // Helper functions extracted outside VideoPlayer component to reduce cognitive complexity
-
-// Calculate transition progress based on position
-const calculateTransitionProgress = (
-  currentTime: number,
-  clipStart: number,
-  clipEnd: number,
-  transitionDuration: number,
-  position: string | undefined
-): number => {
-  if (position === 'start' || !position) {
-    return (currentTime - clipStart) / transitionDuration;
-  }
-  return (clipEnd - currentTime) / transitionDuration;
-};
-
-// Apply specific transition style
-const applyTransitionStyle = (
-  transition: { type: string; position?: string },
-  progress: number,
-  inv: number,
-  p: number
-): React.CSSProperties => {
-  const style: React.CSSProperties = {};
-  
-  switch (transition.type) {
-    case 'fade':
-    case 'dissolve':
-    case 'cross-dissolve':
-      style.opacity = p;
-      break;
-    case 'zoom-in':
-      style.transform = `scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'zoom-out':
-      style.transform = `scale(${1.5 - p * 0.5})`;
-      style.opacity = p;
-      break;
-    case 'slide-left':
-      style.transform = transition.position === 'end' 
-        ? `translateX(${-inv * 100}%)` 
-        : `translateX(${inv * 100}%)`;
-      break;
-    case 'slide-right':
-      style.transform = transition.position === 'end' 
-        ? `translateX(${inv * 100}%)` 
-        : `translateX(${-inv * 100}%)`;
-      break;
-    case 'slide-up':
-      style.transform = transition.position === 'end' 
-        ? `translateY(${-inv * 100}%)` 
-        : `translateY(${inv * 100}%)`;
-      break;
-    case 'slide-down':
-      style.transform = transition.position === 'end' 
-        ? `translateY(${inv * 100}%)` 
-        : `translateY(${-inv * 100}%)`;
-      break;
-    case 'slide-diagonal-tl':
-      style.transform = transition.position === 'end'
-        ? `translate(${-inv * 100}%, ${-inv * 100}%)`
-        : `translate(${inv * 100}%, ${inv * 100}%)`;
-      break;
-    case 'slide-diagonal-tr':
-      style.transform = transition.position === 'end'
-        ? `translate(${inv * 100}%, ${-inv * 100}%)`
-        : `translate(${-inv * 100}%, ${inv * 100}%)`;
-      break;
-    case 'wipe-left':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 ${inv * 100}% 0 0)`
-        : `inset(0 0 0 ${inv * 100}%)`;
-      break;
-    case 'wipe-right':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 0 0 ${inv * 100}%)`
-        : `inset(0 ${inv * 100}% 0 0)`;
-      break;
-    case 'wipe-up':
-      style.clipPath = transition.position === 'end'
-        ? `inset(0 0 ${inv * 100}% 0)`
-        : `inset(${inv * 100}% 0 0 0)`;
-      break;
-    case 'wipe-down':
-      style.clipPath = transition.position === 'end'
-        ? `inset(${inv * 100}% 0 0 0)`
-        : `inset(0 0 ${inv * 100}% 0)`;
-      break;
-    case 'rotate-in':
-      style.transform = `rotate(${inv * -180}deg) scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'rotate-out':
-      style.transform = `rotate(${inv * 180}deg) scale(${p})`;
-      style.opacity = p;
-      break;
-    case 'circle-wipe':
-      style.clipPath = `circle(${p * 100}% at 50% 50%)`;
-      break;
-    case 'diamond-wipe':
-      style.clipPath = `polygon(50% ${50 - p * 100}%, ${50 + p * 100}% 50%, 50% ${50 + p * 100}%, ${50 - p * 100}% 50%)`;
-      break;
-    default:
-      style.opacity = p;
-  }
-  
-  return style;
-};
-
-// Calculate transition style for a clip
-const calculateTransitionStyle = (
-  clip: TimelineClip,
-  currentTime: number,
-  transitions: Transition[]
-): React.CSSProperties => {
-  const clipTransitions = transitions.filter(t => t.clipId === clip.id);
-  if (clipTransitions.length === 0) return {};
-
-  const style: React.CSSProperties = {};
-
-  clipTransitions.forEach(transition => {
-    if (transition.type === 'none') return;
-
-    const clipStart = clip.startTime;
-    const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-    const progress = calculateTransitionProgress(currentTime, clipStart, clipEnd, transition.duration, transition.position);
-
-    if (progress >= 0 && progress <= 1) {
-      const p = progress;
-      const inv = 1 - p;
-      const transitionStyle = applyTransitionStyle(transition, progress, inv, p);
-      Object.assign(style, transitionStyle);
-    }
-  });
-
-  return style;
-};
-
   // Create a dependency string for audioMuted states to trigger re-render when they change
   const audioMutedStates = useMemo(() => {
     return tracks
@@ -617,54 +842,38 @@ const calculateTransitionStyle = (
       playbackRate: player.playbackRate
     });
     
+    const mainVideoId = activeClips.find(c => c.media.type === 'video')?.clip.id;
+
     activeClips.forEach((item) => {
       if (item.media.type !== 'video') return;
       
       const videoEl = videoRefs.current[item.clip.id];
       if (!videoEl) return;
 
-      // Determine if this is the "main" video (bottom-most video track)
-      const isMainVideo = activeClips.find(c => c.media.type === 'video')?.clip.id === item.clip.id;
+      const isMainVideo = mainVideoId === item.clip.id;
 
-      // Only the main video gets volume, others are muted to prevent echo
-      // Also mute if the track is muted OR if the clip's audio is muted
       const isAudioMuted =
         item.clip.audioMuted === true ||
         item.trackMuted === true ||
         videoClipsWithDetachedAudio.has(item.clip.id);
       const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
       
-      // DEBUG: Log volume changes
       if (videoEl.volume !== targetVolume) {
-        console.log('[DEBUG syncVideoVolumeAndPlayback] Volume change:', {
-          clipId: item.clip.id,
-          isMainVideo,
-          isAudioMuted,
-          oldVolume: videoEl.volume.toFixed(2),
-          newVolume: targetVolume.toFixed(2)
-        });
         videoEl.volume = targetVolume;
       }
       
       if (videoEl.playbackRate !== player.playbackRate) {
-        console.log('[DEBUG syncVideoVolumeAndPlayback] PlaybackRate change:', {
-          clipId: item.clip.id,
-          oldRate: videoEl.playbackRate,
-          newRate: player.playbackRate
-        });
+        videoEl.playbackRate = player.playbackRate;
       }
-      videoEl.playbackRate = player.playbackRate;
 
       if (player.isPlaying) {
         if (videoEl.paused) {
-          console.log('[DEBUG syncVideoVolumeAndPlayback] Playing video:', item.clip.id);
           videoEl.play().catch((err) => {
             console.error('[DEBUG syncVideoVolumeAndPlayback] Play error:', err);
           });
         }
       } else {
         if (!videoEl.paused) {
-          console.log('[DEBUG syncVideoVolumeAndPlayback] Pausing video:', item.clip.id);
           videoEl.pause();
         }
       }
@@ -676,22 +885,11 @@ const calculateTransitionStyle = (
     const activeAudio = getActiveAudioClips();
     const activeIds = new Set(activeAudio.map((a) => a.clip.id));
     
-    // DEBUG: Log audio track sync
-    console.log('[DEBUG syncAudioVolumeAndPlayback] Called:', {
-      activeAudioCount: activeAudio.length,
-      activeIds: Array.from(activeIds),
-      isPlaying: player.isPlaying,
-      volume: player.volume,
-      isMuted: player.isMuted,
-      playbackRate: player.playbackRate
-    });
-
     // Pause any non-active audio elements
     Object.entries(audioRefs.current).forEach(([clipId, el]) => {
       if (!el) return;
       if (!activeIds.has(clipId)) {
         if (!el.paused) {
-          console.log('[DEBUG syncAudioVolumeAndPlayback] Pausing non-active audio:', clipId);
           el.pause();
         }
       }
@@ -699,17 +897,10 @@ const calculateTransitionStyle = (
 
     activeAudio.forEach((item) => {
       const audioEl = audioRefs.current[item.clip.id];
-      if (!audioEl) {
-        console.log('[DEBUG syncAudioVolumeAndPlayback] No audio element for clip:', item.clip.id);
-        return;
-      }
+      if (!audioEl) return;
 
       // Ensure src
       if (audioEl.getAttribute('src') !== item.media.url) {
-        console.log('[DEBUG syncAudioVolumeAndPlayback] Setting src:', {
-          clipId: item.clip.id,
-          src: item.media.url
-        });
         audioEl.setAttribute('src', item.media.url);
         audioEl.load();
       }
@@ -722,24 +913,9 @@ const calculateTransitionStyle = (
       const isScrubbing = isScrubbingRef.current;
       const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
       
-      // DEBUG: Log audio time sync
-      if (timeDiff > 0.05 && !player.isPlaying) {
-        console.log('[DEBUG syncAudioVolumeAndPlayback] Audio time check:', {
-          clipId: item.clip.id,
-          audioTime: (audioEl.currentTime || 0).toFixed(3),
-          localTime: localTime.toFixed(3),
-          timeDiff: timeDiff.toFixed(3),
-          willSeek: timeDiff > seekThreshold
-        });
-      }
-      
       if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
         try {
           if (audioEl.readyState > 0) {
-            console.log('[DEBUG syncAudioVolumeAndPlayback] Seeking audio:', {
-              clipId: item.clip.id,
-              to: localTime.toFixed(3)
-            });
             audioEl.currentTime = Math.max(0, localTime);
           }
         } catch (err) {
@@ -752,30 +928,17 @@ const calculateTransitionStyle = (
       const mutedByTrack = item.trackMuted === true;
       const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
       
-      // DEBUG: Log volume changes
-      if (audioEl.volume !== targetVol) {
-        console.log('[DEBUG syncAudioVolumeAndPlayback] Audio volume change:', {
-          clipId: item.clip.id,
-          oldVolume: audioEl.volume.toFixed(2),
-          newVolume: targetVol.toFixed(2),
-          mutedByTrack,
-          isMuted: player.isMuted
-        });
-      }
-      
       if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
       audioEl.muted = targetVol === 0;
 
       if (player.isPlaying) {
         if (audioEl.paused) {
-          console.log('[DEBUG syncAudioVolumeAndPlayback] Playing audio:', item.clip.id);
           audioEl.play().catch((err) => {
             console.error('[DEBUG syncAudioVolumeAndPlayback] Audio play error:', err);
           });
         }
       } else {
         if (!audioEl.paused) {
-          console.log('[DEBUG syncAudioVolumeAndPlayback] Pausing audio:', item.clip.id);
           audioEl.pause();
         }
       }
@@ -859,13 +1022,11 @@ const calculateTransitionStyle = (
       const videoEl = videoRefs.current[item.clip.id];
       if (!videoEl) return;
 
-      // Only update src if it changed
       if (videoEl.getAttribute('src') !== item.media.url) {
         videoEl.setAttribute('src', item.media.url);
         videoEl.load();
       }
 
-      // Ensure playback rate is applied (especially after load)
       if (videoEl.playbackRate !== player.playbackRate) {
         videoEl.playbackRate = player.playbackRate;
       }
@@ -873,53 +1034,23 @@ const calculateTransitionStyle = (
       const clipStart = item.clip.startTime;
       const localTime = currentTime - clipStart + item.clip.trimStart;
       
-      // OPTIMISATION CRITIQUE: Ne pas seek pendant la lecture
-      // Pendant la lecture, la vidéo HTML5 avance naturellement
-      // Seeker constamment crée des saccades (interruption du flux vidéo)
-      // On ne seek que quand on est en pause ou pendant le scrubbing
       const isScrubbing = isScrubbingRef.current;
-      
-      // Seuil pour le scrubbing (haut pour éviter les seeks excessifs)
       const scrubbingSeekThreshold = isMobile ? 0.25 : 0.15;
-      // Seuil quand on est en pause (bas pour précision)
       const pausedSeekThreshold = 0.05;
       
       const seekThreshold = isScrubbing
         ? scrubbingSeekThreshold
-        : (player.isPlaying ? Infinity : pausedSeekThreshold); // Infinity = pas de seek pendant lecture
+        : (player.isPlaying ? Infinity : pausedSeekThreshold);
       
       const timeDiff = Math.abs(videoEl.currentTime - localTime);
       
-      // DEBUG: Log timeDiff for each clip (moins fréquent pour éviter le spam)
-      if ((timeDiff > 0.05 || forceSync) && !player.isPlaying) {
-        console.log('[DEBUG syncVideosDebounced] Clip time check:', {
-          clipId: item.clip.id,
-          videoTime: videoEl.currentTime.toFixed(3),
-          localTime: localTime.toFixed(3),
-          timeDiff: timeDiff.toFixed(3),
-          seekThreshold: seekThreshold === Infinity ? 'NO_SEEK (playing)' : seekThreshold.toFixed(3),
-          willSeek: timeDiff > seekThreshold && seekThreshold !== Infinity
-        });
-      }
-      
-      // Ne seek que si on n'est PAS en train de jouer (sauf scrubbing)
       if (!player.isPlaying || isScrubbing) {
         if (timeDiff > seekThreshold) {
-          // Mark as seeking to prevent race conditions
           if (!isSeekingRef.current) {
             isSeekingRef.current = true;
             if (videoEl.readyState > 0) {
-              console.log('[DEBUG syncVideosDebounced] SEEKING video:', {
-                clipId: item.clip.id,
-                from: videoEl.currentTime.toFixed(3),
-                to: localTime.toFixed(3),
-                diff: timeDiff.toFixed(3),
-                reason: isScrubbing ? 'scrubbing' : 'paused'
-              });
               videoEl.currentTime = localTime;
             }
-            
-            // Reset seeking flag after a short delay (longer on mobile)
             setTimeout(() => {
               isSeekingRef.current = false;
             }, isMobile ? 100 : 50);
@@ -927,8 +1058,6 @@ const calculateTransitionStyle = (
         }
       }
 
-      // MOBILE OPTIMIZATION: Only apply filters when paused or on desktop
-      // Filters are expensive on mobile during playback
       if (!isMobile || !player.isPlaying) {
         const clipFilter = filters[item.clip.id];
         if (clipFilter) {
@@ -1065,10 +1194,46 @@ const calculateTransitionStyle = (
     debugFrameTimesRef.current = [];
     debugLastLogTimeRef.current = performance.now();
 
+    const handlePerformanceMonitoring = (currentTime: number) => {
+      const perfMonitor = performanceMonitorRef.current;
+      if (!perfMonitor) return;
+      
+      perfMonitor.recordFrame(currentTime);
+      
+      fpsUpdateCounter++;
+      if (fpsUpdateCounter >= FPS_UPDATE_INTERVAL) {
+        fpsUpdateCounter = 0;
+        const fps = perfMonitor.getAverageFps();
+        
+        if (Math.abs(fps - currentFps) > 2) {
+          setCurrentFps(fps);
+        }
+        
+        const isPoor = perfMonitor.isPerformancePoor();
+        if (isPoor !== isPerformancePoor) {
+          setIsPerformancePoor(isPoor);
+        }
+        
+        const nowPerf = performance.now();
+        const timeSinceLastChange = nowPerf - lastAutoQualityChangeRef.current;
+        
+        if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
+          const recommendation = perfMonitor.getQualityRecommendation();
+          if (recommendation === 'decrease') {
+            lastAutoQualityChangeRef.current = nowPerf;
+            if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
+              handleQualityChange('medium');
+            } else if (previewSettings.quality === 'medium') {
+              handleQualityChange('low');
+            }
+          }
+        }
+      }
+    };
+
     const animate = (currentTime: number) => {
       if (!isActive) return;
       
-      // DEBUG: Calculate frame time and log every 60 frames
       const frameTime = currentTime - debugLastFrameTimeRef.current;
       debugLastFrameTimeRef.current = currentTime;
       debugFrameTimesRef.current.push(frameTime);
@@ -1078,124 +1243,43 @@ const calculateTransitionStyle = (
       const now = performance.now();
       const timeSinceLastLog = now - debugLastLogTimeRef.current;
       
-      // Log every 60 frames (~1 second at 60fps) or every 500ms
       if (debugLogCounterRef.current >= 60 || timeSinceLastLog > 500) {
         debugLogCounterRef.current = 0;
         debugLastLogTimeRef.current = now;
-        const avgFrameTime = debugFrameTimesRef.current.reduce((a, b) => a + b, 0) / debugFrameTimesRef.current.length;
-        const effectiveFps = 1000 / avgFrameTime;
-        
-        console.log('[DEBUG Animation Loop]', {
-          frameTime: frameTime.toFixed(2) + 'ms',
-          avgFrameTime: avgFrameTime.toFixed(2) + 'ms',
-          effectiveFps: effectiveFps.toFixed(1),
-          accumulatedTime: accumulatedTime.toFixed(2),
-          targetFps,
-          MIN_TIME_STEP: MIN_TIME_STEP.toFixed(2),
-          isMobile,
-          isLowEnd,
-          isScrubbing: isScrubbingRef.current
-        });
       }
       
-      // Frame rate limiting for smooth playback on low-end devices
       const frameLimiter = frameRateLimiterRef.current;
       if (frameLimiter && !frameLimiter.shouldRenderFrame(currentTime)) {
-        // DEBUG: Log skipped frame
-        if (debugLogCounterRef.current === 0) {
-          console.log('[DEBUG Frame Skip] Frame skipped by limiter');
-        }
-        // Skip this frame but keep the loop running
         if (isActive) {
           animationRef.current = requestAnimationFrame(animate);
         }
         return;
       }
       
-      // Record frame for performance monitoring
-      const perfMonitor = performanceMonitorRef.current;
-      if (perfMonitor) {
-        perfMonitor.recordFrame(currentTime);
-        
-        // Update FPS display periodically (less often on mobile)
-        fpsUpdateCounter++;
-        if (fpsUpdateCounter >= FPS_UPDATE_INTERVAL) {
-          fpsUpdateCounter = 0;
-          const fps = perfMonitor.getAverageFps();
-          
-          // MOBILE OPTIMIZATION: Batch state updates
-          // Only update if FPS changed significantly
-          if (Math.abs(fps - currentFps) > 2) {
-            setCurrentFps(fps);
-          }
-          
-          // Check for poor performance and auto-adjust
-          const isPoor = perfMonitor.isPerformancePoor();
-          if (isPoor !== isPerformancePoor) {
-            setIsPerformancePoor(isPoor);
-          }
-          
-          // Auto-adjust quality if performance is poor (avec cooldown)
-          const nowPerf = performance.now();
-          const timeSinceLastChange = nowPerf - lastAutoQualityChangeRef.current;
-          
-          // DEBUG: Log performance monitoring
-          console.log('[DEBUG Performance Monitor]', {
-            fps: fps.toFixed(1),
-            isPoor,
-            isPerformancePoor,
-            timeSinceLastChange: timeSinceLastChange.toFixed(0) + 'ms',
-            currentQuality: previewSettings.quality,
-            targetFps: previewSettings.targetFps,
-            frameSkipping: previewSettings.frameSkipping
-          });
-          
-          if (isPoor && previewSettings.quality !== 'low' && timeSinceLastChange > AUTO_QUALITY_COOLDOWN) {
-            const recommendation = perfMonitor.getQualityRecommendation();
-            console.log('[DEBUG Performance Monitor] Auto-reducing quality:', {
-              recommendation,
-              from: previewSettings.quality,
-              timeSinceLastChange: timeSinceLastChange.toFixed(0) + 'ms'
-            });
-            if (recommendation === 'decrease') {
-              console.log('⚠️ Poor performance detected, reducing quality');
-              lastAutoQualityChangeRef.current = nowPerf;
-              if (previewSettings.quality === 'original' || previewSettings.quality === 'high') {
-                handleQualityChange('medium');
-              } else if (previewSettings.quality === 'medium') {
-                handleQualityChange('low');
-              }
-            }
-          }
-        }
-      }
+      handlePerformanceMonitoring(currentTime);
       
       const deltaTime = currentTime - lastTime;
       lastTime = currentTime;
       
-      // Accumulate time and only update state when we have enough
       accumulatedTime += deltaTime;
       
       const nowUpdate = performance.now();
       const timeSinceLastUpdate = nowUpdate - lastStateUpdateRef.current;
       
       const isScrubbing = isScrubbingRef.current;
-      const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16; // 30-60fps pendant lecture
-      const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50; // 10-20fps pendant scrubbing
+      const playingUpdateThreshold = (isMobile || isLowEnd) ? 33 : 16;
+      const scrubbingUpdateThreshold = (isMobile || isLowEnd) ? 100 : 50;
       const updateThreshold = isScrubbing ? scrubbingUpdateThreshold : playingUpdateThreshold;
       
       if (accumulatedTime >= MIN_TIME_STEP && timeSinceLastUpdate >= updateThreshold) {
-        // Get current state directly (avoid re-render)
         const state = useEditorStore.getState();
         const timeAdvance = (accumulatedTime / 1000) * state.player.playbackRate;
         const newTime = state.player.currentTime + timeAdvance;
         
-        // Reset accumulated time
         accumulatedTime = 0;
         lastStateUpdateRef.current = nowUpdate;
         
         if (newTime >= state.projectDuration) {
-          console.log('[DEBUG Animation Loop] End reached, seeking to 0 and pausing');
           state.seek(0);
           state.pause();
         } else {
@@ -1203,13 +1287,8 @@ const calculateTransitionStyle = (
         }
       }
 
-      // Render MediaBunny frame if enabled
-      // Pass the CALCULATED newTime (or current state time) to renderMediaBunny
-      // Using state.player.currentTime might be one frame behind if the seek() above hasn't propagated yet
-      // But for visual smoothness, we should use the time we just calculated.
       if (useMediaBunny && isMediaBunnyReady && canvasRef.current) {
         const state = useEditorStore.getState();
-        // Use the time we just calculated for the most accurate sync
         const renderTime = state.player.currentTime; 
         renderMediaBunny(renderTime, canvasRef.current.width, canvasRef.current.height).catch(e => {
           console.error('MediaBunny render error:', e);
@@ -1285,7 +1364,7 @@ const calculateTransitionStyle = (
           }
           break;
         case 'c':
-          if (e.ctrlKey || e.metaKey) return; // Let copy/paste work
+          if (e.ctrlKey || e.metaKey) return;
           e.preventDefault();
           if (!editingTextId) {
             setCropMode(prev => !prev);
@@ -1294,7 +1373,6 @@ const calculateTransitionStyle = (
       }
     };
 
-    // Listen for crop mode toggle from Timeline
     const handleToggleCropEvent = () => {
       setCropMode(prev => {
         const next = !prev;
@@ -1312,7 +1390,7 @@ const calculateTransitionStyle = (
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('toggleCropMode', handleToggleCropEvent);
     };
-  }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode]);
+  }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode, player.isPlaying, pause]);
 
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // OPTIMISATION: Activer le flag isScrubbing pendant l'interaction
@@ -1496,6 +1574,65 @@ const calculateTransitionStyle = (
     });
   };
 
+  const calculateNewCrop = (deltaX: number, deltaY: number, crop: any) => {
+    const newCrop = { ...cropArea };
+
+    switch (resizingCrop) {
+      case 'nw':
+        {
+          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+          newCrop.width = crop.width + (crop.x - newX);
+          newCrop.height = crop.height + (crop.y - newY);
+          newCrop.x = newX;
+          newCrop.y = newY;
+        }
+        break;
+      case 'ne':
+        {
+          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+          newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
+          newCrop.height = crop.height + (crop.y - newY);
+          newCrop.y = newY;
+        }
+        break;
+      case 'sw':
+        {
+          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+          newCrop.width = crop.width + (crop.x - newX);
+          newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
+          newCrop.x = newX;
+        }
+        break;
+      case 'se':
+        newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
+        newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
+        break;
+      case 'n':
+        {
+          const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
+          newCrop.height = crop.height + (crop.y - newY);
+          newCrop.y = newY;
+        }
+        break;
+      case 's':
+        newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
+        break;
+      case 'w':
+        {
+          const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
+          newCrop.width = crop.width + (crop.x - newX);
+          newCrop.x = newX;
+        }
+        break;
+      case 'e':
+        newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
+        break;
+    }
+
+    return newCrop;
+  };
+
   useEffect(() => {
     if (!resizingCrop || !videoContainerRef.current) return;
 
@@ -1507,60 +1644,7 @@ const calculateTransitionStyle = (
       const deltaY = ((e.clientY - cropDragStart.y) / rect.height) * 100;
 
       const { crop } = cropDragStart;
-      const newCrop = { ...cropArea };
-
-      switch (resizingCrop) {
-        case 'nw': // Top-left corner
-          {
-            const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-            const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-            newCrop.width = crop.width + (crop.x - newX);
-            newCrop.height = crop.height + (crop.y - newY);
-            newCrop.x = newX;
-            newCrop.y = newY;
-          }
-          break;
-        case 'ne': // Top-right corner
-          {
-            const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-            newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-            newCrop.height = crop.height + (crop.y - newY);
-            newCrop.y = newY;
-          }
-          break;
-        case 'sw': // Bottom-left corner
-          {
-            const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-            newCrop.width = crop.width + (crop.x - newX);
-            newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-            newCrop.x = newX;
-          }
-          break;
-        case 'se': // Bottom-right corner
-          newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-          newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-          break;
-        case 'n': // Top edge
-          {
-            const newY = Math.max(0, Math.min(crop.y + crop.height - 5, crop.y + deltaY));
-            newCrop.height = crop.height + (crop.y - newY);
-            newCrop.y = newY;
-          }
-          break;
-        case 's': // Bottom edge
-          newCrop.height = Math.max(5, Math.min(100 - crop.y, crop.height + deltaY));
-          break;
-        case 'w': // Left edge
-          {
-            const newX = Math.max(0, Math.min(crop.x + crop.width - 5, crop.x + deltaX));
-            newCrop.width = crop.width + (crop.x - newX);
-            newCrop.x = newX;
-          }
-          break;
-        case 'e': // Right edge
-          newCrop.width = Math.max(5, Math.min(100 - crop.x, crop.width + deltaX));
-          break;
-      }
+      const newCrop = calculateNewCrop(deltaX, deltaY, crop);
 
       setCropArea(newCrop);
     };
@@ -1685,6 +1769,49 @@ const calculateTransitionStyle = (
     });
   };
 
+  const calculateNewScales = (
+    e: MouseEvent,
+    centerX: number,
+    centerY: number,
+    currentScaleX: number,
+    currentScaleY: number
+  ) => {
+    let newScaleX = currentScaleX;
+    let newScaleY = currentScaleY;
+
+    if (resizeCorner === 'n' || resizeCorner === 's') {
+      const startDist = Math.abs(transformStart.y - centerY);
+      const currentDist = Math.abs(e.clientY - centerY);
+      if (startDist > 0) {
+        const ratio = currentDist / startDist;
+        newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
+      }
+    } else if (resizeCorner === 'e' || resizeCorner === 'w') {
+      const startDist = Math.abs(transformStart.x - centerX);
+      const currentDist = Math.abs(e.clientX - centerX);
+      if (startDist > 0) {
+        const ratio = currentDist / startDist;
+        newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
+      }
+    } else {
+      const startDist = Math.sqrt(
+        Math.pow(transformStart.x - centerX, 2) + 
+        Math.pow(transformStart.y - centerY, 2)
+      );
+      const currentDist = Math.sqrt(
+        Math.pow(e.clientX - centerX, 2) + 
+        Math.pow(e.clientY - centerY, 2)
+      );
+      if (startDist > 0) {
+        const ratio = currentDist / startDist;
+        newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
+        newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
+      }
+    }
+
+    return { newScaleX, newScaleY };
+  };
+
   useEffect(() => {
     if (!resizingImageId || !resizeCorner || !videoContainerRef.current) return;
 
@@ -1692,57 +1819,20 @@ const calculateTransitionStyle = (
       const rect = videoContainerRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      // Calculate image center in pixels
       const centerX = rect.left + (rect.width * transformStart.transform.x) / 100;
       const centerY = rect.top + (rect.height * transformStart.transform.y) / 100;
 
-      // Get current scales (fallback to uniform scale if not set)
       const currentScaleX = transformStart.transform.scaleX ?? transformStart.transform.scale;
       const currentScaleY = transformStart.transform.scaleY ?? transformStart.transform.scale;
 
-      let newScaleX = currentScaleX;
-      let newScaleY = currentScaleY;
-
-      if (resizeCorner === 'n' || resizeCorner === 's') {
-        // Vertical resizing only
-        const startDist = Math.abs(transformStart.y - centerY);
-        const currentDist = Math.abs(e.clientY - centerY);
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
-        }
-      } else if (resizeCorner === 'e' || resizeCorner === 'w') {
-        // Horizontal resizing only
-        const startDist = Math.abs(transformStart.x - centerX);
-        const currentDist = Math.abs(e.clientX - centerX);
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
-        }
-      } else {
-        // Corner resizing - proportional
-        const startDist = Math.sqrt(
-          Math.pow(transformStart.x - centerX, 2) + 
-          Math.pow(transformStart.y - centerY, 2)
-        );
-        const currentDist = Math.sqrt(
-          Math.pow(e.clientX - centerX, 2) + 
-          Math.pow(e.clientY - centerY, 2)
-        );
-        if (startDist > 0) {
-          const ratio = currentDist / startDist;
-          // Scale both dimensions by the same ratio to maintain aspect ratio
-          newScaleX = Math.max(10, Math.min(500, currentScaleX * ratio));
-          newScaleY = Math.max(10, Math.min(500, currentScaleY * ratio));
-        }
-      }
+      const { newScaleX, newScaleY } = calculateNewScales(e, centerX, centerY, currentScaleX, currentScaleY);
 
       updateClip(resizingImageId, {
         transform: {
           ...transformStart.transform,
           scaleX: newScaleX,
           scaleY: newScaleY,
-          scale: Math.max(newScaleX, newScaleY) // Keep scale updated as reference
+          scale: Math.max(newScaleX, newScaleY)
         }
       });
     };
@@ -2074,241 +2164,43 @@ const calculateTransitionStyle = (
             <>
               {/* Render all active clips (videos and images) layered */}
               {activeClips.map((item, index) => {
-                const isSelected = ui.selectedClipId === item.clip.id;
-                const zIndex = 10 + index; // Higher tracks appear on top
-                const transitionStyle = calculateTransitionStyle(item.clip, player.currentTime, transitions);
-
                 if (item.media.type === 'video') {
-                  // If MediaBunny is enabled, use it for video rendering
-                  // But render an audio element for the sound
-                  if (useMediaBunny) {
-                    return (
-                      <audio
-                        key={item.clip.id}
-                        ref={(el) => {
-                          // Cast to any/VideoElement to satisfy the ref type
-                          // Audio and Video elements share the HTMLMediaElement interface which is what we mostly use
-                          if (el) videoRefs.current[item.clip.id] = el as unknown as HTMLVideoElement;
-                        }}
-                        src={item.media.url}
-                        preload="auto"
-                        onError={(e) => console.error('Audio error:', e.currentTarget.error, item.media.url)}
-                      />
-                    );
-                  }
-
-                  // Get optimized video style for preview performance
-                  const videoStyle = getVideoStyle(item.media);
-                  
-                  if (item.clip.crop) {
-                    // Cropped video rendering
-                    return (
-                      <div
-                        key={item.clip.id}
-                        className="absolute inset-0 overflow-hidden"
-                        style={{ zIndex }}
-                      >
-                        <div className="w-full h-full" style={transitionStyle}>
-                          <video
-                            ref={(el) => setVideoRef(item.clip.id, el)}
-                            src={item.media.url}
-                            className="object-cover"
-                            style={{ ...getCropStyle(item.clip), ...videoStyle }}
-                            playsInline
-                            webkit-playsinline="true"
-                            muted={false}
-                            controls={false}
-                            preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
-                            onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  }
-                  
-                  // Standard video rendering with preview optimizations
                   return (
-                    <div
+                    <VideoClipComponent
                       key={item.clip.id}
-                      className="absolute inset-0 w-full h-full"
-                      style={{ zIndex }}
-                    >
-                      <div className="w-full h-full" style={transitionStyle}>
-                        <video
-                          ref={(el) => setVideoRef(item.clip.id, el)}
-                          src={item.media.url}
-                          className="w-full h-full object-contain"
-                          style={videoStyle}
-                          playsInline
-                          webkit-playsinline="true"
-                          muted={false}
-                          controls={false}
-                          preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
-                          onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
-                        />
-                      </div>
-                    </div>
+                      item={item}
+                      index={index}
+                      ui={ui}
+                      player={player}
+                      transitions={transitions}
+                      useMediaBunny={useMediaBunny}
+                      videoRefs={videoRefs}
+                      hardwareProfile={hardwareProfile}
+                      getVideoStyle={getVideoStyle}
+                      getCropStyle={getCropStyle}
+                      setVideoRef={setVideoRef}
+                    />
                   );
                 }
 
                 if (item.media.type === 'image') {
-                  const transform = item.clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
-                  
-                  if (item.clip.crop) {
-                    // Cropped image rendering
-                    return (
-                      <div 
-                        key={item.clip.id}
-                        className="absolute inset-0 overflow-hidden"
-                        style={{ zIndex }}
-                      >
-                        <div className="w-full h-full" style={transitionStyle}>
-                          <img
-                            src={item.media.url}
-                            alt={item.clip.name}
-                            className="object-cover"
-                            style={getCropStyle(item.clip)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  // Standard image rendering with transform
-                  const scaleX = transform.scaleX ?? transform.scale;
-                  const scaleY = transform.scaleY ?? transform.scale;
-                  
-                  const baseSize = 80; // Base size as percentage of container
-                  const actualWidth = (baseSize * scaleX) / 100;
-                  const actualHeight = (baseSize * scaleY) / 100;
-
-                  // Apply filter to image container
-                  const clipFilter = filters[item.clip.id];
-                  const filterStyle = clipFilter ? { filter: getCSSFilter(clipFilter) } : {};
-                  
                   return (
-                    <div
+                    <ImageClipComponent
                       key={item.clip.id}
-                      className={`absolute ${isSelected && !cropMode && !editingTextId ? 'ring-4 ring-primary-500' : ''}`}
-                      style={{
-                        zIndex: isSelected ? 70 : zIndex, // Bring selected image above Play Button (z-60)
-                        left: `${transform.x}%`,
-                        top: `${transform.y}%`,
-                        width: `${actualWidth}%`,
-                        height: `${actualHeight}%`,
-                        transform: `translate(-50%, -50%) rotate(${transform.rotation}deg)`,
-                        cursor: isSelected && !cropMode && !editingTextId ? 'move' : 'pointer',
-                        pointerEvents: 'auto',
-                        ...filterStyle // Apply filter here
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (!cropMode && !editingTextId) {
-                          selectClip(item.clip.id);
-                        }
-                      }}
-                      onMouseDown={(e) => {
-                        if (!cropMode && !editingTextId) {
-                          e.stopPropagation();
-                          if (isSelected) {
-                            handleImageTransformStart(e, item.clip.id);
-                          } else {
-                            selectClip(item.clip.id);
-                          }
-                        }
-                      }}
-                    >
-                      <div className="w-full h-full" style={transitionStyle}>
-                        <img
-                          src={item.media.url}
-                          alt={item.clip.name}
-                          className="w-full h-full object-fill"
-                          style={{ pointerEvents: 'none' }}
-                          onError={(e) => {
-                            console.error('Image error:', item.media.url);
-                            console.log('Image dimensions:', item.media.width, 'x', item.media.height);
-                          }}
-                        />
-                      </div>
-                      
-                      {/* Resize handles when selected */}
-                      {isSelected && !cropMode && !editingTextId && (
-                        <>
-                          {/* Corner handles */}
-                          <div 
-                            className="absolute -top-2 -left-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'nw');
-                            }}
-                          />
-                          <div 
-                            className="absolute -top-2 -right-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'ne');
-                            }}
-                          />
-                          <div 
-                            className="absolute -bottom-2 -left-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nesw-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'sw');
-                            }}
-                          />
-                          <div 
-                            className="absolute -bottom-2 -right-2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-nwse-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'se');
-                            }}
-                          />
-
-                          {/* Side handles (Left, Right, Top, Bottom) */}
-                          <div 
-                            className="absolute top-1/2 -left-2 -translate-y-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'w');
-                            }}
-                          />
-                          <div 
-                            className="absolute top-1/2 -right-2 -translate-y-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ew-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'e');
-                            }}
-                          />
-                          <div 
-                            className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 'n');
-                            }}
-                          />
-                          <div 
-                            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-primary-500 border-2 border-white rounded-full cursor-ns-resize hover:scale-125 transition-transform z-10"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageResizeStart(e, item.clip.id, 's');
-                            }}
-                          />
-                          
-                          {/* Rotation handle */}
-                          <div 
-                            className="absolute -top-8 left-1/2 -translate-x-1/2 w-6 h-6 bg-blue-500 border-2 border-white rounded-full cursor-grab hover:scale-125 transition-transform z-10 flex items-center justify-center"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleImageRotateStart(e, item.clip.id);
-                            }}
-                          >
-                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                      item={item}
+                      index={index}
+                      ui={ui}
+                      player={player}
+                      transitions={transitions}
+                      cropMode={cropMode}
+                      editingTextId={editingTextId}
+                      filters={filters}
+                      getCropStyle={getCropStyle}
+                      selectClip={selectClip}
+                      handleImageTransformStart={handleImageTransformStart}
+                      handleImageResizeStart={handleImageResizeStart}
+                      handleImageRotateStart={handleImageRotateStart}
+                    />
                   );
                 }
 

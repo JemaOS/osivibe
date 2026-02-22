@@ -95,6 +95,18 @@ const Section: React.FC<{ id: string; title: string; children: React.ReactNode; 
   );
 };
 
+const calculateNewValue = (startValue: number, delta: number, step: number, min?: number, max?: number) => {
+  let newValue = startValue + delta * step;
+  if (min !== undefined) newValue = Math.max(newValue, min);
+  if (max !== undefined) newValue = Math.min(newValue, max);
+  
+  if (step < 1) {
+    return parseFloat(newValue.toFixed(2));
+  } else {
+    return Math.round(newValue);
+  }
+};
+
 const handleScrub = (
   e: React.PointerEvent,
   value: number,
@@ -127,16 +139,7 @@ const handleScrub = (
 
     if (!hasMoved) return;
 
-    let newValue = startValue + delta * step;
-
-    if (min !== undefined) newValue = Math.max(newValue, min);
-    if (max !== undefined) newValue = Math.min(newValue, max);
-
-    if (step < 1) {
-      lastValue = parseFloat(newValue.toFixed(2));
-    } else {
-      lastValue = Math.round(newValue);
-    }
+    lastValue = calculateNewValue(startValue, delta, step, min, max);
     
     if (!pendingUpdate) {
       pendingUpdate = true;
@@ -603,6 +606,41 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     );
   };
 
+  const handleScaleXScrub = (e: React.PointerEvent) => {
+    if (!selectedText) return;
+    handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
+      updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
+    }, { min: 0.1, max: 3, step: 0.01 });
+  };
+
+  const handleScaleYScrub = (e: React.PointerEvent) => {
+    if (!selectedText) return;
+    handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
+      updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
+    }, { min: 0.1, max: 3, step: 0.01 });
+  };
+
+  const handleFontSizeScrub = (e: React.PointerEvent) => {
+    if (!selectedText) return;
+    handleScrub(e, selectedText.fontSize, (val, isFinal) => {
+      updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
+    }, { min: 1, max: 500 });
+  };
+
+  const handlePositionXScrub = (e: React.PointerEvent) => {
+    if (!selectedText) return;
+    handleScrub(e, selectedText.x, (val, isFinal) => {
+      updateTextOverlay(selectedText.id, { x: val }, !isFinal);
+    }, { min: 0, max: 100 });
+  };
+
+  const handlePositionYScrub = (e: React.PointerEvent) => {
+    if (!selectedText) return;
+    handleScrub(e, selectedText.y, (val, isFinal) => {
+      updateTextOverlay(selectedText.id, { y: val }, !isFinal);
+    }, { min: 0, max: 100 });
+  };
+
   const renderTextProperties = () => {
     return (
       <div className="flex flex-col h-full">
@@ -659,11 +697,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div className="flex justify-between items-center mb-2">
                     <label
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.fontSize, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
-                        }, { min: 1, max: 500 });
-                      }}
+                      onPointerDown={handleFontSizeScrub}
                     >
                       Taille (px)
                     </label>
@@ -673,11 +707,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       max="500"
                       value={selectedText.fontSize}
                       onChange={(e) => updateTextOverlay(selectedText.id, { fontSize: parseInt(e.target.value) })}
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.fontSize, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
-                        }, { min: 1, max: 500 });
-                      }}
+                      onPointerDown={handleFontSizeScrub}
                       className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
                     />
                   </div>
@@ -687,11 +717,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     max="200"
                     value={selectedText.fontSize}
                     onChange={(e) => updateTextOverlay(selectedText.id, { fontSize: parseInt(e.target.value) })}
-                    onPointerDown={(e) => {
-                      handleScrub(e, selectedText.fontSize, (val, isFinal) => {
-                        updateTextOverlay(selectedText.id, { fontSize: val }, !isFinal);
-                      }, { min: 1, max: 500 });
-                    }}
+                    onPointerDown={handleFontSizeScrub}
                     className="w-full cursor-ew-resize"
                   />
                 </div>
@@ -702,21 +728,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <div className="flex justify-between items-center mb-2">
                       <label
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onPointerDown={(e) => {
-                          handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
-                            updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
-                          }, { min: 0.1, max: 3, step: 0.01 });
-                        }}
+                        onPointerDown={handleScaleXScrub}
                       >
                         Echelle X
                       </label>
                       <span 
                         className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onPointerDown={(e) => {
-                          handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
-                            updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
-                          }, { min: 0.1, max: 3, step: 0.01 });
-                        }}
+                        onPointerDown={handleScaleXScrub}
                       >
                         {((selectedText.scaleX ?? 1) * 100).toFixed(0)}%
                       </span>
@@ -728,11 +746,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="0.1"
                       value={selectedText.scaleX ?? 1}
                       onChange={(e) => updateTextOverlay(selectedText.id, { scaleX: parseFloat(e.target.value) })}
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.scaleX ?? 1, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { scaleX: val }, !isFinal);
-                        }, { min: 0.1, max: 3, step: 0.01 });
-                      }}
+                      onPointerDown={handleScaleXScrub}
                       className="w-full cursor-ew-resize"
                     />
                   </div>
@@ -740,21 +754,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <div className="flex justify-between items-center mb-2">
                       <label
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onPointerDown={(e) => {
-                          handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
-                            updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
-                          }, { min: 0.1, max: 3, step: 0.01 });
-                        }}
+                        onPointerDown={handleScaleYScrub}
                       >
                         Echelle Y
                       </label>
                       <span 
                         className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
-                        onPointerDown={(e) => {
-                          handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
-                            updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
-                          }, { min: 0.1, max: 3, step: 0.01 });
-                        }}
+                        onPointerDown={handleScaleYScrub}
                       >
                         {((selectedText.scaleY ?? 1) * 100).toFixed(0)}%
                       </span>
@@ -766,11 +772,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       step="0.1"
                       value={selectedText.scaleY ?? 1}
                       onChange={(e) => updateTextOverlay(selectedText.id, { scaleY: parseFloat(e.target.value) })}
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.scaleY ?? 1, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { scaleY: val }, !isFinal);
-                        }, { min: 0.1, max: 3, step: 0.01 });
-                      }}
+                      onPointerDown={handleScaleYScrub}
                       className="w-full cursor-ew-resize"
                     />
                   </div>
@@ -940,11 +942,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div className="flex justify-between items-center mb-2">
                     <label 
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.x, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { x: val }, !isFinal);
-                        }, { min: 0, max: 100 });
-                      }}
+                      onPointerDown={handlePositionXScrub}
                     >
                       Position X
                     </label>
@@ -954,11 +952,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       max="100"
                       value={selectedText.x}
                       onChange={(e) => updateTextOverlay(selectedText.id, { x: parseInt(e.target.value) })}
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.x, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { x: val }, !isFinal);
-                        }, { min: 0, max: 100 });
-                      }}
+                      onPointerDown={handlePositionXScrub}
                       className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
                     />
                   </div>
@@ -968,11 +962,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     max="100"
                     value={selectedText.x}
                     onChange={(e) => updateTextOverlay(selectedText.id, { x: parseInt(e.target.value) })}
-                    onPointerDown={(e) => {
-                      handleScrub(e, selectedText.x, (val, isFinal) => {
-                        updateTextOverlay(selectedText.id, { x: val }, !isFinal);
-                      }, { min: 0, max: 100 });
-                    }}
+                    onPointerDown={handlePositionXScrub}
                     className="w-full cursor-ew-resize"
                   />
                 </div>
@@ -980,11 +970,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   <div className="flex justify-between items-center mb-2">
                     <label 
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.y, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { y: val }, !isFinal);
-                        }, { min: 0, max: 100 });
-                      }}
+                      onPointerDown={handlePositionYScrub}
                     >
                       Position Y
                     </label>
@@ -994,11 +980,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       max="100"
                       value={selectedText.y}
                       onChange={(e) => updateTextOverlay(selectedText.id, { y: parseInt(e.target.value) })}
-                      onPointerDown={(e) => {
-                        handleScrub(e, selectedText.y, (val, isFinal) => {
-                          updateTextOverlay(selectedText.id, { y: val }, !isFinal);
-                        }, { min: 0, max: 100 });
-                      }}
+                      onPointerDown={handlePositionYScrub}
                       className="w-16 h-6 text-right bg-white/5 border border-white/10 rounded text-caption text-white focus:ring-1 focus:ring-primary-500 px-1 cursor-ew-resize"
                     />
                   </div>
@@ -1008,11 +990,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     max="100"
                     value={selectedText.y}
                     onChange={(e) => updateTextOverlay(selectedText.id, { y: parseInt(e.target.value) })}
-                    onPointerDown={(e) => {
-                      handleScrub(e, selectedText.y, (val, isFinal) => {
-                        updateTextOverlay(selectedText.id, { y: val }, !isFinal);
-                      }, { min: 0, max: 100 });
-                    }}
+                    onPointerDown={handlePositionYScrub}
                     className="w-full cursor-ew-resize"
                   />
                 </div>
@@ -1072,8 +1050,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     );
   };
 
-  const renderTransitions = () => {
-    // If no clip is selected, try to find the clip at the playhead
+  const getTargetClip = () => {
     let targetClip = selectedClip;
     
     if (!targetClip) {
@@ -1085,6 +1062,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
           return player.currentTime >= start && player.currentTime < end;
         }) || null;
     }
+    return targetClip;
+  };
+
+  const renderTransitions = () => {
+    const targetClip = getTargetClip();
 
     if (!targetClip) {
       return (
@@ -1099,7 +1081,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     const currentTransition = transitions.find(t => t.clipId === targetClip!.id);
     const categories = Array.from(new Set(AVAILABLE_TRANSITIONS.map(t => t.category)));
 
-    // Handlers extracted to reduce nesting
     const handleTransitionDragStart = (transition: typeof AVAILABLE_TRANSITIONS[0]) => (e: React.DragEvent) => {
       if (transition.type !== 'none') {
         e.dataTransfer.setData('application/json', JSON.stringify({

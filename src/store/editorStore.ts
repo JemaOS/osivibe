@@ -542,25 +542,23 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       linkedVideoClipIds
     });
     
+    const filterDetachedAudio = (c: TimelineClip) => !detachedAudioClipIds.includes(c.id);
+    const muteLinkedVideo = (c: TimelineClip) => {
+      if (linkedVideoClipIds.includes(c.id)) {
+        console.log('🔇 Muting video clip (audio track removed):', c.id);
+        return { ...c, audioMuted: true, detachedAudioClipId: undefined };
+      }
+      return c;
+    };
+    const processRemainingTrack = (track: TimelineTrack) => ({
+      ...track,
+      clips: track.clips.filter(filterDetachedAudio).map(muteLinkedVideo),
+    });
+
     set((state) => ({
       tracks: state.tracks
-        // Remove the track
         .filter((t) => t.id !== id)
-        // Process remaining tracks
-        .map((track) => ({
-          ...track,
-          clips: track.clips
-            // Remove any detached audio clips that were linked to video clips in the removed track
-            .filter((c) => !detachedAudioClipIds.includes(c.id))
-            // Mute video clips if their detached audio track is being removed
-            .map((c) => {
-              if (linkedVideoClipIds.includes(c.id)) {
-                console.log('🔇 Muting video clip (audio track removed):', c.id);
-                return { ...c, audioMuted: true, detachedAudioClipId: undefined };
-              }
-              return c;
-            }),
-        })),
+        .map(processRemainingTrack),
     }));
     
     get().calculateProjectDuration();
@@ -619,11 +617,12 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     
     if (!clipToRemove) {
       // Clip not found, just remove it
+      const removeClipFromTrack = (track: TimelineTrack) => ({
+        ...track,
+        clips: track.clips.filter((c) => c.id !== clipId),
+      });
       set((state) => ({
-        tracks: state.tracks.map((track) => ({
-          ...track,
-          clips: track.clips.filter((c) => c.id !== clipId),
-        })),
+        tracks: state.tracks.map(removeClipFromTrack),
         ui: {
           ...state.ui,
           selectedClipId: state.ui.selectedClipId === clipId ? null : state.ui.selectedClipId,
@@ -681,11 +680,12 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     // Second pass: If we removed a video clip that had detached audio, also remove that audio clip
     if (detachedAudioClipId) {
       console.log('🗑️ Also removing detached audio clip:', detachedAudioClipId);
+      const removeDetachedAudio = (track: TimelineTrack) => ({
+        ...track,
+        clips: track.clips.filter((c) => c.id !== detachedAudioClipId),
+      });
       set((state) => ({
-        tracks: state.tracks.map((track) => ({
-          ...track,
-          clips: track.clips.filter((c) => c.id !== detachedAudioClipId),
-        })),
+        tracks: state.tracks.map(removeDetachedAudio),
       }));
     }
     
@@ -747,9 +747,10 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         if (clip) {
           clipToMove = { ...clip, trackId: newTrackId, startTime: Math.max(0, newStartTime) };
         }
+        const filterClip = (c: TimelineClip) => c.id !== clipId;
         return {
           ...track,
-          clips: track.clips.filter((c) => c.id !== clipId),
+          clips: track.clips.filter(filterClip),
         };
       };
 

@@ -108,15 +108,7 @@ function detectAppleSilicon(): boolean {
   return false;
 }
 
-/**
- * Detect high-end mobile processors (Snapdragon 8 Gen 1+, Dimensity 9000+, etc.)
- */
-function detectHighEndMobile(): boolean {
-  const ua = navigator.userAgent.toLowerCase();
-  const cores = navigator.hardwareConcurrency || 0;
-  
-  // Check for known high-end Android devices first (before core count check)
-  // Snapdragon 8 Gen 1, 2, 3 devices
+function isHighEndByUA(ua: string): boolean {
   const highEndIndicators = [
     'sm-s9', 'sm-s8', 'sm-s7', // Samsung Galaxy S series
     'sm-f9', 'sm-f7', // Samsung Galaxy Fold/Flip
@@ -146,34 +138,27 @@ function detectHighEndMobile(): boolean {
       return true;
     }
   }
-  
-  // Check for high-end iPhones (iPhone 12+)
+  return false;
+}
+
+function isHighEndIPhone(ua: string): boolean {
   if (/iphone/.test(ua)) {
-    // Modern iPhones have 6 cores, but A14+ chips are very powerful
-    // Check screen resolution as a proxy for newer models
     const screenWidth = window.screen.width * (window.devicePixelRatio || 1);
     const screenHeight = window.screen.height * (window.devicePixelRatio || 1);
-    
-    // iPhone 12+ have high resolution displays
     if (Math.max(screenWidth, screenHeight) >= 2532) {
       return true;
     }
   }
-  
-  // High-end mobile devices typically have 8+ cores
-  // But check this after UA detection since some devices report fewer
-  if (cores < 6) {
-    return false;
-  }
-  
-  // Fallback: 6+ cores with WebGL2 support and good GPU indicates high-end
+  return false;
+}
+
+function isHighEndByGPU(cores: number): boolean {
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl2');
   if (gl && cores >= 6) {
     const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
     if (debugInfo) {
       const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-      // Adreno 6xx+, 7xx, Mali-G7xx, Apple GPU indicate high-end
       if (renderer && (
         /adreno.*[67]/i.test(renderer) ||
         /mali-g[789]/i.test(renderer) ||
@@ -185,13 +170,29 @@ function detectHighEndMobile(): boolean {
       }
     }
   }
+  return false;
+}
+
+/**
+ * Detect high-end mobile processors (Snapdragon 8 Gen 1+, Dimensity 9000+, etc.)
+ */
+function detectHighEndMobile(): boolean {
+  const ua = navigator.userAgent.toLowerCase();
+  const cores = navigator.hardwareConcurrency || 0;
   
-  // Large screen with high DPI on mobile often indicates flagship
+  if (isHighEndByUA(ua)) return true;
+  if (isHighEndIPhone(ua)) return true;
+  
+  if (cores < 6) {
+    return false;
+  }
+  
+  if (isHighEndByGPU(cores)) return true;
+  
   const screenWidth = window.screen.width * (window.devicePixelRatio || 1);
   const screenHeight = window.screen.height * (window.devicePixelRatio || 1);
   const maxDimension = Math.max(screenWidth, screenHeight);
   
-  // Foldables and flagships have very high resolution screens
   if (maxDimension >= 2400 && cores >= 6) {
     console.log('🎯 High-end device detected by screen resolution:', maxDimension);
     return true;
@@ -313,6 +314,91 @@ function runQuickBenchmark(): number {
   return totalScore;
 }
 
+function determineIsLowEnd(
+  isHighEndMobile: boolean,
+  isAppleSilicon: boolean,
+  performanceScore: number,
+  cpuCores: number,
+  isMobile: boolean,
+  limitedMemory: boolean
+): boolean {
+  if (isHighEndMobile || isAppleSilicon) {
+    return false;
+  } else if (performanceScore < 30) {
+    return true;
+  } else if (cpuCores <= 2) {
+    return true;
+  } else if (cpuCores <= 4 && performanceScore < 50) {
+    return true;
+  } else if (isMobile && limitedMemory) {
+    return true;
+  }
+  return false;
+}
+
+function determineRecommendedQuality(
+  isAppleSilicon: boolean,
+  isHighEndMobile: boolean,
+  isChromeOnMobile: boolean,
+  performanceScore: number,
+  cpuCores: number,
+  connectionQuality: string
+): { quality: PreviewSettings['quality']; maxSafeResolution: number } {
+  let recommendedQuality: PreviewSettings['quality'] = 'high';
+  let maxSafeResolution = 1080;
+  
+  if (isAppleSilicon) {
+    recommendedQuality = 'original';
+    maxSafeResolution = 2160;
+  } else if (isHighEndMobile && !isChromeOnMobile) {
+    recommendedQuality = 'original';
+    maxSafeResolution = 1080;
+  } else if (isHighEndMobile && isChromeOnMobile) {
+    recommendedQuality = 'high';
+    maxSafeResolution = 720;
+  } else if (isChromeOnMobile) {
+    if (performanceScore >= 50) {
+      recommendedQuality = 'medium';
+      maxSafeResolution = 480;
+    } else {
+      recommendedQuality = 'low';
+      maxSafeResolution = 360;
+    }
+  } else if (performanceScore >= 70) {
+    recommendedQuality = 'original';
+    maxSafeResolution = 1080;
+  } else if (performanceScore >= 50) {
+    recommendedQuality = 'high';
+    maxSafeResolution = 720;
+  } else if (performanceScore >= 30) {
+    recommendedQuality = 'medium';
+    maxSafeResolution = 480;
+  } else {
+    recommendedQuality = 'low';
+    maxSafeResolution = 360;
+  }
+  
+  if (!isHighEndMobile && !isAppleSilicon) {
+    if (cpuCores <= 2 && recommendedQuality !== 'low') {
+      recommendedQuality = 'low';
+      maxSafeResolution = 360;
+    } else if (cpuCores <= 4 && recommendedQuality === 'original') {
+      recommendedQuality = 'high';
+      maxSafeResolution = 720;
+    }
+  }
+  
+  if (connectionQuality === 'slow' && recommendedQuality !== 'low') {
+    recommendedQuality = 'low';
+    maxSafeResolution = 360;
+  } else if (connectionQuality === 'medium' && recommendedQuality === 'original') {
+    recommendedQuality = 'high';
+    maxSafeResolution = 720;
+  }
+  
+  return { quality: recommendedQuality, maxSafeResolution };
+}
+
 /**
  * Detect hardware capabilities
  */
@@ -326,102 +412,19 @@ export function detectHardware(): HardwareProfile {
   const limitedMemory = hasLimitedMemory();
   const connectionQuality = getConnectionQuality();
   
-  // Check for hardware acceleration support
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
   const supportsHardwareAcceleration = !!gl;
 
-  // Check WebCodecs support
   const supportsWebCodecs = typeof window.VideoDecoder !== 'undefined' && typeof window.VideoEncoder !== 'undefined';
   
-  // Run performance benchmark
   const performanceScore = runQuickBenchmark();
   
-  // Determine if this is a low-end device based on benchmark and cores
-  // High-end mobile devices should NOT be considered low-end
-  let isLowEnd = false;
+  const isLowEnd = determineIsLowEnd(isHighEndMobile, isAppleSilicon, performanceScore, cpuCores, isMobile, limitedMemory);
   
-  if (isHighEndMobile || isAppleSilicon) {
-    // High-end mobile or Apple Silicon - never low-end
-    isLowEnd = false;
-  } else if (performanceScore < 30) {
-    // Poor benchmark score
-    isLowEnd = true;
-  } else if (cpuCores <= 2) {
-    // Very few cores
-    isLowEnd = true;
-  } else if (cpuCores <= 4 && performanceScore < 50) {
-    // Few cores with mediocre performance
-    isLowEnd = true;
-  } else if (isMobile && limitedMemory) {
-    // Mobile with limited memory
-    isLowEnd = true;
-  }
-  
-  // Recommend quality based on hardware
-  // IMPORTANT: On mobile Chrome, be more conservative with quality
-  let recommendedQuality: PreviewSettings['quality'] = 'high';
-  let maxSafeResolution = 1080;
-  
-  if (isAppleSilicon) {
-    // Apple Silicon (M1-M5) - maximum performance
-    recommendedQuality = 'original';
-    maxSafeResolution = 2160; // 4K capable
-  } else if (isHighEndMobile && !isChromeOnMobile) {
-    // High-end mobile NOT on Chrome - can handle original
-    recommendedQuality = 'original';
-    maxSafeResolution = 1080;
-  } else if (isHighEndMobile && isChromeOnMobile) {
-    // High-end mobile ON Chrome - be more conservative
-    // Chrome on Android has known video decoding issues
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
-  } else if (isChromeOnMobile) {
-    // Chrome on mobile (not high-end) - use lower quality
-    if (performanceScore >= 50) {
-      recommendedQuality = 'medium';
-      maxSafeResolution = 480;
-    } else {
-      recommendedQuality = 'low';
-      maxSafeResolution = 360;
-    }
-  } else if (performanceScore >= 70) {
-    // Excellent performance
-    recommendedQuality = 'original';
-    maxSafeResolution = 1080;
-  } else if (performanceScore >= 50) {
-    // Good performance
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
-  } else if (performanceScore >= 30) {
-    // Moderate performance
-    recommendedQuality = 'medium';
-    maxSafeResolution = 480;
-  } else {
-    // Poor performance
-    recommendedQuality = 'low';
-    maxSafeResolution = 360;
-  }
-  
-  // Legacy fallback for devices where benchmark might not be accurate
-  if (!isHighEndMobile && !isAppleSilicon) {
-    if (cpuCores <= 2 && recommendedQuality !== 'low') {
-      recommendedQuality = 'low';
-      maxSafeResolution = 360;
-    } else if (cpuCores <= 4 && recommendedQuality === 'original') {
-      recommendedQuality = 'high';
-      maxSafeResolution = 720;
-    }
-  }
-  
-  // Network quality adjustment
-  if (connectionQuality === 'slow' && recommendedQuality !== 'low') {
-    recommendedQuality = 'low';
-    maxSafeResolution = 360;
-  } else if (connectionQuality === 'medium' && recommendedQuality === 'original') {
-    recommendedQuality = 'high';
-    maxSafeResolution = 720;
-  }
+  const { quality: recommendedQuality, maxSafeResolution } = determineRecommendedQuality(
+    isAppleSilicon, isHighEndMobile, isChromeOnMobile, performanceScore, cpuCores, connectionQuality
+  );
   
   console.log('🖥️ Hardware Profile:', {
     cpuCores,
@@ -628,6 +631,70 @@ export async function getProxyUrl(
   }
 }
 
+function applyMobileChromeOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isMobile: boolean, isChromeOnMobile: boolean) {
+  if (isChromeOnMobile || isMobile) {
+    videoElement.preload = settings.bufferSize === 'large' ? 'auto' : 'metadata';
+    
+    if ('requestVideoFrameCallback' in videoElement) {
+      console.log('📹 requestVideoFrameCallback available');
+    }
+    
+    if (videoElement.getVideoPlaybackQuality) {
+      console.log('📹 getVideoPlaybackQuality available');
+    }
+    
+    if ('buffered' in videoElement && settings.bufferSize === 'small') {
+      videoElement.setAttribute('x-webkit-airplay', 'deny');
+    }
+    
+    videoElement.autoplay = false;
+    
+    videoElement.setAttribute('webkit-playsinline', 'true');
+    videoElement.setAttribute('x5-playsinline', 'true');
+    videoElement.setAttribute('x5-video-player-type', 'h5');
+    videoElement.setAttribute('x5-video-player-fullscreen', 'false');
+    
+    if (!videoElement.poster) {
+      videoElement.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    }
+  } else {
+    videoElement.preload = 'auto';
+  }
+}
+
+function applyCSSOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isHighEnd: boolean, isChromeOnMobile: boolean) {
+  if (isHighEnd && !isChromeOnMobile) {
+    videoElement.style.willChange = 'auto';
+    videoElement.style.transform = '';
+    videoElement.style.imageRendering = 'auto';
+    
+    if (!videoElement.style.filter || videoElement.style.filter === 'none') {
+      videoElement.style.filter = '';
+    }
+    
+    console.log('🚀 High-end optimizations applied');
+  } else if (isChromeOnMobile) {
+    videoElement.style.willChange = 'contents';
+    videoElement.style.transform = 'translate3d(0,0,0)';
+    videoElement.style.backfaceVisibility = 'hidden';
+    videoElement.style.perspective = '1000px';
+    
+    videoElement.style.imageRendering = 'auto';
+    videoElement.style.objectFit = 'contain';
+    
+    videoElement.style.contain = 'layout paint';
+    
+    console.log('📱 Chrome mobile optimizations applied');
+  } else {
+    videoElement.style.willChange = 'transform';
+    videoElement.style.transform = 'translateZ(0)';
+    
+    if (settings.quality === 'low' || settings.quality === 'medium') {
+      videoElement.style.imageRendering = 'optimizeSpeed';
+    }
+  }
+}
+
 /**
  * Apply optimized video element settings for smooth playback
  */
@@ -636,114 +703,28 @@ export function applyVideoOptimizations(
   settings: PreviewSettings,
   profile?: HardwareProfile
 ): void {
-  // Avoid re-applying optimizations if already applied
   if (videoElement.dataset.optimized === 'true') return;
   
-  // Get current hardware profile if not provided
   const hwProfile = profile || hardwareProfile;
   const isHighEnd = hwProfile?.isHighEndMobile || hwProfile?.isAppleSilicon ||
-                    (hwProfile?.performanceScore && hwProfile.performanceScore >= 50);
+                    (hwProfile?.performanceScore && hwProfile.performanceScore >= 50) || false;
   const isChromeOnMobile = isMobileChrome();
   const isMobile = hwProfile?.isMobile || detectDeviceType() !== 'desktop';
   
-  // Disable picture-in-picture to reduce overhead
   if ('disablePictureInPicture' in videoElement) {
     (videoElement as any).disablePictureInPicture = true;
   }
   
-  // Disable remote playback
   if ('disableRemotePlayback' in videoElement) {
     (videoElement as any).disableRemotePlayback = true;
   }
   
-  // CRITICAL: Mobile Chrome optimizations
-  if (isChromeOnMobile || isMobile) {
-    // Use metadata preload on mobile to reduce memory usage
-    videoElement.preload = settings.bufferSize === 'large' ? 'auto' : 'metadata';
-    
-    // Enable low latency mode if supported (Chrome 87+)
-    if ('requestVideoFrameCallback' in videoElement) {
-      // Video frame callback is available - good for sync
-      console.log('📹 requestVideoFrameCallback available');
-    }
-    
-    // Set decode hints for Chrome
-    if (videoElement.getVideoPlaybackQuality) {
-      // Can monitor dropped frames
-      console.log('📹 getVideoPlaybackQuality available');
-    }
-    
-    // Reduce buffer size on mobile
-    if ('buffered' in videoElement && settings.bufferSize === 'small') {
-      // Hint to browser to use smaller buffer
-      videoElement.setAttribute('x-webkit-airplay', 'deny');
-    }
-    
-    // Disable autoplay to prevent background decoding
-    videoElement.autoplay = false;
-    
-    // Force hardware decoding hints
-    videoElement.setAttribute('webkit-playsinline', 'true');
-    videoElement.setAttribute('x5-playsinline', 'true');
-    videoElement.setAttribute('x5-video-player-type', 'h5');
-    videoElement.setAttribute('x5-video-player-fullscreen', 'false');
-    
-    // Poster frame to reduce initial decode
-    if (!videoElement.poster) {
-      videoElement.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    }
-  } else {
-    // Desktop: use auto preload
-    videoElement.preload = 'auto';
-  }
+  applyMobileChromeOptimizations(videoElement, settings, isMobile, isChromeOnMobile);
   
-  // Enable playsInline for mobile (CRITICAL for iOS)
   videoElement.playsInline = true;
   
-  // Apply CSS optimizations based on device capability
-  if (isHighEnd && !isChromeOnMobile) {
-    // High-end devices (not Chrome mobile): minimal CSS interference
-    videoElement.style.willChange = 'auto';
-    videoElement.style.transform = '';
-    videoElement.style.imageRendering = 'auto';
-    
-    // Remove any filters that might slow down rendering
-    if (!videoElement.style.filter || videoElement.style.filter === 'none') {
-      videoElement.style.filter = '';
-    }
-    
-    console.log('🚀 High-end optimizations applied');
-  } else if (isChromeOnMobile) {
-    // Chrome mobile specific optimizations
-    // Use GPU compositing but avoid complex transforms
-    videoElement.style.willChange = 'contents';
-    videoElement.style.transform = 'translate3d(0,0,0)'; // Force GPU layer
-    videoElement.style.backfaceVisibility = 'hidden';
-    videoElement.style.perspective = '1000px';
-    
-    // Optimize rendering
-    videoElement.style.imageRendering = 'auto';
-    videoElement.style.objectFit = 'contain';
-    
-    // Reduce paint complexity
-    videoElement.style.contain = 'layout paint';
-    
-    // Disable pointer events during playback for better performance
-    // (will be re-enabled when needed)
-    
-    console.log('📱 Chrome mobile optimizations applied');
-  } else {
-    // Lower-end devices: force GPU layer
-    videoElement.style.willChange = 'transform';
-    videoElement.style.transform = 'translateZ(0)';
-    
-    // For low-end devices, reduce quality via CSS
-    if (settings.quality === 'low' || settings.quality === 'medium') {
-      videoElement.style.imageRendering = 'optimizeSpeed';
-    }
-  }
+  applyCSSOptimizations(videoElement, settings, isHighEnd, isChromeOnMobile);
   
-  // Mark as optimized
   videoElement.dataset.optimized = 'true';
 }
 
