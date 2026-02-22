@@ -1606,7 +1606,7 @@ async function exportSingleClipComplexPath(
 
   const isImage = clip.file.type.startsWith("image/");
   const baseFilter = buildVideoFilter(clip, resolution, isImage);
-  const vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps}`;
+  const vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
   fc.push(`${vBase}[v0]`);
 
   if (needsBg) {
@@ -1891,7 +1891,7 @@ function buildGapFilter(
   const gapColor = isBaseTrack ? 'black' : 'black@0';
   const gapFormat = isBaseTrack ? 'yuv420p' : 'rgba';
   
-  filterComplex.push(`color=c=${gapColor}:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${targetFps},format=${gapFormat}[${gapVideoLabel}]`);
+  filterComplex.push(`color=c=${gapColor}:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${targetFps},format=${gapFormat},setsar=1[${gapVideoLabel}]`);
   filterComplex.push(`aevalsrc=0:d=${gapDuration}:s=48000:c=stereo[${gapAudioLabel}]`);
   
   trackVideoSegments.push(`[${gapVideoLabel}]`);
@@ -1931,7 +1931,13 @@ function getVideoFilterString(
   if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
   if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
   
-  if (!isBaseTrack && !videoFilter.includes('format=rgba')) {
+  // Force SAR to 1:1 to prevent concat filter errors when mixing cropped/scaled clips
+  videoFilter += `,setsar=1`;
+  
+  // Force consistent pixel format per track to prevent concat filter errors
+  if (isBaseTrack) {
+    videoFilter += ',format=yuv420p';
+  } else {
     videoFilter += ',format=rgba';
   }
   
