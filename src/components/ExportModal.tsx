@@ -68,7 +68,7 @@ export const ExportModal: React.FC = () => {
       // Collect all clips from video tracks in order
       const videoClips = tracks
         .filter(t => t.type === 'video')
-        .flatMap(t => t.clips)
+        .flatMap((t, trackIndex) => t.clips.map(c => ({ ...c, trackIndex })))
         .sort((a, b) => a.startTime - b.startTime);
 
       // Collect all clips from audio tracks (WAV/MP3/etc). Muted tracks are ignored.
@@ -144,6 +144,9 @@ export const ExportModal: React.FC = () => {
           // If the video clip is muted (detached audio deleted) or the whole track is muted,
           // exclude the source audio from export.
           audioMuted: !!clip.audioMuted || trackMuteById.get(clip.trackId) === true,
+          crop: clip.crop,
+          transform: clip.transform,
+          trackIndex: (clip as any).trackIndex,
         };
       });
 

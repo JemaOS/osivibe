@@ -1773,10 +1773,9 @@ async function loadExternalAudioFiles(
   return externalAudioFileToInputIndex;
 }
 
+
 function buildMultiClipFilterChain(
   clips: ExportClip[],
-  gaps: GapInfo[],
-  gapMap: Map<number, number>,
   clipToInputIndex: Map<number, number>,
   inputVideoMeta: Map<number, { width: number; height: number }>,
   transitions: any[] | undefined,
@@ -1795,239 +1794,159 @@ function buildMultiClipFilterChain(
   const needsPerClipTimebaseNormalization = hasAnyTransitionMarkers;
   const needsFpsNormalization = uniqueFilesCount > 1 || hasImages || needsPerClipTimebaseNormalization;
   
-  let gapCounter = 0;
-  for (const gap of gaps) {
-    const gapVideoLabel = `vgap${gapCounter}`;
-    const gapAudioLabel = `agap${gapCounter}`;
-    filterComplex.push(`color=c=black:s=${resolution.width}x${resolution.height}:d=${gap.duration}:r=${targetFps},format=yuv420p[${gapVideoLabel}]`);
-    filterComplex.push(`aevalsrc=0:d=${gap.duration}:s=48000:c=stereo[${gapAudioLabel}]`);
-    gapCounter++;
-  }
-  
-  for (let i = 0; i < clips.length; i++) {
-    const clip = clips[i];
-    const inputIndex = clipToInputIndex.get(i) ?? i;
-    const isImage = clip.file.type.startsWith('image/');
-    const duration = clip.duration - clip.trimStart - clip.trimEnd;
-
-    const meta = inputVideoMeta.get(inputIndex);
-    const needsScalePad = !isImage && meta ? (meta.width !== resolution.width || meta.height !== resolution.height) : true;
-    
-    const baseFilter = buildVideoFilter(clip, resolution, isImage);
-    let videoFilter = '';
-    if (isImage) {
-      videoFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,${baseFilter}`;
-    } else {
-      videoFilter = `[${inputIndex}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS`;
-      if (needsScalePad || clip.crop) {
-        videoFilter += `,${baseFilter}`;
-      } else if (clip.filter) {
-        const filterString = getFilterString(clip.filter);
-        if (filterString) videoFilter += ',' + filterString;
-      }
+  // Group clips by trackIndex
+  const tracksMap = new Map<number, ExportClip[]>();
+  clips.forEach(clip => {
+    const trackIndex = clip.trackIndex ?? 0;
+    if (!tracksMap.has(trackIndex)) {
+      tracksMap.set(trackIndex, []);
     }
-    if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
-    if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
-    
-    filterComplex.push(`${videoFilter}[v${i}]`);
-    
-    if (isImage) {
-      filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
-    } else {
-      if (clip.audioMuted) {
-        filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[a${i}]`);
-      } else {
-        filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[a${i}]`);
-      }
-    }
-  }
-  
-  const clipDurations: number[] = clips.map(clip => clip.duration - clip.trimStart - clip.trimEnd);
-  
-  const clipIdToSortedIndex = new Map<string, number>();
-  clips.forEach((clip, index) => {
-    if (clip.id) clipIdToSortedIndex.set(clip.id, index);
+    tracksMap.get(trackIndex)!.push(clip);
   });
+
+  // Sort tracks by index
+  const trackIndices = Array.from(tracksMap.keys()).sort((a, b) => a - b);
   
-  const startTransitionByIndex = new Map<number, any>();
-  const endTransitionByIndex = new Map<number, any>();
-  
-  if (transitions && transitions.length > 0) {
-    for (const transition of transitions) {
-      const sortedIndex = clipIdToSortedIndex.get(transition.clipId);
-      if (transition.type !== 'none' && sortedIndex !== undefined) {
-        if (transition.position === 'start') {
-          startTransitionByIndex.set(sortedIndex, transition);
-        } else if (transition.position === 'end') {
-          endTransitionByIndex.set(sortedIndex, transition);
+  // Calculate total duration
+  const totalDuration = Math.max(
+    0,
+    ...clips.map((c) => {
+      const d = c.duration - c.trimStart - c.trimEnd;
+      return Math.max(0, c.startTime - timeOrigin) + Math.max(0, d);
+    })
+  );
+
+  const trackVideoLabels: string[] = [];
+  const trackAudioLabels: string[] = [];
+  let gapCounter = 0;
+
+  for (const trackIndex of trackIndices) {
+    const trackClips = tracksMap.get(trackIndex)!.sort((a, b) => a.startTime - b.startTime);
+    const isBaseTrack = trackIndex === trackIndices[0];
+    
+    const trackVideoSegments: string[] = [];
+    const trackAudioSegments: string[] = [];
+    
+    let currentTime = timeOrigin;
+    
+    for (let i = 0; i < trackClips.length; i++) {
+      const clip = trackClips[i];
+      const originalIndex = clips.indexOf(clip);
+      const inputIndex = clipToInputIndex.get(originalIndex) ?? originalIndex;
+      const isImage = clip.file.type.startsWith('image/');
+      const duration = clip.duration - clip.trimStart - clip.trimEnd;
+      
+      // Add gap if needed
+      if (clip.startTime > currentTime + 0.01) {
+        const gapDuration = clip.startTime - currentTime;
+        const gapVideoLabel = `vgap${gapCounter}`;
+        const gapAudioLabel = `agap${gapCounter}`;
+        
+        // Base track gap is black, overlay track gap is transparent
+        const gapColor = isBaseTrack ? 'black' : 'black@0';
+        const gapFormat = isBaseTrack ? 'yuv420p' : 'rgba';
+        
+        filterComplex.push(`color=c=${gapColor}:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${targetFps},format=${gapFormat}[${gapVideoLabel}]`);
+        filterComplex.push(`aevalsrc=0:d=${gapDuration}:s=48000:c=stereo[${gapAudioLabel}]`);
+        
+        trackVideoSegments.push(`[${gapVideoLabel}]`);
+        trackAudioSegments.push(`[${gapAudioLabel}]`);
+        gapCounter++;
+      }
+      
+      // Process clip
+      const meta = inputVideoMeta.get(inputIndex);
+      const needsScalePad = !isImage && meta ? (meta.width !== resolution.width || meta.height !== resolution.height) : true;
+      
+      const baseFilter = buildVideoFilter(clip, resolution, isImage);
+      let videoFilter = '';
+      if (isImage) {
+        videoFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,${baseFilter}`;
+      } else {
+        videoFilter = `[${inputIndex}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS`;
+        if (needsScalePad || clip.crop) {
+          videoFilter += `,${baseFilter}`;
+        } else if (clip.filter) {
+          const filterString = getFilterString(clip.filter);
+          if (filterString) videoFilter += ',' + filterString;
         }
       }
-    }
-  }
-  
-  const hasAnyTransitions = startTransitionByIndex.size > 0 || endTransitionByIndex.size > 0;
-  let currentVideoLabel = '';
-  
-  if (!hasAnyTransitions && clips.length > 1) {
-    const orderedVideoLabels: string[] = [];
-    const orderedAudioLabels: string[] = [];
-    let gapIdx = 0;
-
-    for (let i = 0; i < clips.length; i++) {
-      if (gapMap.has(i)) {
-        orderedVideoLabels.push(`[vgap${gapIdx}]`);
-        orderedAudioLabels.push(`[agap${gapIdx}]`);
-        gapIdx++;
+      if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
+      if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
+      
+      // If it's an overlay track, ensure it has an alpha channel
+      if (!isBaseTrack && !videoFilter.includes('format=rgba')) {
+        videoFilter += ',format=rgba';
       }
-      orderedVideoLabels.push(`[v${i}]`);
-      orderedAudioLabels.push(`[a${i}]`);
-    }
-
-    filterComplex.push(`${orderedVideoLabels.join('')}concat=n=${orderedVideoLabels.length}:v=1:a=0[outv]`);
-    filterComplex.push(`${orderedAudioLabels.join('')}concat=n=${orderedAudioLabels.length}:v=0:a=1[outa]`);
-    currentVideoLabel = 'outv';
-  } else if (hasAnyTransitions) {
-    const isAdjacentToNext: boolean[] = [];
-    for (let i = 0; i < clips.length - 1; i++) {
-      isAdjacentToNext.push(!gapMap.has(i + 1));
-    }
-    isAdjacentToNext.push(false);
-    
-    const allVideoSegments: string[] = [];
-    const allAudioSegments: string[] = [];
-    
-    let gapIdx = 0;
-    for (let i = 0; i < clips.length; i++) {
-      if (gapMap.has(i)) {
-        allVideoSegments.push(`vgap${gapIdx}`);
-        allAudioSegments.push(`agap${gapIdx}`);
-        gapIdx++;
+      
+      const clipVideoLabel = `v${originalIndex}`;
+      const clipAudioLabel = `a${originalIndex}`;
+      
+      filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
+      
+      if (isImage || clip.audioMuted) {
+        filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[${clipAudioLabel}]`);
+      } else {
+        filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
       }
-      allVideoSegments.push(`v${i}`);
-      allAudioSegments.push(`a${i}`);
+      
+      trackVideoSegments.push(`[${clipVideoLabel}]`);
+      trackAudioSegments.push(`[${clipAudioLabel}]`);
+      
+      currentTime = clip.startTime + duration;
     }
     
-    let needsXfade = false;
-    for (let i = 0; i < clips.length - 1; i++) {
-      if (isAdjacentToNext[i]) {
-        const transition = startTransitionByIndex.get(i + 1) || endTransitionByIndex.get(i);
-        if (transition && transition.type !== 'none') {
-          needsXfade = true;
-          break;
-        }
-      }
+    // Add trailing gap if needed
+    if (currentTime < timeOrigin + totalDuration - 0.01) {
+      const gapDuration = timeOrigin + totalDuration - currentTime;
+      const gapVideoLabel = `vgap${gapCounter}`;
+      const gapAudioLabel = `agap${gapCounter}`;
+      
+      const gapColor = isBaseTrack ? 'black' : 'black@0';
+      const gapFormat = isBaseTrack ? 'yuv420p' : 'rgba';
+      
+      filterComplex.push(`color=c=${gapColor}:s=${resolution.width}x${resolution.height}:d=${gapDuration}:r=${targetFps},format=${gapFormat}[${gapVideoLabel}]`);
+      filterComplex.push(`aevalsrc=0:d=${gapDuration}:s=48000:c=stereo[${gapAudioLabel}]`);
+      
+      trackVideoSegments.push(`[${gapVideoLabel}]`);
+      trackAudioSegments.push(`[${gapAudioLabel}]`);
+      gapCounter++;
     }
     
-    if (!needsXfade) {
-      const allVideoLabelsStr = allVideoSegments.map(s => `[${s}]`).join('');
-      const allAudioLabelsStr = allAudioSegments.map(s => `[${s}]`).join('');
-      filterComplex.push(`${allVideoLabelsStr}concat=n=${allVideoSegments.length}:v=1:a=0[outv]`);
-      filterComplex.push(`${allAudioLabelsStr}concat=n=${allAudioSegments.length}:v=0:a=1[outa]`);
-      currentVideoLabel = 'outv';
+    // Concat track segments
+    const trackVideoOut = `trackv${trackIndex}`;
+    const trackAudioOut = `tracka${trackIndex}`;
+    
+    if (trackVideoSegments.length === 1) {
+      filterComplex.push(`${trackVideoSegments[0]}null[${trackVideoOut}]`);
+      filterComplex.push(`${trackAudioSegments[0]}anull[${trackAudioOut}]`);
     } else {
-      let mergeCounter = 0;
-      const processedVideoSegments: string[] = [];
-      const processedAudioSegments: string[] = [];
-      const processedClips = new Set<number>();
-      
-      if (gapMap.has(0)) {
-        processedVideoSegments.push('vgap0');
-        processedAudioSegments.push('agap0');
-      }
-      
-      for (let i = 0; i < clips.length; i++) {
-        if (processedClips.has(i)) continue;
-        
-        let currentGroupLabel = `v${i}`;
-        let groupEndIndex = i;
-        let groupCumulativeOffset = clipDurations[i];
-        const clipIndicesInGroup: number[] = [i];
-        
-        while (groupEndIndex < clips.length - 1 && isAdjacentToNext[groupEndIndex]) {
-          const nextIndex = groupEndIndex + 1;
-          const transition = startTransitionByIndex.get(nextIndex) || endTransitionByIndex.get(groupEndIndex);
-          
-          if (transition && transition.type !== 'none') {
-            const transitionDuration = Math.min(
-              transition.duration,
-              clipDurations[groupEndIndex] * 0.9,
-              clipDurations[nextIndex] * 0.9
-            );
-            const offset = Math.max(0, groupCumulativeOffset - transitionDuration);
-            const outputLabel = `vm${mergeCounter}`;
-
-            const xfadeFilter = getTransitionFilter(transition, offset);
-            
-            if (xfadeFilter) {
-              filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]${xfadeFilter},settb=1/${targetFps}[${outputLabel}]`);
-              currentGroupLabel = outputLabel;
-              mergeCounter++;
-              groupCumulativeOffset = offset + clipDurations[nextIndex];
-            }
-            
-            processedClips.add(nextIndex);
-            clipIndicesInGroup.push(nextIndex);
-            groupEndIndex = nextIndex;
-          } else {
-            const outputLabel = `vm${mergeCounter}`;
-            filterComplex.push(`[${currentGroupLabel}][v${nextIndex}]concat=n=2:v=1:a=0,settb=1/${targetFps}[${outputLabel}]`);
-            currentGroupLabel = outputLabel;
-            mergeCounter++;
-            groupCumulativeOffset += clipDurations[nextIndex];
-            
-            processedClips.add(nextIndex);
-            clipIndicesInGroup.push(nextIndex);
-            groupEndIndex = nextIndex;
-          }
-        }
-        
-        processedVideoSegments.push(currentGroupLabel);
-        
-        if (clipIndicesInGroup.length > 1) {
-          const audioLabels = clipIndicesInGroup.map(ci => `[a${ci}]`).join('');
-          const mergedAudioLabel = `am${mergeCounter}`;
-          filterComplex.push(`${audioLabels}concat=n=${clipIndicesInGroup.length}:v=0:a=1[${mergedAudioLabel}]`);
-          processedAudioSegments.push(mergedAudioLabel);
-        } else {
-          processedAudioSegments.push(`a${i}`);
-        }
-        
-        let nextUnprocessedIndex = groupEndIndex + 1;
-        while (nextUnprocessedIndex < clips.length && processedClips.has(nextUnprocessedIndex)) {
-          nextUnprocessedIndex++;
-        }
-        
-        if (nextUnprocessedIndex < clips.length && gapMap.has(nextUnprocessedIndex)) {
-          let actualGapIndex = 0;
-          for (const gap of gaps) {
-            if (gap.beforeClipIndex === nextUnprocessedIndex) {
-              processedVideoSegments.push(`vgap${actualGapIndex}`);
-              processedAudioSegments.push(`agap${actualGapIndex}`);
-              break;
-            }
-            actualGapIndex++;
-          }
-        }
-      }
-      
-      if (processedVideoSegments.length === 1) {
-        filterComplex.push(`[${processedVideoSegments[0]}]null[outv]`);
-      } else {
-        const allLabels = processedVideoSegments.map(s => `[${s}]`).join('');
-        filterComplex.push(`${allLabels}concat=n=${processedVideoSegments.length}:v=1:a=0,settb=1/${targetFps}[outv]`);
-      }
-      
-      if (processedAudioSegments.length === 1) {
-        filterComplex.push(`[${processedAudioSegments[0]}]anull[outa]`);
-      } else {
-        const allAudioLabels = processedAudioSegments.map(s => `[${s}]`).join('');
-        filterComplex.push(`${allAudioLabels}concat=n=${processedAudioSegments.length}:v=0:a=1[outa]`);
-      }
-      
-      currentVideoLabel = 'outv';
+      filterComplex.push(`${trackVideoSegments.join('')}concat=n=${trackVideoSegments.length}:v=1:a=0,settb=1/${targetFps}[${trackVideoOut}]`);
+      filterComplex.push(`${trackAudioSegments.join('')}concat=n=${trackAudioSegments.length}:v=0:a=1[${trackAudioOut}]`);
     }
+    
+    trackVideoLabels.push(`[${trackVideoOut}]`);
+    trackAudioLabels.push(`[${trackAudioOut}]`);
   }
   
+  // Overlay tracks
+  let currentVideoLabel = trackVideoLabels[0].replace(/[\[\]]/g, '');
+  for (let i = 1; i < trackVideoLabels.length; i++) {
+    const overlayLabel = trackVideoLabels[i].replace(/[\[\]]/g, '');
+    const outLabel = `mergedv${i}`;
+    filterComplex.push(`[${currentVideoLabel}][${overlayLabel}]overlay=0:0:shortest=1[${outLabel}]`);
+    currentVideoLabel = outLabel;
+  }
+  
+  // Mix audio tracks
+  let currentAudioLabel = 'outa';
+  if (trackAudioLabels.length === 1) {
+    filterComplex.push(`${trackAudioLabels[0]}anull[${currentAudioLabel}]`);
+  } else {
+    filterComplex.push(`${trackAudioLabels.join('')}amix=inputs=${trackAudioLabels.length}:duration=longest[${currentAudioLabel}]`);
+  }
+  
+  // Add text overlays
   if (textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim())) {
     let textInputLabel = currentVideoLabel;
     let textOutputLabel = 'vtext0';
@@ -2048,17 +1967,9 @@ function buildMultiClipFilterChain(
   }
 
   const finalVideoLabel = currentVideoLabel;
-  const finalAudioLabel = externalAudioClips.length > 0 ? 'outa_ext' : 'outa';
+  const finalAudioLabel = externalAudioClips.length > 0 ? 'outa_ext' : currentAudioLabel;
 
   if (externalAudioClips.length > 0) {
-    const outputTimelineDuration = Math.max(
-      0,
-      ...clips.map((c) => {
-        const d = c.duration - c.trimStart - c.trimEnd;
-        return Math.max(0, c.startTime - timeOrigin) + Math.max(0, d);
-      })
-    );
-
     const sortedAudio = [...externalAudioClips].sort((a, b) => a.startTime - b.startTime);
     const parts: string[] = [];
     let cursor = 0;
@@ -2087,7 +1998,7 @@ function buildMultiClipFilterChain(
       cursor += dur;
     }
 
-    const tail = outputTimelineDuration - cursor;
+    const tail = totalDuration - cursor;
     if (tail > 0.01) {
       const tl = `atail${seg++}`;
       filterComplex.push(`aevalsrc=0:d=${tail}:s=48000:c=stereo[${tl}]`);
@@ -2095,7 +2006,7 @@ function buildMultiClipFilterChain(
     }
 
     if (parts.length === 0) {
-      filterComplex.push(`aevalsrc=0:d=${outputTimelineDuration}:s=48000:c=stereo[${finalAudioLabel}]`);
+      filterComplex.push(`aevalsrc=0:d=${totalDuration}:s=48000:c=stereo[${finalAudioLabel}]`);
     } else {
       filterComplex.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[${finalAudioLabel}]`);
     }
@@ -2125,7 +2036,7 @@ async function exportMultiClip(
   const externalAudioClips = (audioClips || []).filter((c) => isLikelyAudioFile(c.file));
   const timeOrigin = clips.length > 0 ? Math.min(...clips.map((c) => c.startTime)) : 0;
   
-  const { gaps, gapMap } = detectGaps(clips);
+  
   
   const { inputFiles, clipToInputIndex, uniqueFiles, inputVideoMeta } = await loadUniqueFiles(
     ffmpegInstance, clips, safeMode, onProgress
@@ -2138,7 +2049,7 @@ async function exportMultiClip(
   const targetFps = parseInt(settings.fps || '30');
   
   const { filterComplex, finalVideoLabel, finalAudioLabel } = buildMultiClipFilterChain(
-    clips, gaps, gapMap, clipToInputIndex, inputVideoMeta, transitions, textOverlays,
+    clips, clipToInputIndex, inputVideoMeta, transitions, textOverlays,
     externalAudioClips, externalAudioFileToInputIndex, resolution, targetFps, timeOrigin, uniqueFiles.length
   );
   
