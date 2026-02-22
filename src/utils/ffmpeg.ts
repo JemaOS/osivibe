@@ -720,12 +720,17 @@ async function execWithTimeout(ffmpegInstance: FFmpeg, args: string[], timeoutMs
     }, 750);
 
     ffmpegInstance.exec(args)
-      .then(() => {
+      .then((code) => {
         clearTimeout(timer);
         clearInterval(progressTick);
         const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-        console.log(`✅ FFmpeg exec completed in ${elapsed}s`);
-        resolve();
+        if (code !== 0) {
+          console.error(`❌ FFmpeg exec failed with code ${code} after ${elapsed}s`);
+          reject(new Error(`FFmpeg exited with code ${code}`));
+        } else {
+          console.log(`✅ FFmpeg exec completed in ${elapsed}s`);
+          resolve();
+        }
       })
       .catch((e) => {
         clearTimeout(timer);
@@ -1427,7 +1432,12 @@ async function exportSingleClipFastPath(
     }
   }
 
-  let args = [
+  let args = [];
+  if (isImage) {
+    args.push('-loop', '1');
+  }
+  
+  args.push(
     '-i', inputFileName,
     '-ss', clip.trimStart.toString(),
     '-t', clipDuration.toString(),
@@ -1440,7 +1450,7 @@ async function exportSingleClipFastPath(
     '-pix_fmt', encodingSettings.pixelFormat,
     '-threads', encodingSettings.threads,
     outputFileName
-  ];
+  );
 
   args = buildOptimizedArgs(args, encodingSettings);
 
@@ -1505,10 +1515,11 @@ function buildSingleClipAudioFilter(
   externalAudioClipsSingle: any[],
   extraAudioFiles: File[],
   timeOriginSingle: number,
-  fc: string[]
+  fc: string[],
+  isImage: boolean
 ) {
   let clipAudioLabel = 'aclip';
-  if (clip.audioMuted) {
+  if (isImage || clip.audioMuted) {
     fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
     fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
@@ -1636,7 +1647,12 @@ async function exportSingleClipComplexPath(
     buildImageTransformFilter(imageClip, 0, clipDuration, resolution, effectiveFps, true, 'v0', fc);
   } else {
     const baseFilter = buildVideoFilter(clip, resolution, isImage);
-    const vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
+    let vBase = '';
+    if (isImage) {
+      vBase = `[0:v]loop=loop=-1:size=1:start=0,trim=duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
+    } else {
+      vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps},setsar=1`;
+    }
     fc.push(`${vBase}[v0]`);
   }
 
@@ -1644,7 +1660,7 @@ async function exportSingleClipComplexPath(
     fc.push(`[${bgInputIndex}:v]setpts=PTS-STARTPTS[bg]`);
   }
 
-  buildSingleClipAudioFilter(clip, clipDuration, externalAudioClipsSingle, extraAudioFiles, timeOriginSingle, fc);
+  buildSingleClipAudioFilter(clip, clipDuration, externalAudioClipsSingle, extraAudioFiles, timeOriginSingle, fc, isImage);
   
   let vLabel = buildSingleClipTransitionsFilter(clipDuration, needsBg, startTransition, endTransition, fc);
   vLabel = buildSingleClipTextFilter(textOverlays, vLabel, resolution, fc);

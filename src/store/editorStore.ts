@@ -1232,6 +1232,16 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         }
       });
 
+      // Update clip thumbnails in active project
+      state.tracks.forEach(track => {
+        track.clips.forEach(clip => {
+          const media = state.mediaFiles.find(m => m.id === clip.mediaId);
+          if (media && media.thumbnail) {
+            clip.thumbnail = media.thumbnail;
+          }
+        });
+      });
+
       // Regenerate Blob URLs for projects history
       state.projects.forEach(project => {
         project.mediaFiles.forEach(media => {
@@ -1244,6 +1254,16 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
               media.thumbnail = media.url;
             }
           }
+        });
+        
+        // Update clip thumbnails in project history
+        project.tracks.forEach(track => {
+          track.clips.forEach(clip => {
+            const media = project.mediaFiles.find(m => m.id === clip.mediaId);
+            if (media && media.thumbnail) {
+              clip.thumbnail = media.thumbnail;
+            }
+          });
         });
       });
       
