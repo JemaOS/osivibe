@@ -2270,13 +2270,10 @@ export const VideoPlayer: React.FC = () => {
               )}
             </>
           ) : (
-            <div className="text-center text-neutral-400 p-2 fold-cover:p-1 fold-open:p-4">
-              <div className={`${isMinimal ? 'w-12 h-12' : isCompact ? 'w-14 h-14' : 'w-20 h-20'} mx-auto mb-2 fold-cover:mb-1 fold-open:mb-4 rounded-xl fold-cover:rounded-lg fold-open:rounded-2xl bg-glass-medium flex items-center justify-center`}>
-                <Play className={`${isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-10 h-10'}`} />
-              </div>
-              <p className={`${isMinimal ? 'text-xs' : isCompact ? 'text-sm' : 'text-body-lg'} text-white`}>Aucune vidéo</p>
-              <p className={`${isMinimal ? 'text-[9px]' : isCompact ? 'text-[10px]' : 'text-small'} mt-0.5 fold-cover:mt-0.5 fold-open:mt-1 text-neutral-400`}>Ajoutez des médias</p>
-            </div>
+            <EmptyState
+              isMinimal={isMinimal}
+              isCompact={isCompact}
+            />
           )}
         </div>
 
