@@ -1303,6 +1303,61 @@ function checkComplexFeatures(
 type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean };
 type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string };
 
+
+function buildVideoFilter(
+  clip: ExportClip,
+  resolution: { width: number; height: number },
+  isImage: boolean
+): string {
+  let filter = '';
+
+  if (clip.crop) {
+    const w = `iw*${clip.crop.width}/100`;
+    const h = `ih*${clip.crop.height}/100`;
+    const x = `iw*${clip.crop.x}/100`;
+    const y = `ih*${clip.crop.y}/100`;
+    filter += `crop=${w}:${h}:${x}:${y}`;
+  }
+
+  if (isImage && clip.transform) {
+    const scaleX = clip.transform.scaleX ?? clip.transform.scale;
+    const scaleY = clip.transform.scaleY ?? clip.transform.scale;
+    
+    const actualWidthPct = (80 * scaleX) / 100;
+    const actualHeightPct = (80 * scaleY) / 100;
+    
+    const targetW = Math.max(2, Math.round(resolution.width * actualWidthPct / 100));
+    const targetH = Math.max(2, Math.round(resolution.height * actualHeightPct / 100));
+    
+    if (filter) filter += ',';
+    filter += `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease`;
+    filter += `,format=rgba,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:color=black@0`;
+    
+    if (clip.transform.rotation !== 0) {
+      const angle = clip.transform.rotation * Math.PI / 180;
+      filter += `,rotate=${angle}:c=black@0:ow=rotw(${angle}):oh=roth(${angle})`;
+    }
+    
+    const centerX = Math.round(resolution.width * clip.transform.x / 100);
+    const centerY = Math.round(resolution.height * clip.transform.y / 100);
+    
+    const padX = `${centerX}-iw/2`;
+    const padY = `${centerY}-ih/2`;
+    
+    filter += `,pad=${resolution.width}:${resolution.height}:${padX}:${padY}:color=black@0`;
+  } else {
+    if (filter) filter += ',';
+    filter += `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+  }
+
+  if (clip.filter) {
+    const filterString = getFilterString(clip.filter);
+    if (filterString) filter += ',' + filterString;
+  }
+
+  return filter;
+}
+
 async function exportSingleClipFastPath(
   ffmpegInstance: any,
   clip: ExportClip,
@@ -1318,14 +1373,8 @@ async function exportSingleClipFastPath(
   textOverlays?: any[],
   onProgress?: (progress: number, message: string) => void
 ) {
-  let videoFilterChain = `scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
-
-  if (clip.filter) {
-    const filterString = getFilterString(clip.filter);
-    if (filterString) {
-      videoFilterChain += ',' + filterString;
-    }
-  }
+  const isImage = clip.file.type.startsWith("image/");
+  let videoFilterChain = buildVideoFilter(clip, resolution, isImage);
 
   if (textOverlays && textOverlays.length > 0) {
     const relevantTexts = textOverlays.filter((text) => {
@@ -1419,11 +1468,9 @@ async function exportSingleClipComplexPath(
   const bgInputIndex = 1 + extraAudioInputNames.length;
   const fc: string[] = [];
 
-  let vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2,fps=${effectiveFps}`;
-  if (clip.filter) {
-    const filterString = getFilterString(clip.filter);
-    if (filterString) vBase += `,${filterString}`;
-  }
+  const isImage = clip.file.type.startsWith("image/");
+  const baseFilter = buildVideoFilter(clip, resolution, isImage);
+  let vBase = `[0:v]trim=start=${clip.trimStart}:duration=${clipDuration},setpts=PTS-STARTPTS,${baseFilter},fps=${effectiveFps}`;
   fc.push(`${vBase}[v0]`);
 
   if (needsBg) {
@@ -1766,27 +1813,21 @@ function buildMultiClipFilterChain(
     const meta = inputVideoMeta.get(inputIndex);
     const needsScalePad = !isImage && meta ? (meta.width !== resolution.width || meta.height !== resolution.height) : true;
     
+    const baseFilter = buildVideoFilter(clip, resolution, isImage);
     let videoFilter = '';
     if (isImage) {
-      videoFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
-
-      if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
-      if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
+      videoFilter = `[${inputIndex}:v]loop=loop=-1:size=1:start=0,trim=duration=${duration},setpts=PTS-STARTPTS,${baseFilter}`;
     } else {
       videoFilter = `[${inputIndex}:v]trim=start=${clip.trimStart}:duration=${duration},setpts=PTS-STARTPTS`;
-
-      if (needsScalePad) {
-        videoFilter += `,scale=${resolution.width}:${resolution.height}:force_original_aspect_ratio=decrease,pad=${resolution.width}:${resolution.height}:(ow-iw)/2:(oh-ih)/2`;
+      if (needsScalePad || clip.crop) {
+        videoFilter += `,${baseFilter}`;
+      } else if (clip.filter) {
+        const filterString = getFilterString(clip.filter);
+        if (filterString) videoFilter += ',' + filterString;
       }
-
-      if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
-      if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
     }
-    
-    if (clip.filter) {
-      const filterString = getFilterString(clip.filter);
-      if (filterString) videoFilter += ',' + filterString;
-    }
+    if (needsFpsNormalization) videoFilter += `,fps=${targetFps}`;
+    if (needsPerClipTimebaseNormalization) videoFilter += `,settb=1/${targetFps}`;
     
     filterComplex.push(`${videoFilter}[v${i}]`);
     
