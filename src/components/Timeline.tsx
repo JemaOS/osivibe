@@ -62,16 +62,28 @@ const getCompactLabel = (trackName: string): string => {
 };
 
 const getTrackLabel = (trackName: string, layoutMode: string): string => {
-  const isDesktop = layoutMode === 'desktop';
-  const isExpanded = layoutMode === 'expanded';
-  const isMinimal = layoutMode === 'minimal';
-  const isCompact = layoutMode === 'compact' || layoutMode === 'adaptive';
-  
-  if (isDesktop || isExpanded) return getExpandedLabel(trackName);
-  
-  if (isMinimal) return getMinimalLabel(trackName);
-  if (isCompact) return getCompactLabel(trackName);
-  
+  const lowerName = trackName.toLowerCase();
+
+  if (layoutMode === 'desktop' || layoutMode === 'expanded') {
+    return trackName;
+  }
+
+  if (layoutMode === 'minimal') {
+    if (lowerName.includes('video')) return 'Vid';
+    if (lowerName.includes('image')) return 'Img';
+    if (lowerName.includes('audio')) return 'Aud';
+    if (lowerName.includes('text')) return 'Txt';
+    return trackName.substring(0, 3);
+  }
+
+  if (layoutMode === 'compact' || layoutMode === 'adaptive') {
+    if (lowerName.includes('video')) return 'Video';
+    if (lowerName.includes('image')) return 'Imgs';
+    if (lowerName.includes('audio')) return 'Audio';
+    if (lowerName.includes('text')) return 'Text';
+    return trackName.length > 5 ? trackName.substring(0, 5) : trackName;
+  }
+
   return trackName;
 };
 
@@ -1132,22 +1144,22 @@ export const Timeline: React.FC = () => {
 
   // Find smart track based on media type
   const findSmartTrack = (mediaType: string, tracksList: any[]) => {
-    let smartTrack: any = null;
-    
-    if (mediaType === 'image') {
-      smartTrack = tracksList.find(t => t.type === 'video' && (t.name.toLowerCase().includes('image') || t.name.toLowerCase().includes('overlay')));
-    } else if (mediaType === 'video') {
-      smartTrack = tracksList.find(t => t.type === 'video' && t.name.toLowerCase().includes('video'));
-    } else if (mediaType === 'audio') {
-      smartTrack = tracksList.find(t => t.type === 'audio' && t.name.toLowerCase().includes('audio'));
+    const typeMap: Record<string, { type: string; keywords: string[] }> = {
+      'image': { type: 'video', keywords: ['image', 'overlay'] },
+      'video': { type: 'video', keywords: ['video'] },
+      'audio': { type: 'audio', keywords: ['audio'] },
+    };
+
+    const config = typeMap[mediaType];
+    if (config) {
+      const smartTrack = tracksList.find(t => 
+        t.type === config.type && config.keywords.some(k => t.name.toLowerCase().includes(k))
+      );
+      if (smartTrack) return smartTrack;
     }
     
-    if (!smartTrack) {
-      const trackType = mediaType === 'audio' ? 'audio' : 'video';
-      smartTrack = tracksList.find(t => t.type === trackType);
-    }
-    
-    return smartTrack;
+    const fallbackType = mediaType === 'audio' ? 'audio' : 'video';
+    return tracksList.find(t => t.type === fallbackType);
   };
 
   const handleMediaDrop = (media: MediaFile, trackId: string, time: number) => {
@@ -1429,6 +1441,92 @@ export const Timeline: React.FC = () => {
     const { removeClip } = useEditorStore.getState();
     removeClip(clipId);
     setContextMenu(null);
+  };
+
+  const renderContextMenuContent = () => {
+    if (contextMenu.type === 'clip') {
+      const clip = tracks.flatMap(t => t.clips).find(c => c.id === contextMenu.id);
+      const media = clip ? mediaFiles.find(m => m.id === clip.mediaId) : null;
+      const isVideo = media?.type === 'video';
+
+      return (
+        <>
+          <button
+            onClick={() => handleCutClip(contextMenu.id)}
+            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Scissors className="w-4 h-4" />
+            <span>Couper</span>
+          </button>
+
+          {isVideo && (
+            <button
+              onClick={() => handleDetachAudio(contextMenu.id)}
+              className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+            >
+              <Music2 className="w-4 h-4" />
+              <span>Detacher audio</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => handleDuplicateClip(contextMenu.id)}
+            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Copy className="w-4 h-4" />
+            <span>Dupliquer</span>
+          </button>
+
+          <div className="h-px bg-white/10 my-1" />
+
+          <button
+            onClick={() => handleDeleteClip(contextMenu.id)}
+            className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Supprimer</span>
+          </button>
+        </>
+      );
+    } else if (contextMenu.type === 'text') {
+      return (
+        <>
+          <button
+            onClick={() => {
+              const text = textOverlays.find(t => t.id === contextMenu.id);
+              if (text) {
+                setCopiedText({ ...text });
+                setCopiedClip(null);
+                addTextOverlay({
+                  ...text,
+                  id: undefined,
+                  startTime: text.startTime + 0.5,
+                });
+              }
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Copy className="w-4 h-4" />
+            <span>Dupliquer</span>
+          </button>
+
+          <div className="h-px bg-white/10 my-1" />
+
+          <button
+            onClick={() => {
+              removeTextOverlay(contextMenu.id);
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Supprimer</span>
+          </button>
+        </>
+      );
+    }
+    return null;
   };
 
   // Get dynamic sizes for UI elements
@@ -1735,94 +1833,7 @@ export const Timeline: React.FC = () => {
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {(() => {
-            if (contextMenu.type === 'clip') {
-              const clip = tracks.flatMap(t => t.clips).find(c => c.id === contextMenu.id);
-              const media = clip ? mediaFiles.find(m => m.id === clip.mediaId) : null;
-              const isVideo = media?.type === 'video';
-
-              return (
-                <>
-                  <button
-                    onClick={() => handleCutClip(contextMenu.id)}
-                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-                  >
-                    <Scissors className="w-4 h-4" />
-                    <span>Couper</span>
-                  </button>
-
-                  {isVideo && (
-                    <button
-                      onClick={() => handleDetachAudio(contextMenu.id)}
-                      className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-                    >
-                      <Music2 className="w-4 h-4" />
-                      <span>Détacher audio</span>
-                    </button>
-                  )}
-
-                  <button
-                    onClick={() => handleDuplicateClip(contextMenu.id)}
-                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>Dupliquer</span>
-                  </button>
-
-                  <div className="h-px bg-white/10 my-1" />
-
-                  <button
-                    onClick={() => handleDeleteClip(contextMenu.id)}
-                    className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Supprimer</span>
-                  </button>
-                </>
-              );
-            } else if (contextMenu.type === 'text') {
-              return (
-                <>
-                  <button
-                    onClick={() => {
-                      const text = textOverlays.find(t => t.id === contextMenu.id);
-                      if (text) {
-                        setCopiedText({ ...text });
-                        setCopiedClip(null);
-                        // Paste immediately for duplicate effect or just copy? 
-                        // Standard behavior is usually just copy, but "Duplicate" implies action.
-                        // Let's implement duplicate here.
-                        addTextOverlay({
-                          ...text,
-                          id: undefined,
-                          startTime: text.startTime + 0.5, // Offset slightly
-                        });
-                      }
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>Dupliquer</span>
-                  </button>
-
-                  <div className="h-px bg-white/10 my-1" />
-
-                  <button
-                    onClick={() => {
-                      removeTextOverlay(contextMenu.id);
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Supprimer</span>
-                  </button>
-                </>
-              );
-            }
-            return null;
-          })()}
+          {renderContextMenuContent()}
         </div>
       )}
     </div>

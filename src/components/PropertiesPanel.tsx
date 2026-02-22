@@ -1076,42 +1076,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     return targetClip;
   };
 
-  const renderTransitions = () => {
-    const targetClip = getTargetClip();
-
-    if (!targetClip) {
-      return (
-        <div className="px-4 py-8 text-center text-neutral-500">
-          <Move className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p className="text-body">Aucun clip selectionne</p>
-          <p className="text-small mt-1">Placez le curseur sur un clip ou selectionnez-en un</p>
-        </div>
-      );
-    }
-
-    const currentTransition = transitions.find(t => t.clipId === targetClip!.id);
-    const categories = Array.from(new Set(AVAILABLE_TRANSITIONS.map(t => t.category)));
-
-    const handleTransitionDragStart = (transition: typeof AVAILABLE_TRANSITIONS[0]) => (e: React.DragEvent) => {
-      if (transition.type !== 'none') {
-        e.dataTransfer.setData('application/json', JSON.stringify({
-          type: 'NEW_TRANSITION',
-          transitionType: transition.type
-        }));
-        e.dataTransfer.effectAllowed = 'copy';
-      }
-    };
-
-    const handleTransitionClick = (transition: typeof AVAILABLE_TRANSITIONS[0]) => {
-      if (transition.type === 'none') {
-        removeTransition(targetClip!.id);
-        setPreviewTransition(null);
-      } else {
-        setTransition(targetClip!.id, transition.type, 0.5);
-        setPreviewTransition(transition.type);
-      }
-    };
-
   const getTransitionCategoryLabel = (category: string): string => {
     const labels: Record<string, string> = {
       basic: 'Basiques',
@@ -1124,7 +1088,27 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     return labels[category] || 'Effets';
   };
 
-  const renderTransitionsList = (category: string, categoryTransitions: typeof AVAILABLE_TRANSITIONS) => {
+  const renderTransitionsList = (category: string, categoryTransitions: typeof AVAILABLE_TRANSITIONS, currentTransition: any, targetClipId: string) => {
+    const handleTransitionDragStart = (transition: typeof AVAILABLE_TRANSITIONS[0]) => (e: React.DragEvent) => {
+      if (transition.type !== 'none') {
+        e.dataTransfer.setData('application/json', JSON.stringify({
+          type: 'NEW_TRANSITION',
+          transitionType: transition.type
+        }));
+        e.dataTransfer.effectAllowed = 'copy';
+      }
+    };
+
+    const handleTransitionClick = (transition: typeof AVAILABLE_TRANSITIONS[0]) => {
+      if (transition.type === 'none') {
+        removeTransition(targetClipId);
+        setPreviewTransition(null);
+      } else {
+        setTransition(targetClipId, transition.type, 0.5);
+        setPreviewTransition(transition.type);
+      }
+    };
+
     return (
       <div key={category}>
         <p className="text-caption text-neutral-500 uppercase mb-2">
@@ -1154,6 +1138,31 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       </div>
     );
   };
+
+  const renderTransitions = () => {
+    const targetClip = getTargetClip();
+
+    if (!targetClip) {
+      return (
+        <div className="px-4 py-8 text-center text-neutral-500">
+          <Move className="w-12 h-12 mx-auto mb-3 opacity-40" />
+          <p className="text-body">Aucun clip selectionne</p>
+          <p className="text-small mt-1">Placez le curseur sur un clip ou selectionnez-en un</p>
+        </div>
+      );
+    }
+
+    const currentTransition = transitions.find(t => t.clipId === targetClip!.id);
+    const categories = Array.from(new Set(AVAILABLE_TRANSITIONS.map(t => t.category)));
+
+    return (
+      <div className="p-4 space-y-4">
+        {categories.map((category) => {
+          const categoryTransitions = AVAILABLE_TRANSITIONS.filter(t => t.category === category);
+          return renderTransitionsList(category, categoryTransitions, currentTransition, targetClip!.id);
+        })}
+      </div>
+    );
   };
 
   const renderFilters = () => {
