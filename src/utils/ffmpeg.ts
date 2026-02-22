@@ -1434,7 +1434,8 @@ function buildSingleClipExternalAudio(
   externalAudioClipsSingle: any[],
   extraAudioFiles: File[],
   timeOriginSingle: number,
-  fc: string[]
+  fc: string[],
+  outLabel: string
 ) {
   const sortedAudio = [...externalAudioClipsSingle].sort((a, b) => a.startTime - b.startTime);
   const parts: string[] = [];
@@ -1470,9 +1471,9 @@ function buildSingleClipExternalAudio(
   }
 
   if (parts.length === 0) {
-    fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[a0]`);
+    fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[${outLabel}]`);
   } else {
-    fc.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[a0]`);
+    fc.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[${outLabel}]`);
   }
 }
 
@@ -1484,12 +1485,19 @@ function buildSingleClipAudioFilter(
   timeOriginSingle: number,
   fc: string[]
 ) {
-  if (externalAudioClipsSingle.length > 0) {
-    buildSingleClipExternalAudio(clip, clipDuration, externalAudioClipsSingle, extraAudioFiles, timeOriginSingle, fc);
-  } else if (clip.audioMuted) {
-    fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[a0]`);
+  let clipAudioLabel = 'aclip';
+  if (clip.audioMuted) {
+    fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
-    fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS[a0]`);
+    fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
+  }
+
+  if (externalAudioClipsSingle.length > 0) {
+    const extAudioLabel = 'aext_only';
+    buildSingleClipExternalAudio(clip, clipDuration, externalAudioClipsSingle, extraAudioFiles, timeOriginSingle, fc, extAudioLabel);
+    fc.push(`[${clipAudioLabel}][${extAudioLabel}]amix=inputs=2:duration=longest[a0]`);
+  } else {
+    fc.push(`[${clipAudioLabel}]anull[a0]`);
   }
 }
 
@@ -2103,12 +2111,15 @@ function buildExternalAudioFilter(
     parts.push(`[${tl}]`);
   }
 
-  const finalAudioLabel = 'outa_ext';
+  const extAudioLabel = 'outa_ext_only';
   if (parts.length === 0) {
-    filterComplex.push(`aevalsrc=0:d=${totalDuration}:s=48000:c=stereo[${finalAudioLabel}]`);
+    return currentAudioLabel;
   } else {
-    filterComplex.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[${finalAudioLabel}]`);
+    filterComplex.push(`${parts.join('')}concat=n=${parts.length}:v=0:a=1[${extAudioLabel}]`);
   }
+  
+  const finalAudioLabel = 'outa_final';
+  filterComplex.push(`[${currentAudioLabel}][${extAudioLabel}]amix=inputs=2:duration=longest[${finalAudioLabel}]`);
   
   return finalAudioLabel;
 }
