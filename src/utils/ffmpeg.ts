@@ -1050,6 +1050,8 @@ export function getSingleClipTransitionFilter(
   
   const duration = Math.max(0.1, Math.min(transition.duration, clipDuration * 0.5)); // Max 50% of clip duration
   const frames = Math.round(duration * 30); // Assuming 30fps for frame-based calculations
+  const w = resolution ? resolution.width : 1920;
+  const h = resolution ? resolution.height : 1080;
   
   // For single clips, we apply fade in/out effects based on position
   // 'start' position = fade in at the beginning
@@ -1062,31 +1064,65 @@ export function getSingleClipTransitionFilter(
       case 'dissolve':
       case 'cross-dissolve':
         return `fade=t=in:st=0:d=${duration}`;
+      
+      // Slide transitions: animate position from off-screen to normal
+      case 'slide-left':
+        // Slide in from the right (starts off-screen right, moves left to normal position)
+        return `format=yuva444p,geq=lum='if(lt(T,${duration}),if(gte(X,W*(1-T/${duration})),lum(X-W*(1-T/${duration}),Y),0),lum(X,Y))':cb='if(lt(T,${duration}),if(gte(X,W*(1-T/${duration})),cb(X-W*(1-T/${duration}),Y),128),cb(X,Y))':cr='if(lt(T,${duration}),if(gte(X,W*(1-T/${duration})),cr(X-W*(1-T/${duration}),Y),128),cr(X,Y))':a='if(lt(T,${duration}),if(gte(X,W*(1-T/${duration})),255,0),255)',format=yuv420p`;
+      case 'slide-right':
+        // Slide in from the left (starts off-screen left, moves right to normal position)
+        return `format=yuva444p,geq=lum='if(lt(T,${duration}),if(lt(X,W*T/${duration}),lum(X+W*(1-T/${duration}),Y),0),lum(X,Y))':cb='if(lt(T,${duration}),if(lt(X,W*T/${duration}),cb(X+W*(1-T/${duration}),Y),128),cb(X,Y))':cr='if(lt(T,${duration}),if(lt(X,W*T/${duration}),cr(X+W*(1-T/${duration}),Y),128),cr(X,Y))':a='if(lt(T,${duration}),if(lt(X,W*T/${duration}),255,0),255)',format=yuv420p`;
+      case 'slide-up':
+        // Slide in from the bottom (starts off-screen bottom, moves up to normal position)
+        return `format=yuva444p,geq=lum='if(lt(T,${duration}),if(gte(Y,H*(1-T/${duration})),lum(X,Y-H*(1-T/${duration})),0),lum(X,Y))':cb='if(lt(T,${duration}),if(gte(Y,H*(1-T/${duration})),cb(X,Y-H*(1-T/${duration})),128),cb(X,Y))':cr='if(lt(T,${duration}),if(gte(Y,H*(1-T/${duration})),cr(X,Y-H*(1-T/${duration})),128),cr(X,Y))':a='if(lt(T,${duration}),if(gte(Y,H*(1-T/${duration})),255,0),255)',format=yuv420p`;
+      case 'slide-down':
+        // Slide in from the top (starts off-screen top, moves down to normal position)
+        return `format=yuva444p,geq=lum='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),lum(X,Y+H*(1-T/${duration})),0),lum(X,Y))':cb='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),cb(X,Y+H*(1-T/${duration})),128),cb(X,Y))':cr='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),cr(X,Y+H*(1-T/${duration})),128),cr(X,Y))':a='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),255,0),255)',format=yuv420p`;
+      case 'slide-diagonal-tl':
+        // Slide in from bottom-right diagonally to top-left position
+        // Use fade + zoompan as approximation for diagonal slide
+        return `zoompan=z='if(lte(on,${frames}),1.3-0.3*on/${frames},1)':x='if(lte(on,${frames}),iw*0.15*(1-on/${frames}),0)':y='if(lte(on,${frames}),ih*0.15*(1-on/${frames}),0)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
+      case 'slide-diagonal-tr':
+        // Slide in from bottom-left diagonally to top-right position
+        return `zoompan=z='if(lte(on,${frames}),1.3-0.3*on/${frames},1)':x='if(lte(on,${frames}),-iw*0.15*(1-on/${frames}),0)':y='if(lte(on,${frames}),ih*0.15*(1-on/${frames}),0)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
+      
       case 'zoom-in':
         // Zoom in from smaller to normal size
-        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=${resolution ? `${resolution.width}x${resolution.height}` : '1920x1080'},fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
       case 'zoom-out':
         // Start zoomed in, zoom out to normal
-        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=${resolution ? `${resolution.width}x${resolution.height}` : '1920x1080'},fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
       case 'rotate-in':
         // Rotate in effect: start rotated (PI radians = 180°) and rotate to normal (0°)
-        // The rotation angle decreases from PI to 0 over the duration
-        // Using format filter to ensure proper pixel format for rotation
         // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
         return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
       case 'rotate-out':
         // For rotate-out at start position, we rotate FROM a rotated state TO normal
-        // This is similar to rotate-in but conceptually the "out" refers to the previous clip
         // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
         return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
+      
+      // Wipe transitions: use crop to progressively reveal the clip
       case 'wipe-left':
+        // Wipe from right to left: progressively reveal from right side
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(gte(X,W*(1-T/${duration})),255,0),255)',format=yuv420p`;
       case 'wipe-right':
+        // Wipe from left to right: progressively reveal from left side
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(X,W*T/${duration}),255,0),255)',format=yuv420p`;
       case 'wipe-up':
+        // Wipe from bottom to top: progressively reveal from bottom
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(gte(Y,H*(1-T/${duration})),255,0),255)',format=yuv420p`;
       case 'wipe-down':
+        // Wipe from top to bottom: progressively reveal from top
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),255,0),255)',format=yuv420p`;
       case 'circle-wipe':
+        // Circle wipe: reveal from center outward in a circle
+        // Distance from center normalized, compared against progress
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(sqrt(pow(X-W/2,2)+pow(Y-H/2,2)),T/${duration}*sqrt(pow(W/2,2)+pow(H/2,2))),255,0),255)',format=yuv420p`;
       case 'diamond-wipe':
-        // Wipe effects - use fade as approximation for single clip
-        return `fade=t=in:st=0:d=${duration}`;
+        // Diamond wipe: reveal from center outward in a diamond shape
+        // Manhattan distance from center, compared against progress
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(abs(X-W/2)+abs(Y-H/2),T/${duration}*(W/2+H/2)),255,0),255)',format=yuv420p`;
+      
       default:
         return `fade=t=in:st=0:d=${duration}`;
     }
@@ -1098,29 +1134,62 @@ export function getSingleClipTransitionFilter(
       case 'dissolve':
       case 'cross-dissolve':
         return `fade=t=out:st=${fadeStart}:d=${duration}`;
+      
+      // Slide transitions: animate position from normal to off-screen
+      case 'slide-left':
+        // Slide out to the left (moves from normal position to off-screen left)
+        return `format=yuva444p,geq=lum='if(gt(T,${fadeStart}),if(lt(X,W*(1-(T-${fadeStart})/${duration})),lum(X+W*(T-${fadeStart})/${duration},Y),0),lum(X,Y))':cb='if(gt(T,${fadeStart}),if(lt(X,W*(1-(T-${fadeStart})/${duration})),cb(X+W*(T-${fadeStart})/${duration},Y),128),cb(X,Y))':cr='if(gt(T,${fadeStart}),if(lt(X,W*(1-(T-${fadeStart})/${duration})),cr(X+W*(T-${fadeStart})/${duration},Y),128),cr(X,Y))':a='if(gt(T,${fadeStart}),if(lt(X,W*(1-(T-${fadeStart})/${duration})),255,0),255)',format=yuv420p`;
+      case 'slide-right':
+        // Slide out to the right (moves from normal position to off-screen right)
+        return `format=yuva444p,geq=lum='if(gt(T,${fadeStart}),if(gte(X,W*(T-${fadeStart})/${duration}),lum(X-W*(T-${fadeStart})/${duration},Y),0),lum(X,Y))':cb='if(gt(T,${fadeStart}),if(gte(X,W*(T-${fadeStart})/${duration}),cb(X-W*(T-${fadeStart})/${duration},Y),128),cb(X,Y))':cr='if(gt(T,${fadeStart}),if(gte(X,W*(T-${fadeStart})/${duration}),cr(X-W*(T-${fadeStart})/${duration},Y),128),cr(X,Y))':a='if(gt(T,${fadeStart}),if(gte(X,W*(T-${fadeStart})/${duration}),255,0),255)',format=yuv420p`;
+      case 'slide-up':
+        // Slide out upward (moves from normal position to off-screen top)
+        return `format=yuva444p,geq=lum='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),lum(X,Y+H*(T-${fadeStart})/${duration}),0),lum(X,Y))':cb='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),cb(X,Y+H*(T-${fadeStart})/${duration}),128),cb(X,Y))':cr='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),cr(X,Y+H*(T-${fadeStart})/${duration}),128),cr(X,Y))':a='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),255,0),255)',format=yuv420p`;
+      case 'slide-down':
+        // Slide out downward (moves from normal position to off-screen bottom)
+        return `format=yuva444p,geq=lum='if(gt(T,${fadeStart}),if(gte(Y,H*(T-${fadeStart})/${duration}),lum(X,Y-H*(T-${fadeStart})/${duration}),0),lum(X,Y))':cb='if(gt(T,${fadeStart}),if(gte(Y,H*(T-${fadeStart})/${duration}),cb(X,Y-H*(T-${fadeStart})/${duration}),128),cb(X,Y))':cr='if(gt(T,${fadeStart}),if(gte(Y,H*(T-${fadeStart})/${duration}),cr(X,Y-H*(T-${fadeStart})/${duration}),128),cr(X,Y))':a='if(gt(T,${fadeStart}),if(gte(Y,H*(T-${fadeStart})/${duration}),255,0),255)',format=yuv420p`;
+      case 'slide-diagonal-tl':
+        // Slide out diagonally toward top-left
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1+0.3*(on-${Math.round(fadeStart * 30)})/${frames},1)':x='if(gte(on,${Math.round(fadeStart * 30)}),iw*0.15*(on-${Math.round(fadeStart * 30)})/${frames},0)':y='if(gte(on,${Math.round(fadeStart * 30)}),ih*0.15*(on-${Math.round(fadeStart * 30)})/${frames},0)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
+      case 'slide-diagonal-tr':
+        // Slide out diagonally toward top-right
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1+0.3*(on-${Math.round(fadeStart * 30)})/${frames},1)':x='if(gte(on,${Math.round(fadeStart * 30)}),-iw*0.15*(on-${Math.round(fadeStart * 30)})/${frames},0)':y='if(gte(on,${Math.round(fadeStart * 30)}),ih*0.15*(on-${Math.round(fadeStart * 30)})/${frames},0)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
+      
       case 'zoom-in':
-        // Zoom in at the end (zoom out of frame)
-        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+        // Zoom in at the end (zoom into frame then disappear)
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1+0.5*(on-${Math.round(fadeStart * 30)})/${frames},1)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'zoom-out':
-        // Zoom out at the end
-        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+        // Zoom out at the end (shrink away)
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1.5-0.5*(on-${Math.round(fadeStart * 30)})/${frames},1.5)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'rotate-in':
         // For rotate-in at end position, rotate from normal to rotated state
         // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
         return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'rotate-out':
         // Rotate out effect: start normal (0°) and rotate to PI radians (180°)
-        // The rotation angle increases from 0 to PI over the duration at the end
         // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
         return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
+      
+      // Wipe transitions: use alpha to progressively hide the clip
       case 'wipe-left':
+        // Wipe out to the left: progressively hide from left side
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(gte(X,W*(T-${fadeStart})/${duration}),255,0),255)',format=yuv420p`;
       case 'wipe-right':
+        // Wipe out to the right: progressively hide from right side
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(X,W*(1-(T-${fadeStart})/${duration})),255,0),255)',format=yuv420p`;
       case 'wipe-up':
+        // Wipe out upward: progressively hide from top
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(gte(Y,H*(T-${fadeStart})/${duration}),255,0),255)',format=yuv420p`;
       case 'wipe-down':
+        // Wipe out downward: progressively hide from bottom
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),255,0),255)',format=yuv420p`;
       case 'circle-wipe':
+        // Circle wipe out: shrink circle from full to center
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(sqrt(pow(X-W/2,2)+pow(Y-H/2,2)),(1-(T-${fadeStart})/${duration})*sqrt(pow(W/2,2)+pow(H/2,2))),255,0),255)',format=yuv420p`;
       case 'diamond-wipe':
-        // Wipe effects - use fade as approximation for single clip
-        return `fade=t=out:st=${fadeStart}:d=${duration}`;
+        // Diamond wipe out: shrink diamond from full to center
+        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(abs(X-W/2)+abs(Y-H/2),(1-(T-${fadeStart})/${duration})*(W/2+H/2)),255,0),255)',format=yuv420p`;
+      
       default:
         return `fade=t=out:st=${fadeStart}:d=${duration}`;
     }
