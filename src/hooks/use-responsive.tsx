@@ -531,21 +531,3 @@ export function useIsMobile(): boolean {
   return isMobile;
 }
 
-// ============================================
-// BACKWARD COMPATIBILITY
-// ============================================
-
-/**
- * Legacy hook for mobile detection (backward compatible with use-mobile.tsx)
- * @deprecated Use useResponsive() instead for more comprehensive detection
- */
-export function useIsMobile(): boolean {
-  const { isMobile } = useResponsive();
-  return isMobile;
-} * @deprecated Use useResponsive() instead for more comprehensive detection
- */
-export function useIsMobile(): boolean {
-  const { isMobile } = useResponsive();
-  return isMobile;
-}
-
