@@ -1041,7 +1041,8 @@ export function getTransitionFilter(
  */
 export function getSingleClipTransitionFilter(
   transition: Transition,
-  clipDuration: number
+  clipDuration: number,
+  resolution?: { width: number; height: number }
 ): string {
   if (transition.type === 'none') {
     return '';
@@ -1063,10 +1064,10 @@ export function getSingleClipTransitionFilter(
         return `fade=t=in:st=0:d=${duration}`;
       case 'zoom-in':
         // Zoom in from smaller to normal size
-        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=iw:ih,fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=${resolution ? `${resolution.width}x${resolution.height}` : '1920x1080'},fade=t=in:st=0:d=${duration}`;
       case 'zoom-out':
         // Start zoomed in, zoom out to normal
-        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=iw:ih,fade=t=in:st=0:d=${duration}`;
+        return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=${resolution ? `${resolution.width}x${resolution.height}` : '1920x1080'},fade=t=in:st=0:d=${duration}`;
       case 'rotate-in':
         // Rotate in effect: start rotated (PI radians = 180°) and rotate to normal (0°)
         // The rotation angle decreases from PI to 0 over the duration
@@ -2074,8 +2075,8 @@ function processClipFilter(
       const startTransition = clipTransitions.find(t => t.position === 'start');
       const endTransition = clipTransitions.find(t => t.position === 'end');
       
-      const transFilter = getSingleClipTransitionFilter(startTransition || { type: 'none' } as any, duration);
-      const transFilterEnd = getSingleClipTransitionFilter(endTransition || { type: 'none' } as any, duration);
+      const transFilter = getSingleClipTransitionFilter(startTransition || { type: 'none' } as any, duration, resolution);
+      const transFilterEnd = getSingleClipTransitionFilter(endTransition || { type: 'none' } as any, duration, resolution);
       
       let combinedTransFilter = '';
       if (transFilter && transFilterEnd) {
@@ -2383,11 +2384,6 @@ async function exportMultiClip(
     externalAudioClips, externalAudioFileToInputIndex, resolution, targetFps, timeOrigin, uniqueFiles.length
   );
 
-  // Add master volume boost to compensate for audio mixing volume loss
-  // This helps when mixing multiple audio tracks or adding external audio
-  const finalAudioWithVolume = 'outa_volume';
-  filterComplex.push(`[${finalAudioLabel}]volume=1.5[${finalAudioWithVolume}]`);
-  
   const outputFileName = `output.${outputFormat}`;
   
   let args = [
@@ -2396,7 +2392,7 @@ async function exportMultiClip(
     '-nostats',
     '-filter_complex', filterComplex.join(';'),
     '-map', `[${finalVideoLabel}]`,
-    '-map', `[${finalAudioWithVolume}]`,
+    '-map', `[${finalAudioLabel}]`,
     '-c:v', encodingSettings.videoCodec,
     '-crf', quality,
     '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
