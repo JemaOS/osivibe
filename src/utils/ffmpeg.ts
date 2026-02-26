@@ -2819,20 +2819,3 @@ export async function exportProject(
     }
   }
 }
-
-
-  }
-}
-
-
-
-  }
-}
-
-
-  }
-}
-
-
-
-
