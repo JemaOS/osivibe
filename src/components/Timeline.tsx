@@ -838,6 +838,7 @@ export const Timeline: React.FC = () => {
     updateClip,
     toggleTrackMute,
     toggleTrackLock,
+    setTrackVolume,
     addTrack,
     seek,
     setTimelineZoom,
@@ -1055,6 +1056,23 @@ export const Timeline: React.FC = () => {
                     >
                       {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
+                    {/* Volume slider - only show when not muted */}
+                    {!track.muted && !isMinimal && (
+                      <div className="flex items-center gap-0.5" title={`Volume: ${Math.round((track.volume || 1) * 100)}%`}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={track.volume ?? 1}
+                          onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
+                          className="w-12 h-1 sm:w-16 bg-neutral-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+                        />
+                        <span className="text-[8px] text-neutral-400 hidden sm:inline">
+                          {Math.round((track.volume || 1) * 100)}%
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1244,5 +1262,57 @@ export const Timeline: React.FC = () => {
 };
 
 export default Timeline;
+
+
+      </div>
+
+      {/* Context Menu */}
+      <TimelineContextMenu 
+        contextMenu={contextMenu} 
+        setContextMenu={setContextMenu} 
+        setCopiedClip={setCopiedClip} 
+        setCopiedText={setCopiedText} 
+      />
+    </div>
+  );
+};
+
+export default Timeline;
+
+
+
+        </div>
+      </div>
+
+      {/* Context Menu */}
+      <TimelineContextMenu 
+        contextMenu={contextMenu} 
+        setContextMenu={setContextMenu} 
+        setCopiedClip={setCopiedClip} 
+        setCopiedText={setCopiedText} 
+      />
+    </div>
+  );
+};
+
+export default Timeline;
+
+
+      </div>
+
+      {/* Context Menu */}
+      <TimelineContextMenu 
+        contextMenu={contextMenu} 
+        setContextMenu={setContextMenu} 
+        setCopiedClip={setCopiedClip} 
+        setCopiedText={setCopiedText} 
+      />
+    </div>
+  );
+};
+
+export default Timeline;
+
+
 
 

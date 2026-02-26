@@ -64,6 +64,7 @@ export const ExportModal: React.FC = () => {
       setExportMessage('Préparation de l\'export...');
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
+      const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
 
       // Collect all clips from video tracks in order
       const videoClips = tracks
@@ -144,6 +145,8 @@ export const ExportModal: React.FC = () => {
           // If the video clip is muted (detached audio deleted) or the whole track is muted,
           // exclude the source audio from export.
           audioMuted: !!clip.audioMuted || trackMuteById.get(clip.trackId) === true,
+          // Get track volume (default to 1 if not set)
+          volume: trackVolumeById.get(clip.trackId) ?? 1,
           crop: clip.crop,
           transform: clip.transform,
           trackIndex: (clip as any).trackIndex,
@@ -480,3 +483,8 @@ export const ExportModal: React.FC = () => {
 };
 
 export default ExportModal;
+
+
+export default ExportModal;
+
+

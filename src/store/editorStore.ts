@@ -113,6 +113,7 @@ interface EditorState {
   removeTrack: (id: string) => void;
   toggleTrackMute: (id: string) => void;
   toggleTrackLock: (id: string) => void;
+  setTrackVolume: (id: string, volume: number) => void;
   
   // Clip actions
   addClipToTrack: (trackId: string, mediaFile: MediaFile, startTime: number) => void;
@@ -537,6 +538,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       clips: [],
       muted: false,
       locked: false,
+      volume: 1, // Default volume 100%
     };
     set((state) => ({
       tracks: [...state.tracks, newTrack],
@@ -607,6 +609,16 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     set((state) => ({
       tracks: state.tracks.map((t) =>
         t.id === id ? { ...t, locked: !t.locked } : t
+      ),
+    }));
+  },
+  
+  setTrackVolume: (id, volume) => {
+    // Clamp volume between 0 and 2 (0% to 200%)
+    const clampedVolume = Math.max(0, Math.min(2, volume));
+    set((state) => ({
+      tracks: state.tracks.map((t) =>
+        t.id === id ? { ...t, volume: clampedVolume } : t
       ),
     }));
   },
@@ -1277,4 +1289,3 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     }
   },
 }));
-

@@ -1330,7 +1330,7 @@ function checkComplexFeatures(
 }
 
 
-type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number };
+type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number; volume?: number };
 type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string };
 
 
@@ -2359,6 +2359,11 @@ async function exportMultiClip(
     clips, clipToInputIndex, inputVideoMeta, transitions, adjustedTextOverlays,
     externalAudioClips, externalAudioFileToInputIndex, resolution, targetFps, timeOrigin, uniqueFiles.length
   );
+
+  // Add master volume boost to compensate for audio mixing volume loss
+  // This helps when mixing multiple audio tracks or adding external audio
+  const finalAudioWithVolume = 'outa_volume';
+  filterComplex.push(`[${finalAudioLabel}]volume=1.5[${finalAudioWithVolume}]`);
   
   const outputFileName = `output.${outputFormat}`;
   
@@ -2368,7 +2373,7 @@ async function exportMultiClip(
     '-nostats',
     '-filter_complex', filterComplex.join(';'),
     '-map', `[${finalVideoLabel}]`,
-    '-map', `[${finalAudioLabel}]`,
+    '-map', `[${finalAudioWithVolume}]`,
     '-c:v', encodingSettings.videoCodec,
     '-crf', quality,
     '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
@@ -2814,5 +2819,20 @@ export async function exportProject(
     }
   }
 }
+
+
+  }
+}
+
+
+
+  }
+}
+
+
+  }
+}
+
+
 
 
