@@ -529,17 +529,6 @@ export function useOrientation(): Orientation {
 export function useIsMobile(): boolean {
   const { isMobile } = useResponsive();
   return isMobile;
-} * @deprecated Use useResponsive() instead for more comprehensive detection
- */
-export function useIsMobile(): boolean {
-  const { isMobile } = useResponsive();
-  return isMobile;
-}
- * Hook to get orientation
- */
-export function useOrientation(): Orientation {
-  const { orientation } = useResponsive();
-  return orientation;
 }
 
 // ============================================
