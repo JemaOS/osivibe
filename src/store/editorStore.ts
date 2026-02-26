@@ -872,6 +872,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         firstClipId: firstClip.id,
         secondClipId: secondClip.id,
         splitTime,
+        splitPoint,
+        firstClip: { startTime: firstClip.startTime, duration: firstClip.duration, trimStart: firstClip.trimStart, trimEnd: firstClip.trimEnd, visibleDuration: firstClip.duration - firstClip.trimStart - firstClip.trimEnd },
+        secondClip: { startTime: secondClip.startTime, duration: secondClip.duration, trimStart: secondClip.trimStart, trimEnd: secondClip.trimEnd, visibleDuration: secondClip.duration - secondClip.trimStart - secondClip.trimEnd },
         firstClipAudioMuted: firstClip.audioMuted,
         secondClipAudioMuted: secondClip.audioMuted
       });

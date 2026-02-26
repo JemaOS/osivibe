@@ -120,6 +120,15 @@ const syncSingleVideoClip = (
   
   if (!player.isPlaying || isScrubbing) {
     handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile);
+  } else {
+    // During playback, still seek if the video element is far from the expected
+    // position (e.g., a new clip just became active after a split and its video
+    // element starts at 0 instead of trimStart).
+    const PLAYBACK_DRIFT_THRESHOLD = 0.5; // seconds
+    const timeDiff = Math.abs(videoEl.currentTime - localTime);
+    if (timeDiff > PLAYBACK_DRIFT_THRESHOLD) {
+      performSeek(videoEl, localTime, isSeekingRef, isMobile);
+    }
   }
   
   if (!isMobile || !player.isPlaying) {
