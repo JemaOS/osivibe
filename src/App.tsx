@@ -36,6 +36,20 @@ const FooterCredit: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
 type SidebarTab = 'media' | 'text' | 'transitions' | 'effects';
 type MobileView = 'player' | 'timeline' | 'sidebar';
 
+// Common props interface for layout components (for future refactoring)
+export interface LayoutComponentProps {
+  isSidebarVisible: boolean;
+  setIsSidebarVisible: (visible: boolean) => void;
+  activeSidebarTab: SidebarTab;
+  setActiveSidebarTab: (tab: SidebarTab) => void;
+  getFoldAwareStyles: () => React.CSSProperties;
+  isTimelineExpanded?: boolean;
+  setIsTimelineExpanded?: (expanded: boolean) => void;
+  setMobileSidebarOpen?: (open: boolean) => void;
+  handleBottomSheetDrag?: () => void;
+  bottomSheetHeight?: number;
+}
+
 // Sidebar tab buttons component for reuse
 const SidebarTabs = ({ 
   compact = false, 
@@ -678,3 +692,4 @@ function App() {
 }
 
 export default App;
+

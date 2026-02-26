@@ -1058,7 +1058,7 @@ export const Timeline: React.FC = () => {
                     </button>
                     {/* Volume slider - only show when not muted */}
                     {!track.muted && !isMinimal && (
-                      <div className="flex items-center gap-0.5" title={`Volume: ${Math.round((track.volume || 1) * 100)}%`}>
+                      <div className="flex items-center gap-1" title={`Volume: ${Math.round((track.volume || 1) * 100)}%`}>
                         <input
                           type="range"
                           min="0"
@@ -1066,9 +1066,9 @@ export const Timeline: React.FC = () => {
                           step="0.1"
                           value={track.volume ?? 1}
                           onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
-                          className="w-12 h-1 sm:w-16 bg-neutral-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
+                          className={`${isCompact ? 'w-8' : 'w-12 sm:w-16'} h-1 bg-neutral-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer`}
                         />
-                        <span className="text-[8px] text-neutral-400 hidden sm:inline">
+                        <span className={`${isCompact ? 'text-[7px]' : 'text-[8px] sm:text-[10px]'} text-neutral-400 ${isCompact ? 'hidden' : 'sm:inline'}`}>
                           {Math.round((track.volume || 1) * 100)}%
                         </span>
                       </div>

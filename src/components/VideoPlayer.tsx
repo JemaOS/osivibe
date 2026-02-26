@@ -1816,7 +1816,23 @@ const VideoPlayer: React.FC = () => {
   
   // MediaBunny integration
   const [useMediaBunny, setUseMediaBunny] = useState(false);
+  const [mediaErrors, setMediaErrors] = useState<{ [clipId: string]: string }>({});
   const { render: renderMediaBunny, isReady: isMediaBunnyReady } = useMediaBunnyPreview(canvasRef, useMediaBunny);
+
+  // Handler for media load errors
+  const handleMediaError = useCallback((clipId: string, error: string) => {
+    setMediaErrors(prev => ({ ...prev, [clipId]: error }));
+    console.error(`Media error for clip ${clipId}:`, error);
+  }, []);
+
+  // Clear error when media is reloaded
+  const handleMediaLoad = useCallback((clipId: string) => {
+    setMediaErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[clipId];
+      return newErrors;
+    });
+  }, []);
 
   // Custom hooks for interactions
   const {
@@ -2351,3 +2367,19 @@ const VideoPlayer: React.FC = () => {
 };
 
 export default VideoPlayer;
+        previewSettings={previewSettings}
+        speedButtonRef={speedButtonRef}
+        showSpeedMenu={showSpeedMenu}
+        setShowSpeedMenu={setShowSpeedMenu}
+        playbackSpeeds={playbackSpeeds}
+        setPlaybackRate={setPlaybackRate}
+        toggleFullscreen={toggleFullscreen}
+        qualityMenuRef={qualityMenuRef}
+        speedMenuRef={speedMenuRef}
+      />
+    </div>
+  );
+};
+
+export default VideoPlayer;
+

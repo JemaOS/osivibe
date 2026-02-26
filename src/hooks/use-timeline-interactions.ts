@@ -235,11 +235,12 @@ export const useTimelineClipDrag = (
     if (!isDraggingClip || !draggedClipId) return;
 
     const handleMouseMove = (e: MouseEvent) => {
+      if (!tracksContainerRef.current) return;
       handleClipDragMove(e.clientX, e.clientY);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (!tracksContainerRef.current || e.touches.length !== 1) return;
       const touch = e.touches[0];
       handleClipDragMove(touch.clientX, touch.clientY);
     };
@@ -265,7 +266,7 @@ export const useTimelineClipDrag = (
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDraggingClip, draggedClipId, handleClipDragMove]);
+  }, [isDraggingClip, draggedClipId, handleClipDragMove, tracksContainerRef]);
 
   return {
     isDraggingClip,
@@ -771,3 +772,4 @@ export const useTimelineDrop = (
     handleDragOver
   };
 };
+
