@@ -35,10 +35,10 @@ const getRulerHeight = (layoutMode: string): number => {
 };
 
 const getLabelWidth = (layoutMode: string): number => {
-  if (layoutMode === 'minimal') return 60;
-  if (layoutMode === 'compact') return 80;
-  if (layoutMode === 'adaptive') return 96;
-  return 128; // Desktop
+  if (layoutMode === 'minimal') return 70;
+  if (layoutMode === 'compact') return 110;
+  if (layoutMode === 'adaptive') return 140;
+  return 180; // Desktop
 };
 
 // Helper functions for track label based on layout mode
@@ -1041,35 +1041,38 @@ export const Timeline: React.FC = () => {
                       {getTrackLabel(track.name, layoutMode)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
+                  <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1 overflow-hidden">
                     <button
                       onClick={() => toggleTrackMute(track.id)}
-                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target`}
+                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target flex-shrink-0`}
                       title={track.muted ? 'Unmute' : 'Mute'}
                     >
                       {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                     <button
                       onClick={() => toggleTrackLock(track.id)}
-                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} touch-target`}
+                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} touch-target flex-shrink-0`}
                       title={track.locked ? 'Unlock' : 'Lock'}
                     >
                       {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                     {/* Volume slider - only show when not muted */}
                     {!track.muted && !isMinimal && (
-                      <div className="flex items-center gap-1" title={`Volume: ${Math.round((track.volume || 1) * 100)}%`}>
+                      <div className="flex items-center gap-1 sm:gap-1.5 ml-1 min-w-0 flex-1" title={`Volume: ${Math.round((track.volume ?? 1) * 100)}%`}>
                         <input
                           type="range"
                           min="0"
-                          max="2"
-                          step="0.1"
-                          value={track.volume ?? 1}
-                          onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
-                          className={`${isCompact ? 'w-8' : 'w-12 sm:w-16'} h-1 bg-neutral-600 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer`}
+                          max="100"
+                          step="1"
+                          value={Math.round((track.volume ?? 1) * 100)}
+                          onChange={(e) => setTrackVolume(track.id, parseInt(e.target.value, 10) / 100)}
+                          className="timeline-volume-slider min-w-0 flex-1"
+                          style={{
+                            background: `linear-gradient(to right, #757AED ${Math.round((track.volume ?? 1) * 100)}%, #404040 ${Math.round((track.volume ?? 1) * 100)}%)`,
+                          }}
                         />
-                        <span className={`${isCompact ? 'text-[7px]' : 'text-[8px] sm:text-[10px]'} text-neutral-400 ${isCompact ? 'hidden' : 'sm:inline'}`}>
-                          {Math.round((track.volume || 1) * 100)}%
+                        <span className={`${isCompact ? 'text-[9px]' : 'text-[10px] sm:text-xs'} text-neutral-300 font-medium text-right flex-shrink-0 w-7`}>
+                          {Math.round((track.volume ?? 1) * 100)}%
                         </span>
                       </div>
                     )}

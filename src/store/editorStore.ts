@@ -615,8 +615,8 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   },
   
   setTrackVolume: (id, volume) => {
-    // Clamp volume between 0 and 2 (0% to 200%)
-    const clampedVolume = Math.max(0, Math.min(2, volume));
+    // Clamp volume between 0 and 1 (0% to 100%)
+    const clampedVolume = Math.max(0, Math.min(1, volume));
     set((state) => ({
       tracks: state.tracks.map((t) =>
         t.id === id ? { ...t, volume: clampedVolume } : t

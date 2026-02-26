@@ -62,7 +62,7 @@ export interface TimelineTrack {
   clips: TimelineClip[];
   muted: boolean;
   locked: boolean;
-  volume: number; // 0-2, where 1 is normal, >1 is boost
+  volume: number; // 0-1, where 1 is 100%
 }
 
 // Text Overlay Types

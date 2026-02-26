@@ -1485,7 +1485,7 @@ const useMenuCloseHandlers = (
 
 const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: number) => {
   return useMemo(() => {
-    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean; trackVolume: number }[] = [];
     
     tracks.forEach((track, index) => {
       if (track.type !== 'video') return;
@@ -1499,7 +1499,7 @@ const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: numbe
       if (clip) {
         const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
         if (media) {
-          result.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+          result.push({ clip, media, trackIndex: index, trackMuted: track.muted, trackVolume: track.volume ?? 1 });
         }
       }
     });
@@ -1510,7 +1510,7 @@ const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: numbe
 
 const useActiveAudioClips = (tracks: any[], mediaFiles: any[], currentTime: number) => {
   return useCallback(() => {
-    const activeAudio: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean }[] = [];
+    const activeAudio: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean; trackVolume: number }[] = [];
 
     tracks.forEach((track, index) => {
       if (track.type !== 'audio') return;
@@ -1524,7 +1524,7 @@ const useActiveAudioClips = (tracks: any[], mediaFiles: any[], currentTime: numb
       if (clip) {
         const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
         if (media) {
-          activeAudio.push({ clip, media, trackIndex: index, trackMuted: track.muted });
+          activeAudio.push({ clip, media, trackIndex: index, trackMuted: track.muted, trackVolume: track.volume ?? 1 });
         }
       }
     });

@@ -165,6 +165,7 @@ export const ExportModal: React.FC = () => {
             duration: clip.duration,
             trimStart: clip.trimStart,
             trimEnd: clip.trimEnd,
+            volume: trackVolumeById.get(clip.trackId) ?? 1,
           };
         })
         // Do not rely on MIME type (some browsers provide empty type for WAV).

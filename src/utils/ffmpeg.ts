@@ -1331,7 +1331,7 @@ function checkComplexFeatures(
 
 
 type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number; volume?: number };
-type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string };
+type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number };
 
 
 function buildVideoFilter(
@@ -1493,7 +1493,9 @@ function buildSingleClipExternalAudio(
 
     const inputIndex = ac.file === clip.file ? 0 : 1 + extraAudioFiles.findIndex((f) => f === ac.file);
     const al = `aext0_${seg++}`;
-    fc.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[${al}]`);
+    const acVol = ac.volume ?? 1;
+    const acVolFilter = acVol !== 1 ? `,volume=${acVol}` : '';
+    fc.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolFilter}[${al}]`);
     parts.push(`[${al}]`);
     cursor += dur;
   }
@@ -1525,7 +1527,9 @@ function buildSingleClipAudioFilter(
   if (isImage || clip.audioMuted) {
     fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
-    fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
+    const clipVolume = clip.volume ?? 1;
+    const volumeFilter = clipVolume !== 1 ? `,volume=${clipVolume}` : '';
+    fc.push(`[0:a]atrim=start=${clip.trimStart}:duration=${clipDuration},asetpts=PTS-STARTPTS${volumeFilter}[${clipAudioLabel}]`);
   }
 
   if (externalAudioClipsSingle.length > 0) {
@@ -2078,7 +2082,9 @@ function processClipFilter(
   if (isImage || clip.audioMuted) {
     filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
-    filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS[${clipAudioLabel}]`);
+    const clipVolume = clip.volume ?? 1;
+    const volumeFilter = clipVolume !== 1 ? `,volume=${clipVolume}` : '';
+    filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS${volumeFilter}[${clipAudioLabel}]`);
   }
   
   trackVideoSegments.push(`[${finalVideoLabel}]`);
@@ -2205,7 +2211,9 @@ function buildExternalAudioFilter(
     }
 
     const al = `aext${seg++}`;
-    filterComplex.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[${al}]`);
+    const acVolume = (ac as ExportAudioClip).volume ?? 1;
+    const acVolumeFilter = acVolume !== 1 ? `,volume=${acVolume}` : '';
+    filterComplex.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolumeFilter}[${al}]`);
     parts.push(`[${al}]`);
     cursor += dur;
   }

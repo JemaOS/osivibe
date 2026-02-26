@@ -164,7 +164,8 @@ export const useVideoPlayerSync = (
         item.clip.audioMuted === true ||
         item.trackMuted === true ||
         videoClipsWithDetachedAudio.has(item.clip.id);
-      const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume) : 0;
+      const trackVolume = item.trackVolume ?? 1;
+      const targetVolume = isMainVideo && !isAudioMuted ? (player.isMuted ? 0 : player.volume * trackVolume) : 0;
       
       if (videoEl.volume !== targetVolume) {
         videoEl.volume = targetVolume;
@@ -205,7 +206,8 @@ export const useVideoPlayerSync = (
 
     audioEl.playbackRate = player.playbackRate;
     const mutedByTrack = item.trackMuted === true;
-    const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume;
+    const trackVolume = item.trackVolume ?? 1;
+    const targetVol = mutedByTrack || player.isMuted ? 0 : player.volume * trackVolume;
     
     if (audioEl.volume !== targetVol) audioEl.volume = targetVol;
     audioEl.muted = targetVol === 0;
