@@ -482,9 +482,3 @@ export const ExportModal: React.FC = () => {
   );
 };
 
-export default ExportModal;
-
-
-export default ExportModal;
-
-

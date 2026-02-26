@@ -221,9 +221,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   projectName: 'Nouveau Projet',
   mediaFiles: [],
   tracks: [
-    { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false },
-    { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false },
-    { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false },
+    { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+    { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+    { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false, volume: 1 },
   ],
   textOverlays: [],
   transitions: [],
@@ -242,9 +242,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     lastModified: Date.now(),
     mediaFiles: [],
     tracks: [
-      { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false },
-      { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false },
-      { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false },
+      { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+      { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+      { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false, volume: 1 },
     ],
     textOverlays: [],
     transitions: [],
@@ -298,9 +298,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       lastModified: Date.now(),
       mediaFiles: [],
       tracks: [
-        { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false },
-        { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false },
-        { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false },
+        { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+        { id: 'images-1', name: 'Images', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+        { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false, volume: 1 },
       ],
       textOverlays: [],
       transitions: [],
@@ -446,6 +446,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         clips: [],
         muted: false,
         locked: false,
+        volume: 1,
       };
       set((state) => ({
         tracks: [...state.tracks, newTrack],
@@ -1186,8 +1187,8 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       projectName: 'Nouveau Projet',
       mediaFiles: [],
       tracks: [
-        { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false },
-        { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false },
+        { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+        { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false, volume: 1 },
       ],
       textOverlays: [],
       transitions: [],
