@@ -2367,19 +2367,4 @@ const VideoPlayer: React.FC = () => {
 };
 
 export default VideoPlayer;
-        previewSettings={previewSettings}
-        speedButtonRef={speedButtonRef}
-        showSpeedMenu={showSpeedMenu}
-        setShowSpeedMenu={setShowSpeedMenu}
-        playbackSpeeds={playbackSpeeds}
-        setPlaybackRate={setPlaybackRate}
-        toggleFullscreen={toggleFullscreen}
-        qualityMenuRef={qualityMenuRef}
-        speedMenuRef={speedMenuRef}
-      />
-    </div>
-  );
-};
-
-export default VideoPlayer;
 
