@@ -1308,25 +1308,27 @@ export async function generateThumbnail(
 }
 
 function checkComplexFeatures(
-  clips: { file: File; filter?: VideoFilter }[],
+  clips: { file: File; filter?: VideoFilter; volume?: number }[],
   textOverlays?: TextOverlay[],
   transitions?: Transition[],
-  audioClips?: { file: File }[]
+  audioClips?: { file: File; volume?: number }[]
 ) {
   const hasTextOverlays = textOverlays && textOverlays.length > 0 && textOverlays.some(t => t.text.trim().length > 0);
   const hasTransitions = transitions && transitions.length > 0 && transitions.some(t => t.type !== 'none');
   const hasFilters = clips.some(c => c.filter && (
-    c.filter.brightness !== 0 || 
-    c.filter.contrast !== 0 || 
-    c.filter.saturation !== 0 || 
-    c.filter.grayscale || 
-    c.filter.sepia || 
+    c.filter.brightness !== 0 ||
+    c.filter.contrast !== 0 ||
+    c.filter.saturation !== 0 ||
+    c.filter.grayscale ||
+    c.filter.sepia ||
     c.filter.blur > 0
   ));
   const hasImages = clips.some(c => c.file.type.startsWith('image/'));
   const hasAudioClips = audioClips && audioClips.length > 0;
+  const hasNonDefaultVolume = clips.some(c => c.volume !== undefined && c.volume !== 1) ||
+    (audioClips && audioClips.some(c => c.volume !== undefined && c.volume !== 1));
   
-  return hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips;
+  return hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips || hasNonDefaultVolume;
 }
 
 
@@ -1435,6 +1437,10 @@ async function exportSingleClipFastPath(
     }
   }
 
+  // Apply audio volume filter if volume is not default
+  const clipVolume = clip.volume ?? 1;
+  const audioFilterChain = clipVolume !== 1 ? `volume=${clipVolume}` : '';
+
   let args = [];
   if (isImage) {
     args.push('-loop', '1');
@@ -1447,6 +1453,14 @@ async function exportSingleClipFastPath(
     '-vf', videoFilterChain,
     '-c:v', encodingSettings.videoCodec,
     '-crf', quality,
+  );
+
+  // Add audio filter for volume if needed
+  if (audioFilterChain) {
+    args.push('-af', audioFilterChain);
+  }
+
+  args.push(
     '-c:a', outputFormat === 'webm' ? 'libopus' : 'aac',
     '-preset', encodingSettings.preset,
     '-r', String(effectiveFps),
@@ -1773,7 +1787,8 @@ async function exportSingleClip(
     }))
     .filter(text => text.text.trim() && text.startTime + text.duration > 0 && text.startTime < clipDuration);
 
-  if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted && !hasTransform) {
+  const hasNonDefaultVolume = clip.volume !== undefined && clip.volume !== 1;
+  if (!hasClipTransitions && externalAudioClipsSingle.length === 0 && !clip.audioMuted && !hasTransform && !hasNonDefaultVolume) {
     await exportSingleClipFastPath(
       ffmpegInstance, clip, clipDuration, inputFileName, outputFileName,
       resolution, effectiveFps, encodingSettings, quality, outputFormat,
@@ -2780,14 +2795,14 @@ export async function getAudioDuration(file: File): Promise<number> {
  * Wrapper for exportProject with automatic retry logic for timeout/stuck errors
  */
 export async function exportProject(
-  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean }[],
+  clips: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean; volume?: number; crop?: any; transform?: any; trackIndex?: number }[],
   settings: ExportSettings,
   onProgress?: (progress: number, message: string) => void,
   textOverlays?: TextOverlay[],
   transitions?: Transition[],
   aspectRatio?: AspectRatio,
   hardwareProfile?: AnyHardwareProfile,
-  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string }[]
+  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number }[]
 ): Promise<Blob> {
   const MAX_RETRIES = 1;
   let attempt = 0;
