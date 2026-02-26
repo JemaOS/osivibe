@@ -68,6 +68,120 @@ const addClipToTrack = (track: TimelineTrack, clipToMove: TimelineClip): Timelin
   return track;
 };
 
+// Helper for splitClip to perform the split operation on state
+const performSplitClip = (
+  state: { tracks: TimelineTrack[] },
+  clipId: string,
+  splitTime: number
+): { tracks: TimelineTrack[] } | typeof state => {
+  // First, find the track containing the clip
+  const trackIndex = state.tracks.findIndex(t => t.clips.some(c => c.id === clipId));
+  if (trackIndex === -1) return state; // Clip not found in any track
+
+  const track = state.tracks[trackIndex];
+  const clipIndex = track.clips.findIndex((c) => c.id === clipId);
+  if (clipIndex === -1) return state;
+
+  const clip = track.clips[clipIndex];
+  const clipStart = clip.startTime;
+  const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+
+  // Check if split time is within the clip
+  if (splitTime <= clipStart || splitTime >= clipEnd) return state;
+
+  const splitPoint = splitTime - clipStart + clip.trimStart;
+
+  // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
+  // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
+  // Each split part starts fresh with its own audio state
+  const firstClip: TimelineClip = {
+    id: clip.id, // Keep original ID for first part
+    mediaId: clip.mediaId,
+    trackId: clip.trackId,
+    startTime: clip.startTime,
+    duration: clip.duration,
+    trimStart: clip.trimStart,
+    trimEnd: clip.duration - splitPoint,
+    name: clip.name,
+    type: clip.type,
+    thumbnail: clip.thumbnail,
+    crop: clip.crop,
+    transform: clip.transform,
+    // Audio state is INDEPENDENT - not copied from original
+    audioMuted: false,
+    detachedAudioClipId: undefined,
+    linkedVideoClipId: undefined,
+  };
+
+  const secondClip: TimelineClip = {
+    id: uuidv4(), // New ID for second part
+    mediaId: clip.mediaId,
+    trackId: clip.trackId,
+    startTime: splitTime,
+    duration: clip.duration,
+    trimStart: splitPoint,
+    trimEnd: clip.trimEnd,
+    name: clip.name + ' (2)',
+    type: clip.type,
+    thumbnail: clip.thumbnail,
+    crop: clip.crop,
+    transform: clip.transform,
+    // Audio state is INDEPENDENT - not copied from original
+    audioMuted: false,
+    detachedAudioClipId: undefined,
+    linkedVideoClipId: undefined,
+  };
+
+  console.log('✂️ Split clip:', {
+    originalId: clipId,
+    firstClipId: firstClip.id,
+    secondClipId: secondClip.id,
+    splitTime,
+    splitPoint,
+    firstClip: { startTime: firstClip.startTime, duration: firstClip.duration, trimStart: firstClip.trimStart, trimEnd: firstClip.trimEnd, visibleDuration: firstClip.duration - firstClip.trimStart - firstClip.trimEnd },
+    secondClip: { startTime: secondClip.startTime, duration: secondClip.duration, trimStart: secondClip.trimStart, trimEnd: secondClip.trimEnd, visibleDuration: secondClip.duration - secondClip.trimStart - secondClip.trimEnd },
+    firstClipAudioMuted: firstClip.audioMuted,
+    secondClipAudioMuted: secondClip.audioMuted
+  });
+
+  const newClips = [...track.clips];
+  newClips.splice(clipIndex, 1, firstClip, secondClip);
+
+  const newTrack = { ...track, clips: resolveOverlaps(newClips) };
+
+  // Only update the specific track that contains the clip
+  const newTracks = [...state.tracks];
+  newTracks[trackIndex] = newTrack;
+
+  return { tracks: newTracks };
+};
+
+// Helper for rehydration: regenerate Blob URLs for media files
+const regenerateMediaBlobUrls = (mediaFiles: MediaFile[]): void => {
+  for (const media of mediaFiles) {
+    if (!(media.file instanceof File)) continue;
+    if (media.url && media.url.startsWith('blob:')) {
+      URL.revokeObjectURL(media.url);
+    }
+    media.url = URL.createObjectURL(media.file);
+    if (media.type === 'image') {
+      media.thumbnail = media.url;
+    }
+  }
+};
+
+// Helper for rehydration: update clip thumbnails from media files
+const updateClipThumbnails = (tracks: TimelineTrack[], mediaFiles: MediaFile[]): void => {
+  for (const track of tracks) {
+    for (const clip of track.clips) {
+      const media = mediaFiles.find(m => m.id === clip.mediaId);
+      if (media && media.thumbnail) {
+        clip.thumbnail = media.thumbnail;
+      }
+    }
+  }
+};
+
 interface EditorState {
   // Project data
   projectName: string;
@@ -808,88 +922,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   splitClip: (clipId, splitTime) => {
     get().saveState(); // Save state before action
     
-    set((state) => {
-      // First, find the track containing the clip
-      const trackIndex = state.tracks.findIndex(t => t.clips.some(c => c.id === clipId));
-      if (trackIndex === -1) return state; // Clip not found in any track
-      
-      const track = state.tracks[trackIndex];
-      const clipIndex = track.clips.findIndex((c) => c.id === clipId);
-      if (clipIndex === -1) return state;
-      
-      const clip = track.clips[clipIndex];
-      const clipStart = clip.startTime;
-      const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-      
-      // Check if split time is within the clip
-      if (splitTime <= clipStart || splitTime >= clipEnd) return state;
-      
-      const splitPoint = splitTime - clipStart + clip.trimStart;
-      
-      // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
-      // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
-      // Each split part starts fresh with its own audio state
-      const firstClip: TimelineClip = {
-        id: clip.id, // Keep original ID for first part
-        mediaId: clip.mediaId,
-        trackId: clip.trackId,
-        startTime: clip.startTime,
-        duration: clip.duration,
-        trimStart: clip.trimStart,
-        trimEnd: clip.duration - splitPoint,
-        name: clip.name,
-        type: clip.type,
-        thumbnail: clip.thumbnail,
-        crop: clip.crop,
-        transform: clip.transform,
-        // Audio state is INDEPENDENT - not copied from original
-        audioMuted: false,
-        detachedAudioClipId: undefined,
-        linkedVideoClipId: undefined,
-      };
-      
-      const secondClip: TimelineClip = {
-        id: uuidv4(), // New ID for second part
-        mediaId: clip.mediaId,
-        trackId: clip.trackId,
-        startTime: splitTime,
-        duration: clip.duration,
-        trimStart: splitPoint,
-        trimEnd: clip.trimEnd,
-        name: clip.name + ' (2)',
-        type: clip.type,
-        thumbnail: clip.thumbnail,
-        crop: clip.crop,
-        transform: clip.transform,
-        // Audio state is INDEPENDENT - not copied from original
-        audioMuted: false,
-        detachedAudioClipId: undefined,
-        linkedVideoClipId: undefined,
-      };
-      
-      console.log('✂️ Split clip:', {
-        originalId: clipId,
-        firstClipId: firstClip.id,
-        secondClipId: secondClip.id,
-        splitTime,
-        splitPoint,
-        firstClip: { startTime: firstClip.startTime, duration: firstClip.duration, trimStart: firstClip.trimStart, trimEnd: firstClip.trimEnd, visibleDuration: firstClip.duration - firstClip.trimStart - firstClip.trimEnd },
-        secondClip: { startTime: secondClip.startTime, duration: secondClip.duration, trimStart: secondClip.trimStart, trimEnd: secondClip.trimEnd, visibleDuration: secondClip.duration - secondClip.trimStart - secondClip.trimEnd },
-        firstClipAudioMuted: firstClip.audioMuted,
-        secondClipAudioMuted: secondClip.audioMuted
-      });
-      
-      const newClips = [...track.clips];
-      newClips.splice(clipIndex, 1, firstClip, secondClip);
-      
-      const newTrack = { ...track, clips: resolveOverlaps(newClips) };
-      
-      // Only update the specific track that contains the clip
-      const newTracks = [...state.tracks];
-      newTracks[trackIndex] = newTrack;
-      
-      return { tracks: newTracks };
-    });
+    set((state) => performSplitClip(state, clipId, splitTime));
     get().calculateProjectDuration();
   },
   
@@ -1238,58 +1271,22 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     }
   }) as any,
   onRehydrateStorage: () => (state) => {
-    if (state) {
-      console.log('🔄 Rehydrating state from IndexedDB...');
-      
-      // Regenerate Blob URLs for active media files
-      state.mediaFiles.forEach(media => {
-        if (media.file instanceof File) {
-          if (media.url && media.url.startsWith('blob:')) {
-            URL.revokeObjectURL(media.url);
-          }
-          media.url = URL.createObjectURL(media.file);
-          if (media.type === 'image') {
-            media.thumbnail = media.url;
-          }
-        }
-      });
+    if (!state) return;
 
-      // Update clip thumbnails in active project
-      state.tracks.forEach(track => {
-        track.clips.forEach(clip => {
-          const media = state.mediaFiles.find(m => m.id === clip.mediaId);
-          if (media && media.thumbnail) {
-            clip.thumbnail = media.thumbnail;
-          }
-        });
-      });
+    console.log('🔄 Rehydrating state from IndexedDB...');
 
-      // Regenerate Blob URLs for projects history
-      state.projects.forEach(project => {
-        project.mediaFiles.forEach(media => {
-          if (media.file instanceof File) {
-            if (media.url && media.url.startsWith('blob:')) {
-              URL.revokeObjectURL(media.url);
-            }
-            media.url = URL.createObjectURL(media.file);
-            if (media.type === 'image') {
-              media.thumbnail = media.url;
-            }
-          }
-        });
-        
-        // Update clip thumbnails in project history
-        project.tracks.forEach(track => {
-          track.clips.forEach(clip => {
-            const media = project.mediaFiles.find(m => m.id === clip.mediaId);
-            if (media && media.thumbnail) {
-              clip.thumbnail = media.thumbnail;
-            }
-          });
-        });
-      });
-      
-      console.log('✅ State rehydration complete');
+    // Regenerate Blob URLs for active media files
+    regenerateMediaBlobUrls(state.mediaFiles);
+
+    // Update clip thumbnails in active project
+    updateClipThumbnails(state.tracks, state.mediaFiles);
+
+    // Regenerate Blob URLs and update thumbnails for projects history
+    for (const project of state.projects) {
+      regenerateMediaBlobUrls(project.mediaFiles);
+      updateClipThumbnails(project.tracks, project.mediaFiles);
     }
+
+    console.log('✅ State rehydration complete');
   },
 }));

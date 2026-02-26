@@ -1846,6 +1846,45 @@ function detectGaps(clips: ExportClip[]): { gaps: GapInfo[], gapMap: Map<number,
   return { gaps, gapMap };
 }
 
+function isSvgFile(file: File): boolean {
+  return file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg');
+}
+
+async function convertSvgToPngFile(file: File): Promise<File> {
+  try {
+    const pngBlob = await convertImageToPng(file);
+    return new File([pngBlob], file.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
+  } catch (e) {
+    console.error('Failed to convert SVG to PNG:', e);
+    throw new Error(`Impossible de convertir l'image SVG (${file.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
+  }
+}
+
+async function probeVideoMetadata(
+  file: File,
+  fileIndex: number,
+  inputVideoMeta: Map<number, { width: number; height: number }>
+) {
+  if (!file.type.startsWith('video/')) return;
+  try {
+    const meta = await getVideoMetadata(file);
+    inputVideoMeta.set(fileIndex, { width: meta.width, height: meta.height });
+  } catch (e) { /* ignore */ }
+}
+
+async function writeInputFile(
+  ffmpegInstance: any,
+  inputFileName: string,
+  file: File,
+  safeMode: boolean
+) {
+  const dataArray = new Uint8Array(await file.arrayBuffer());
+  try {
+    await ffmpegInstance.deleteFile(inputFileName);
+  } catch (e) { /* ignore */ }
+  await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray, safeMode ? 60000 : 45000);
+}
+
 async function loadUniqueFiles(
   ffmpegInstance: any,
   clips: ExportClip[],
@@ -1871,38 +1910,19 @@ async function loadUniqueFiles(
   for (let i = 0; i < uniqueFiles.length; i++) {
     let { file } = uniqueFiles[i];
     
-    // FFmpeg.wasm doesn't support SVG natively, convert to PNG
-    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-      try {
-        const pngBlob = await convertImageToPng(file);
-        file = new File([pngBlob], file.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
-        uniqueFiles[i].file = file;
-      } catch (e) {
-        console.error('Failed to convert SVG to PNG:', e);
-        throw new Error(`Impossible de convertir l'image SVG (${file.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
-      }
+    if (isSvgFile(file)) {
+      file = await convertSvgToPngFile(file);
+      uniqueFiles[i].file = file;
     }
 
     const inputFileName = `input${i}${getFileExtension(file.name)}`;
     inputFiles.push(inputFileName);
 
-    if (file.type.startsWith('video/')) {
-      try {
-        const meta = await getVideoMetadata(file);
-        inputVideoMeta.set(i, { width: meta.width, height: meta.height });
-      } catch (e) { /* ignore */ }
-    }
+    await probeVideoMetadata(file, i, inputVideoMeta);
     
     onProgress?.(5, `Chargement des fichiers... (${i + 1}/${uniqueFiles.length})`);
 
-    const arrayBuffer = await file.arrayBuffer();
-    const dataArray = new Uint8Array(arrayBuffer);
-    
-    try {
-      await ffmpegInstance.deleteFile(inputFileName);
-    } catch (e) { /* ignore */ }
-    
-    await writeFileWithTimeout(ffmpegInstance, inputFileName, dataArray, safeMode ? 60000 : 45000);
+    await writeInputFile(ffmpegInstance, inputFileName, file, safeMode);
   }
   
   return { inputFiles, clipToInputIndex, uniqueFiles, inputVideoMeta };
@@ -2018,6 +2038,109 @@ function getVideoFilterString(
   return videoFilter;
 }
 
+function buildImagePostFilter(
+  needsFpsNormalization: boolean,
+  needsPerClipTimebaseNormalization: boolean,
+  isBaseTrack: boolean,
+  targetFps: number
+): string {
+  const parts: string[] = [];
+  if (needsFpsNormalization) parts.push(`fps=${targetFps}`);
+  if (needsPerClipTimebaseNormalization) parts.push(`settb=1/${targetFps}`);
+  parts.push(isBaseTrack ? 'format=yuv420p' : 'format=rgba');
+  return parts.join(',');
+}
+
+function buildClipVideoFilter(
+  clip: ExportClip,
+  originalIndex: number,
+  inputIndex: number,
+  isImage: boolean,
+  duration: number,
+  resolution: { width: number; height: number },
+  targetFps: number,
+  needsFpsNormalization: boolean,
+  needsPerClipTimebaseNormalization: boolean,
+  isBaseTrack: boolean,
+  inputVideoMeta: Map<number, { width: number; height: number }>,
+  filterComplex: string[]
+): string {
+  const clipVideoLabel = `v${originalIndex}`;
+
+  if (isImage && !clip.crop) {
+    const imageClip = {
+      ...clip,
+      transform: clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 }
+    };
+    const transformOutLabel = `trans_${originalIndex}`;
+    buildImageTransformFilter(imageClip, inputIndex, duration, resolution, targetFps, isBaseTrack, transformOutLabel, filterComplex);
+
+    const postFilter = buildImagePostFilter(needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, targetFps);
+    filterComplex.push(postFilter
+      ? `[${transformOutLabel}]${postFilter}[${clipVideoLabel}]`
+      : `[${transformOutLabel}]copy[${clipVideoLabel}]`
+    );
+  } else {
+    const videoFilter = getVideoFilterString(
+      clip, inputIndex, isImage, duration, resolution, targetFps,
+      needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, inputVideoMeta
+    );
+    filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
+  }
+
+  return clipVideoLabel;
+}
+
+function combineTransitionFilters(startFilter: string, endFilter: string): string {
+  if (startFilter && endFilter) return `${startFilter},${endFilter}`;
+  return startFilter || endFilter || '';
+}
+
+function applyClipTransitions(
+  clip: ExportClip,
+  originalIndex: number,
+  videoLabel: string,
+  duration: number,
+  resolution: { width: number; height: number },
+  transitions: any[] | undefined,
+  filterComplex: string[]
+): string {
+  if (!transitions) return videoLabel;
+
+  const clipTransitions = transitions.filter(t => t.clipId === clip.id && t.type !== 'none');
+  if (clipTransitions.length === 0) return videoLabel;
+
+  const startTransition = clipTransitions.find(t => t.position === 'start');
+  const endTransition = clipTransitions.find(t => t.position === 'end');
+
+  const transFilter = getSingleClipTransitionFilter(startTransition || { type: 'none' } as any, duration, resolution);
+  const transFilterEnd = getSingleClipTransitionFilter(endTransition || { type: 'none' } as any, duration, resolution);
+
+  const combinedTransFilter = combineTransitionFilters(transFilter, transFilterEnd);
+  if (!combinedTransFilter) return videoLabel;
+
+  const transLabel = `vtrans${originalIndex}`;
+  filterComplex.push(`[${videoLabel}]${combinedTransFilter}[${transLabel}]`);
+  return transLabel;
+}
+
+function buildClipAudioFilter(
+  clip: ExportClip,
+  inputIndex: number,
+  isImage: boolean,
+  duration: number,
+  clipAudioLabel: string,
+  filterComplex: string[]
+) {
+  if (isImage || clip.audioMuted) {
+    filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[${clipAudioLabel}]`);
+    return;
+  }
+  const clipVolume = clip.volume ?? 1;
+  const volumeFilter = clipVolume !== 1 ? `,volume=${clipVolume}` : '';
+  filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS${volumeFilter}[${clipAudioLabel}]`);
+}
+
 function processClipFilter(
   clip: ExportClip,
   originalIndex: number,
@@ -2035,74 +2158,19 @@ function processClipFilter(
   trackAudioSegments: string[],
   transitions?: any[]
 ) {
-  const clipVideoLabel = `v${originalIndex}`;
   const clipAudioLabel = `a${originalIndex}`;
-  
-  if (isImage && !clip.crop) {
-    // Ensure images always have a transform to match preview behavior
-    const imageClip = {
-      ...clip,
-      transform: clip.transform || { x: 50, y: 50, scale: 100, rotation: 0 }
-    };
-    const transformOutLabel = `trans_${originalIndex}`;
-    buildImageTransformFilter(imageClip, inputIndex, duration, resolution, targetFps, isBaseTrack, transformOutLabel, filterComplex);
-    
-    let postFilter = '';
-    if (needsFpsNormalization) postFilter += `fps=${targetFps},`;
-    if (needsPerClipTimebaseNormalization) postFilter += `settb=1/${targetFps},`;
-    if (isBaseTrack) postFilter += `format=yuv420p`;
-    else postFilter += `format=rgba`;
-    
-    if (postFilter.endsWith(',')) postFilter = postFilter.slice(0, -1);
-    
-    if (postFilter) {
-      filterComplex.push(`[${transformOutLabel}]${postFilter}[${clipVideoLabel}]`);
-    } else {
-      filterComplex.push(`[${transformOutLabel}]copy[${clipVideoLabel}]`);
-    }
-  } else {
-    const videoFilter = getVideoFilterString(
-      clip, inputIndex, isImage, duration, resolution, targetFps,
-      needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, inputVideoMeta
-    );
-    filterComplex.push(`${videoFilter}[${clipVideoLabel}]`);
-  }
-  
-  let finalVideoLabel = clipVideoLabel;
-  if (transitions) {
-    const clipTransitions = transitions.filter(t => t.clipId === clip.id && t.type !== 'none');
-    if (clipTransitions.length > 0) {
-      const startTransition = clipTransitions.find(t => t.position === 'start');
-      const endTransition = clipTransitions.find(t => t.position === 'end');
-      
-      const transFilter = getSingleClipTransitionFilter(startTransition || { type: 'none' } as any, duration, resolution);
-      const transFilterEnd = getSingleClipTransitionFilter(endTransition || { type: 'none' } as any, duration, resolution);
-      
-      let combinedTransFilter = '';
-      if (transFilter && transFilterEnd) {
-        combinedTransFilter = `${transFilter},${transFilterEnd}`;
-      } else if (transFilter) {
-        combinedTransFilter = transFilter;
-      } else if (transFilterEnd) {
-        combinedTransFilter = transFilterEnd;
-      }
-      
-      if (combinedTransFilter) {
-        const transLabel = `vtrans${originalIndex}`;
-        filterComplex.push(`[${finalVideoLabel}]${combinedTransFilter}[${transLabel}]`);
-        finalVideoLabel = transLabel;
-      }
-    }
-  }
-  
-  if (isImage || clip.audioMuted) {
-    filterComplex.push(`aevalsrc=0:d=${duration}:s=48000:c=stereo[${clipAudioLabel}]`);
-  } else {
-    const clipVolume = clip.volume ?? 1;
-    const volumeFilter = clipVolume !== 1 ? `,volume=${clipVolume}` : '';
-    filterComplex.push(`[${inputIndex}:a]atrim=start=${clip.trimStart}:duration=${duration},asetpts=PTS-STARTPTS${volumeFilter}[${clipAudioLabel}]`);
-  }
-  
+
+  const clipVideoLabel = buildClipVideoFilter(
+    clip, originalIndex, inputIndex, isImage, duration, resolution, targetFps,
+    needsFpsNormalization, needsPerClipTimebaseNormalization, isBaseTrack, inputVideoMeta, filterComplex
+  );
+
+  const finalVideoLabel = applyClipTransitions(
+    clip, originalIndex, clipVideoLabel, duration, resolution, transitions, filterComplex
+  );
+
+  buildClipAudioFilter(clip, inputIndex, isImage, duration, clipAudioLabel, filterComplex);
+
   trackVideoSegments.push(`[${finalVideoLabel}]`);
   trackAudioSegments.push(`[${clipAudioLabel}]`);
 }

@@ -67,6 +67,11 @@ self.addEventListener('fetch', (event) => {
 
 // Handle messages from the app
 self.addEventListener('message', (event) => {
+  // Verify the origin of the message
+  if (event.origin && event.origin !== self.location.origin) {
+    return;
+  }
+
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
