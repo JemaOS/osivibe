@@ -32,15 +32,17 @@
     /* Breakpoint values (for JS access via getComputedStyle) */
     --bp-fold-narrow: 272px;
     --bp-fold-cover: 301px;
-    --bp-xxs: 360px;
-    --bp-xs: 375px;
+    --bp-xxs: 320px;             /* iPhone 4/5/SE */
+    --bp-xs-sm: 354px;           /* Honor Magic V3 cover (353px) */
+    --bp-xs-std: 360px;         /* Small Android phones */
+    --bp-xs: 375px;              /* iPhone SE, iPhone 8, iPhone mini */
     --bp-phone: 390px;
     --bp-phone-lg: 428px;
     --bp-fold-open-sm: 512px;
     --bp-fold-open: 589px;
     --bp-fold-open-lg: 619px;
     --bp-sm: 640px;
-    --bp-fold-wide: 719px;
+    --bp-fold-wide: 719px;       /* Honor Magic V3 inner */
     --bp-md: 768px;
     --bp-fold-max: 896px;
     --bp-lg: 1024px;
@@ -541,8 +543,22 @@
   }
 }
 
+/* Honor Magic V3 cover mode (321px - 360px with ultra-tall aspect ratio) - Compact layout for fold covers */
+@media (min-width: 321px) and (max-width: 360px) and (max-aspect-ratio: 9/20) {
+  :root {
+    --layout-mode: 'compact';
+    --panel-visibility: hidden;
+    --timeline-tracks: 1;
+    --touch-target-min: 48px;
+    --touch-target-recommended: 52px;
+    --video-max-height: 35vh;
+    --hinge-width: 0px;
+    --fold-gap: 0px;
+  }
+}
+
 /* Standard phone mode (321px - 450px) - Compact layout */
-@media (min-width: 321px) and (max-width: 450px) {
+@media (min-width: 321px) and (max-width: 450px) and (min-aspect-ratio: 9/20) {
   :root {
     --layout-mode: 'compact';
     --panel-visibility: collapsed;
@@ -1447,4 +1463,24 @@ canvas {
     transform: translateZ(0);
   }
 }
+
+
+
+
+/* Optimize canvas rendering (used for video effects) */
+canvas {
+  image-rendering: optimizeSpeed;
+  -webkit-image-rendering: optimizeSpeed;
+}
+
+/* High DPI screen optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  video {
+    /* Prevent subpixel rendering issues */
+    transform: translateZ(0);
+  }
+}
+
+
+
 

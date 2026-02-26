@@ -44,12 +44,18 @@ export type PanelVisibility = 'hidden' | 'collapsed' | 'visible';
 // ============================================
 
 export const BREAKPOINTS = {
+  // Very small screens (iPhone 4/5/SE)
+  xxs: 320,
+  
   // Folded/Cover displays
   foldNarrow: 272,
   foldCover: 301,
   
-  // Small smartphones
-  xxs: 360,
+  // Small smartphones - Honor Magic V3 cover
+  xsSm: 354,
+  
+  // Standard small smartphones
+  xxsStd: 360,
   xs: 375,
   phone: 390,
   phoneLg: 428,
@@ -61,7 +67,7 @@ export const BREAKPOINTS = {
   
   // Tablets & large foldables
   sm: 640,
-  foldWide: 719,
+  foldWide: 719,  // Honor Magic V3 inner
   md: 768,
   foldMax: 896,
   
@@ -245,7 +251,8 @@ function getLayoutRecommendations(
   timelineTracks: number;
   panelVisibility: PanelVisibility;
 } {
-  if (width <= BREAKPOINTS.foldCover) {
+  // iPhone 4/5/SE and very small phones (320px or less)
+  if (width <= BREAKPOINTS.xxs) {
     return {
       layoutMode: 'minimal',
       deviceType: isFoldable ? 'foldable-folded' : 'phone',
@@ -255,6 +262,18 @@ function getLayoutRecommendations(
     };
   }
   
+  // Honor Magic V3 cover (321px - 360px) with ultra-tall aspect ratio
+  if (width <= BREAKPOINTS.xxsStd && aspectRatio < 0.5) {
+    return {
+      layoutMode: 'compact',
+      deviceType: 'foldable-folded',
+      touchTargetSize: 48,
+      timelineTracks: 1,
+      panelVisibility: 'hidden',
+    };
+  }
+  
+  // Standard phones (321px - 428px)
   if (width <= BREAKPOINTS.phoneLg) {
     return {
       layoutMode: 'compact',
@@ -510,4 +529,34 @@ export function useOrientation(): Orientation {
 export function useIsMobile(): boolean {
   const { isMobile } = useResponsive();
   return isMobile;
+} * @deprecated Use useResponsive() instead for more comprehensive detection
+ */
+export function useIsMobile(): boolean {
+  const { isMobile } = useResponsive();
+  return isMobile;
 }
+ * Hook to get orientation
+ */
+export function useOrientation(): Orientation {
+  const { orientation } = useResponsive();
+  return orientation;
+}
+
+// ============================================
+// BACKWARD COMPATIBILITY
+// ============================================
+
+/**
+ * Legacy hook for mobile detection (backward compatible with use-mobile.tsx)
+ * @deprecated Use useResponsive() instead for more comprehensive detection
+ */
+export function useIsMobile(): boolean {
+  const { isMobile } = useResponsive();
+  return isMobile;
+} * @deprecated Use useResponsive() instead for more comprehensive detection
+ */
+export function useIsMobile(): boolean {
+  const { isMobile } = useResponsive();
+  return isMobile;
+}
+

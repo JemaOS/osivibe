@@ -16,13 +16,17 @@ module.exports = {
 			},
 		},
 		screens: {
+			// === VERY SMALL SCREENS (iPhone 4/5/SE, 320px) ===
+			'xxs': '320px',            // iPhone 4/5/SE, very small phones
+			
 			// === FOLDED/COVER DISPLAYS ===
 			'fold-narrow': '272px',    // Galaxy Z Fold 2/3 cover (narrowest)
 			'fold-cover': '301px',     // Galaxy Z Fold 4/5/6 cover
 			
 			// === SMALL SMARTPHONES ===
-			'xxs': '360px',            // Small Android phones (keep existing)
-			'xs': '375px',             // iPhone SE, iPhone 8 (keep existing)
+			'xs-sm': '354px',          // Honor Magic V3 cover display (353px)
+			'xs-std': '360px',         // Small Android phones
+			'xs': '375px',             // iPhone SE, iPhone 8, iPhone mini
 			'phone': '390px',          // iPhone 12/13/14 standard
 			'phone-lg': '428px',       // iPhone Pro Max, large phones
 			
@@ -32,15 +36,15 @@ module.exports = {
 			'fold-open-lg': '619px',   // Galaxy Z Fold 6 inner
 			
 			// === TABLETS & LARGE FOLDABLES ===
-			'sm': '640px',             // Small tablets (keep existing)
+			'sm': '640px',             // Small tablets
 			'fold-wide': '719px',      // Honor Magic V3 inner
-			'md': '768px',             // Standard tablets (keep existing)
+			'md': '768px',             // Standard tablets
 			'fold-max': '896px',       // Oppo Find N inner (largest)
 			
 			// === DESKTOP ===
-			'lg': '1024px',            // Small desktop/laptop (keep existing)
-			'xl': '1280px',            // Standard desktop (keep existing)
-			'2xl': '1536px',           // Large desktop (keep existing)
+			'lg': '1024px',            // Small desktop/laptop
+			'xl': '1280px',            // Standard desktop
+			'2xl': '1536px',           // Large desktop
 			
 			// === HEIGHT-BASED BREAKPOINTS (for landscape) ===
 			'short': { 'raw': '(max-height: 500px)' },
@@ -286,3 +290,18 @@ module.exports = {
 		},
 	],
 }
+		},
+	],
+}
+
+	],
+}
+
+		},
+	],
+}
+		},
+	],
+}
+
+
