@@ -17,7 +17,7 @@ import './index.css';
 
 // Footer credit component
 const FooterCredit: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
-  <footer className={`${compact ? 'py-1' : 'py-2'} px-3 text-center bg-[#0f0f0f] border-t border-white/10 flex-shrink-0`}>
+  <footer className={`${compact ? 'py-1' : 'py-2'} px-3 text-center bg-[#0f0f0f] border-t border-white/10 flex-shrink-0 safe-area-bottom`}>
     <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-neutral-500`}>
       Développé par{' '}
       <a
@@ -107,7 +107,7 @@ const MinimalLayout = ({
   getFoldAwareStyles
 }: any) => (
   <div 
-    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
     style={getFoldAwareStyles()}
   >
     <Header
@@ -224,7 +224,7 @@ const CompactLayout = ({
   getFoldAwareStyles
 }: any) => (
   <div 
-    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition"
+    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
     style={getFoldAwareStyles()}
   >
     <Header

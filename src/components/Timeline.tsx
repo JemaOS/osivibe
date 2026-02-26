@@ -597,24 +597,45 @@ const useTimelineTouch = (
 };
 
 const useTimelineCut = () => {
-  const { player, tracks, textOverlays, updateTextOverlay, addTextOverlay } = useEditorStore();
+  const { player, tracks, textOverlays, updateTextOverlay, addTextOverlay, ui } = useEditorStore();
 
   const handleCutClick = () => {
     const cutTime = player.currentTime;
     const { splitClip } = useEditorStore.getState();
+    const { selectedClipId, selectedTrackId } = useEditorStore.getState().ui;
     
     const clipsToSplit: string[] = [];
     
-    tracks.forEach(track => {
-      track.clips.forEach(clip => {
+    // If a clip is selected, only cut that specific clip
+    // Otherwise, cut clips from the selected track or all tracks (legacy behavior)
+    if (selectedClipId) {
+      // Only cut the selected clip
+      const clip = tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
+      if (clip) {
         const clipStart = clip.startTime;
         const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
         
         if (cutTime > clipStart && cutTime < clipEnd) {
-          clipsToSplit.push(clip.id);
+          clipsToSplit.push(selectedClipId);
         }
+      }
+    } else {
+      // No clip selected - use track-based selection (original behavior)
+      const tracksToProcess = selectedTrackId 
+        ? tracks.filter(t => t.id === selectedTrackId)
+        : tracks;
+      
+      tracksToProcess.forEach(track => {
+        track.clips.forEach(clip => {
+          const clipStart = clip.startTime;
+          const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+          
+          if (cutTime > clipStart && cutTime < clipEnd) {
+            clipsToSplit.push(clip.id);
+          }
+        });
       });
-    });
+    }
     
     clipsToSplit.forEach(clipId => {
       splitClip(clipId, cutTime);
@@ -1223,3 +1244,5 @@ export const Timeline: React.FC = () => {
 };
 
 export default Timeline;
+
+

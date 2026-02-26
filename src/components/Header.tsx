@@ -233,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         {/* Logo and App Name */}
         <div className="flex items-center gap-1 fold-cover:gap-0.5 fold-open:gap-1.5 sm:gap-2 flex-shrink-0">
           <div className={`${getLogoSize(layoutMode)} rounded-lg bg-primary-500 flex items-center justify-center`}>
-            <Film className={getLogoIconSize(layoutMode)} text-white />
+            <Film className={`${getLogoIconSize(layoutMode)} text-white`} />
           </div>
           {/* Hide app name on minimal/fold cover screens */}
           <span className={`text-sm fold-cover:hidden fold-open:inline sm:text-base font-semibold text-white ${layoutMode === 'minimal' ? 'hidden' : ''}`}>

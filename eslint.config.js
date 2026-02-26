@@ -25,11 +25,11 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'warn',
       'security/detect-object-injection': 'off',
       'security/detect-non-literal-fs-filename': 'off',
-      'react-hooks/exhaustive-deps': 'off',
+      'react-hooks/exhaustive-deps': ['warn', { additionalHooks: 'useEffect|useMemo|useCallback' }],
     },
   },
 )

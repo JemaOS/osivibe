@@ -2,6 +2,22 @@ let lastSavedJson: string | null = null;
 let saveTimeout: any = null;
 const DEBOUNCE_TIME = 1000;
 
+// Cleanup function for HMR and app unmount
+// This prevents memory leaks and state pollution across hot reloads
+const cleanup = (): void => {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout);
+    saveTimeout = null;
+  }
+  lastSavedJson = null;
+};
+
+// Exported cleanup function for manual invocation
+// Use this when unmounting the app or during HMR
+export const cleanupStorage = (): void => {
+  cleanup();
+};
+
 export const indexedDBStorage = {
   getItem: async (name: string) => {
     return new Promise((resolve, reject) => {
@@ -105,3 +121,5 @@ export const indexedDBStorage = {
     });
   },
 };
+
+

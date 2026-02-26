@@ -803,6 +803,105 @@
 }
 
 /* ============================================
+   MOBILE TOUCH OPTIMIZATION
+   ============================================ */
+
+/* Prevent pull-to-refresh and unwanted scroll gestures */
+html {
+  overscroll-behavior: none;
+}
+
+/* Touch action utilities for mobile */
+.touch-none {
+  touch-action: none;
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+.touch-pan-x {
+  touch-action: pan-x;
+}
+
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+/* Mobile-optimized scroll */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Prevent text selection on touch */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection only where needed */
+.select-text {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* ============================================
+   MOBILE-SPECIFIC LAYOUT IMPROVEMENTS
+   ============================================ */
+
+/* Mobile layout fixes */
+@media (max-width: 450px) {
+  /* Ensure full-width on mobile */
+  .mobile-full-width {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
+  }
+  
+  /* Larger touch targets for mobile */
+  .mobile-btn {
+    min-height: 48px;
+    min-width: 48px;
+    padding: 12px;
+  }
+  
+  /* Mobile-friendly input */
+  .mobile-input {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    padding: 12px;
+  }
+  
+  /* Hide scrollbars but keep functionality */
+  .mobile-hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .mobile-hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Landscape mobile optimizations */
+@media (max-height: 500px) and (orientation: landscape) {
+  .landscape-compact-header {
+    height: 40px;
+  }
+  
+  .landscape-compact-player {
+    max-height: 60vh;
+  }
+  
+  .landscape-compact-timeline {
+    height: 80px;
+  }
+}
+
+/* ============================================
    FOLD TRANSITION ANIMATIONS
    ============================================ */
 
@@ -1263,3 +1362,89 @@ canvas {
     transform: translateZ(0);
   }
 }
+
+/* Memory-constrained devices */
+@media (max-width: 640px) {
+  /* Reduce shadow complexity */
+  .glass-panel,
+  .timeline-clip,
+  .btn-primary,
+  .btn-secondary {
+    box-shadow: none !important;
+  }
+  
+  /* Simplify borders */
+  .glass-panel {
+    border-width: 1px !important;
+  }
+  
+  /* Reduce blur effects (expensive on mobile) */
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(26, 26, 26, 0.95) !important;
+  }
+}
+
+/* Video playback state classes */
+.video-playing video {
+  /* Optimize for playback */
+  will-change: contents;
+  contain: strict;
+}
+
+.video-paused video {
+  /* Reset optimizations when paused */
+  will-change: auto;
+  contain: layout paint;
+}
+
+/* Smooth scrolling disabled on mobile for better performance */
+@media (max-width: 1024px) {
+  .custom-scrollbar {
+    scroll-behavior: auto !important;
+    -webkit-overflow-scrolling: auto !important;
+  }
+}
+
+/* Touch-friendly video controls */
+@media (pointer: coarse) {
+  /* Larger touch targets for video controls */
+  .video-controls button {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 12px;
+  }
+  
+  /* Easier to tap progress bar */
+  .video-progress {
+    min-height: 24px;
+    padding: 8px 0;
+  }
+}
+
+/* Prevent text selection during video interaction */
+.video-container {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Optimize canvas rendering (used for video effects) */
+canvas {
+  image-rendering: optimizeSpeed;
+  -webkit-image-rendering: optimizeSpeed;
+}
+
+/* High DPI screen optimizations */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  video {
+    /* Prevent subpixel rendering issues */
+    transform: translateZ(0);
+  }
+}
+

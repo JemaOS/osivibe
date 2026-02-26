@@ -194,10 +194,13 @@ function applyHardwareSpecificSettings(
   
   if (format === 'webm') {
     settings.videoCodec = 'libvpx-vp9';
-    const cpuUsed = gpuTier === 'high' ? '4' : gpuTier === 'medium' ? '6' : '8';
+    // Use slower cpu-used for better stability in WASM (avoid memory issues)
+    const cpuUsed = gpuTier === 'high' ? '3' : gpuTier === 'medium' ? '5' : '6';
     settings.additionalFlags.push('-cpu-used', cpuUsed);
-    settings.additionalFlags.push('-row-mt', '1');
-    settings.additionalFlags.push('-deadline', 'realtime');
+    // Remove row-mt for WASM stability (causes memory access issues)
+    // settings.additionalFlags.push('-row-mt', '1');
+    // Remove deadline realtime - causes memory access violations in WASM
+    // settings.additionalFlags.push('-deadline', 'realtime');
   }
   
   return { gpuTier, processorCores };
@@ -2546,7 +2549,7 @@ async function performFFmpegExport(
 
   const execTimeoutMs = safeMode
     ? Math.max(600_000, estimatedTime * 1000 * 60)
-    : Math.max(240_000, estimatedTime * 1000 * 30);
+    : Math.max(240_000, estimatedTime * 1000 * 30) + (outputFormat === 'webm' ? 180_000 : 0); // Add 3 min extra for WebM
   
   const encodingStartTime = performance.now();
   const quality = encodingSettings.crf;
@@ -2811,3 +2814,5 @@ export async function exportProject(
     }
   }
 }
+
+

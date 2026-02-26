@@ -795,16 +795,21 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   splitClip: (clipId, splitTime) => {
     get().saveState(); // Save state before action
     
-    const processTrack = (track: TimelineTrack) => {
+    set((state) => {
+      // First, find the track containing the clip
+      const trackIndex = state.tracks.findIndex(t => t.clips.some(c => c.id === clipId));
+      if (trackIndex === -1) return state; // Clip not found in any track
+      
+      const track = state.tracks[trackIndex];
       const clipIndex = track.clips.findIndex((c) => c.id === clipId);
-      if (clipIndex === -1) return track;
+      if (clipIndex === -1) return state;
       
       const clip = track.clips[clipIndex];
       const clipStart = clip.startTime;
       const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
       
       // Check if split time is within the clip
-      if (splitTime <= clipStart || splitTime >= clipEnd) return track;
+      if (splitTime <= clipStart || splitTime >= clipEnd) return state;
       
       const splitPoint = splitTime - clipStart + clip.trimStart;
       
@@ -861,11 +866,12 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       const newClips = [...track.clips];
       newClips.splice(clipIndex, 1, firstClip, secondClip);
       
-      return { ...track, clips: resolveOverlaps(newClips) };
-    };
-
-    set((state) => {
-      const newTracks = state.tracks.map(processTrack);
+      const newTrack = { ...track, clips: resolveOverlaps(newClips) };
+      
+      // Only update the specific track that contains the clip
+      const newTracks = [...state.tracks];
+      newTracks[trackIndex] = newTrack;
+      
       return { tracks: newTracks };
     });
     get().calculateProjectDuration();
@@ -1271,3 +1277,4 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     }
   },
 }));
+
