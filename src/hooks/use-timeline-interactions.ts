@@ -316,19 +316,27 @@ export const useTimelineClipResize = (
 
   const handleVideoAudioResize = useCallback((clip: TimelineClip, time: number) => {
     if (resizingClip?.edge === 'start') {
+      // Clamp trimStart: must be >= 0 and leave at least 0.1s visible
       const maxTrimStart = clip.duration - clip.trimEnd - 0.1;
       const newTrimStart = Math.max(0, Math.min(maxTrimStart, clip.trimStart + (time - clip.startTime)));
-      const newStartTime = time;
+      // Recalculate startTime based on actual trimStart change (not raw mouse position)
+      // This prevents extending the clip beyond its source media duration
+      const trimDelta = newTrimStart - clip.trimStart;
+      const newStartTime = clip.startTime + trimDelta;
       
-      updateClip(clip.id, { 
+      updateClip(clip.id, {
         trimStart: newTrimStart,
         startTime: newStartTime,
       });
     } else {
+      // Clamp trimEnd: must be >= 0 (can't extend beyond source duration)
+      // and must leave at least 0.1s visible (trimStart + trimEnd < duration - 0.1)
       const clipEndTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
       const newEndTime = time;
       const delta = newEndTime - clipEndTime;
-      const newTrimEnd = Math.max(0, clip.trimEnd - delta);
+      const maxTrimEndReduction = clip.trimEnd; // trimEnd can't go below 0
+      const clampedDelta = Math.min(delta, maxTrimEndReduction);
+      const newTrimEnd = Math.max(0, Math.min(clip.duration - clip.trimStart - 0.1, clip.trimEnd - clampedDelta));
       
       updateClip(clip.id, { trimEnd: newTrimEnd });
     }

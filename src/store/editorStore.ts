@@ -884,9 +884,34 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       const hasClip = track.clips.some(c => c.id === clipId);
       if (!hasClip) return track;
       
-      const updatedClips = track.clips.map((clip) =>
-        clip.id === clipId ? { ...clip, ...updates } : clip
-      );
+      const updatedClips = track.clips.map((clip) => {
+        if (clip.id !== clipId) return clip;
+        
+        const merged = { ...clip, ...updates };
+        
+        // Bounds checking for video and audio clips:
+        // trimStart and trimEnd must stay >= 0 and their sum must be < duration
+        if (clip.type === 'video' || clip.type === 'audio') {
+          if (merged.trimStart !== undefined) {
+            merged.trimStart = Math.max(0, merged.trimStart);
+          }
+          if (merged.trimEnd !== undefined) {
+            merged.trimEnd = Math.max(0, merged.trimEnd);
+          }
+          // Ensure there's always some visible content (at least 0.1s)
+          if (merged.trimStart + merged.trimEnd >= merged.duration) {
+            const excess = merged.trimStart + merged.trimEnd - merged.duration + 0.1;
+            // Reduce whichever trim value was being changed
+            if (updates.trimEnd !== undefined) {
+              merged.trimEnd = Math.max(0, merged.trimEnd - excess);
+            } else if (updates.trimStart !== undefined) {
+              merged.trimStart = Math.max(0, merged.trimStart - excess);
+            }
+          }
+        }
+        
+        return merged;
+      });
       
       // Only resolve overlaps if position or duration changed
       if (updates.startTime !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
