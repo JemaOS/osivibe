@@ -17,6 +17,7 @@ import type {
   ExportSettings,
   MediaType,
   TransitionType,
+  TrackType,
 } from '../types';
 import { DEFAULT_FILTER } from '../types';
 
@@ -223,7 +224,7 @@ interface EditorState {
   detachAudioFromVideo: (videoClipId: string) => void;
   
   // Track actions
-  addTrack: (type: 'video' | 'audio') => void;
+  addTrack: (type?: TrackType) => void;
   removeTrack: (id: string) => void;
   toggleTrackMute: (id: string) => void;
   toggleTrackLock: (id: string) => void;
@@ -644,11 +645,17 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   },
   
   // Track actions
-  addTrack: (type) => {
+  addTrack: (type = 'video' as TrackType) => {
     const trackCount = get().tracks.filter((t) => t.type === type).length;
+    const typeNames: Record<TrackType, string> = {
+      video: 'Vidéo',
+      audio: 'Audio',
+      image: 'Image',
+      text: 'Texte',
+    };
     const newTrack: TimelineTrack = {
       id: uuidv4(),
-      name: `${type === 'video' ? 'Video' : 'Audio'} ${trackCount + 1}`,
+      name: `${typeNames[type]} ${trackCount + 1}`,
       type,
       clips: [],
       muted: false,
@@ -1290,3 +1297,16 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     console.log('✅ State rehydration complete');
   },
 }));
+
+
+
+      updateClipThumbnails(project.tracks, project.mediaFiles);
+    }
+
+    console.log('✅ State rehydration complete');
+  },
+}));
+
+
+
+

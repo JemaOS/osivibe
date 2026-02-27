@@ -2,12 +2,12 @@
 // Distributed under the license specified in the root directory of this project.
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move } from 'lucide-react';
+import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move, Video, Music, Image } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { useTimelineClipDrag, useTimelineClipResize, useTimelineTextDrag, useTimelineTextResize, useTimelineTransitionDrag, useTimelineDrop } from '../hooks/use-timeline-interactions';
 import { formatTime } from '../utils/helpers';
-import type { TimelineClip, TextOverlay, MediaFile } from '../types';
+import type { TimelineClip, TextOverlay, MediaFile, TrackType } from '../types';
 
 // Base scale - will be adjusted based on screen size
 const BASE_PIXELS_PER_SECOND = 50;
@@ -882,6 +882,10 @@ export const Timeline: React.FC = () => {
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchStartTime, setTouchStartTime] = useState(0);
 
+  // Add Track dropdown state
+  const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
+  const addTrackMenuRef = useRef<HTMLDivElement>(null);
+
   const { copiedClip, copiedText, setCopiedClip, setCopiedText } = useTimelineKeyboardShortcuts();
   const { isDraggingPlayhead, isTouchScrubbing, setIsTouchScrubbing, handlePlayheadMouseDown, handlePlayheadTouchStart } = useTimelinePlayhead(tracksContainerRef, PIXELS_PER_SECOND);
   const { contextMenu, setContextMenu, handleClipContextMenu, handleTextContextMenu } = useTimelineContextMenu();
@@ -895,6 +899,24 @@ export const Timeline: React.FC = () => {
   const { handleDrop, handleClipDrop, handleTimelineDrop, handleDragOver } = useTimelineDrop(tracksContainerRef, PIXELS_PER_SECOND);
 
   const timelineWidth = Math.max(projectDuration * PIXELS_PER_SECOND * ui.timelineZoom, 1000);
+
+  // Close add-track dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addTrackMenuRef.current && !addTrackMenuRef.current.contains(e.target as Node)) {
+        setShowAddTrackMenu(false);
+      }
+    };
+    if (showAddTrackMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAddTrackMenu]);
+
+  const handleAddTrack = (type: TrackType) => {
+    addTrack(type);
+    setShowAddTrackMenu(false);
+  };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (labelsContainerRef.current) {
@@ -1107,15 +1129,47 @@ export const Timeline: React.FC = () => {
             </div>
           </div>
 
-          {/* Add Track Button */}
-          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0">
+          {/* Add Track Button with Dropdown */}
+          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0 relative" ref={addTrackMenuRef}>
             <button 
-              onClick={() => addTrack('video')} 
+              onClick={() => setShowAddTrackMenu(!showAddTrackMenu)} 
               className={`btn-secondary w-full ${getAddTrackBtnClass(isMinimal, isCompact)} touch-target`}
             >
               <Plus className={getAddTrackIconClass(isMinimal, isCompact)} />
               <span className="fold-cover:hidden fold-open:inline">Track</span>
             </button>
+            {showAddTrackMenu && (
+              <div className="absolute bottom-full left-0 mb-1 z-50 bg-neutral-800 border border-white/10 rounded-lg shadow-xl min-w-[180px] py-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <button
+                  onClick={() => handleAddTrack('video')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                >
+                  <span>🎬</span>
+                  <span>Piste Vidéo</span>
+                </button>
+                <button
+                  onClick={() => handleAddTrack('audio')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                >
+                  <span>🎵</span>
+                  <span>Piste Audio</span>
+                </button>
+                <button
+                  onClick={() => handleAddTrack('image')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                >
+                  <span>🖼️</span>
+                  <span>Piste Image</span>
+                </button>
+                <button
+                  onClick={() => handleAddTrack('text')}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                >
+                  <span>📝</span>
+                  <span>Piste Texte</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1213,6 +1267,58 @@ export const Timeline: React.FC = () => {
                     onMouseDown={(e) => handleTextMouseDown(e, text.id)}
                     onContextMenu={(e) => handleTextContextMenu(e, text.id)}
                   >
+                    {/* Resize handles - larger for touch */}
+                    <div
+                      className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                      onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
+                      title="Étendre le début"
+                    >
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
+                    </div>
+                    <div
+                      className={`absolute right-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                      onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
+                      title="Étendre la fin"
+                    >
+                      <div className="absolute right-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
+                    </div>
+
+                    {/* Text content */}
+                    <p className={`${getRulerTextClass(isMinimal, isCompact)} font-medium text-white truncate relative z-10`}>
+                      {text.text}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Playhead - with larger touch target */}
+            <div
+              className="playhead"
+              style={{ left: `${playheadX}px` }}
+            >
+              <div
+                className={`absolute -top-1 ${getPlayheadHandleClass(isMinimal, isCompact)} cursor-ew-resize touch-target`}
+                onMouseDown={handlePlayheadMouseDown}
+                onTouchStart={handlePlayheadTouchStart}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Context Menu */}
+      <TimelineContextMenu 
+        contextMenu={contextMenu} 
+        setContextMenu={setContextMenu} 
+        setCopiedClip={setCopiedClip} 
+        setCopiedText={setCopiedText} 
+      />
+    </div>
+  );
+};
+
+export default Timeline;
                     {/* Resize handles - larger for touch */}
                     <div
                       className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}

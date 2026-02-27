@@ -55,10 +55,12 @@ export interface TimelineClip {
   linkedVideoClipId?: string; // For audio clips: ID of the original video clip
 }
 
+export type TrackType = 'video' | 'audio' | 'image' | 'text';
+
 export interface TimelineTrack {
   id: string;
   name: string;
-  type: 'video' | 'audio';
+  type: TrackType;
   clips: TimelineClip[];
   muted: boolean;
   locked: boolean;
@@ -267,4 +269,6 @@ export const DEFAULT_FILTER: VideoFilter = {
   sepia: false,
   blur: 0,
 };
+
+
 

@@ -976,10 +976,11 @@ export function getTextFilterString(
   ];
   
   // Add background color if specified
+  // Matches preview: full opacity background with padding equivalent to 4px/8px
   if (textOverlay.backgroundColor) {
     const bgColor = hexToFFmpegColor(textOverlay.backgroundColor);
     parts.push(`box=1`);
-    parts.push(`boxcolor=${bgColor}@0.5`);
+    parts.push(`boxcolor=${bgColor}`);
     parts.push(`boxborderw=5`);
   }
   
@@ -1339,7 +1340,14 @@ export async function generateThumbnail(
       canvas.height = targetH;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('No canvas context');
-      ctx.drawImage(video, 0, 0, targetW, targetH);
+      if (video.readyState < 2) {
+        throw new Error('Video not ready for drawing (readyState=' + video.readyState + ')');
+      }
+      try {
+        ctx.drawImage(video, 0, 0, targetW, targetH);
+      } catch (drawErr) {
+        throw new Error('drawImage failed for video thumbnail: ' + (drawErr instanceof Error ? drawErr.message : String(drawErr)));
+      }
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       URL.revokeObjectURL(url);
@@ -2668,14 +2676,15 @@ function tryMediaBunnyExport(
   safeMode?: boolean,
   audioClips?: ExportAudioClip[]
 ): Promise<Blob> | null {
-  const hasComplexFeatures = checkComplexFeatures(clips, textOverlays, transitions, audioClips);
-  
-  if (hasComplexFeatures) {
-    console.log('⚠️ Complex features detected (Text/Transitions/Filters/Images/Audio), falling back to FFmpeg for full support.');
+  // Only fall back to FFmpeg for image clips (not supported by MediaBunny)
+  const hasImages = clips.some(c => c.file.type.startsWith('image/'));
+  if (hasImages) {
+    console.log('⚠️ Image clips detected, using FFmpeg (MediaBunny does not support static images).');
     return null;
   }
 
   try {
+    console.log('🐰 Using MediaBunny for export (primary engine)');
     return exportProjectWithMediaBunny(
       clips,
       settings,
@@ -2688,8 +2697,7 @@ function tryMediaBunnyExport(
       audioClips
     );
   } catch (error) {
-    console.error('MediaBunny export failed:', error);
-    console.log('Falling back to FFmpeg...');
+    console.error('MediaBunny export failed, falling back to FFmpeg:', error);
     return null;
   }
 }
@@ -2825,6 +2833,10 @@ async function convertImageToPng(file: File): Promise<Blob> {
       }
       
       try {
+        if (!img.complete || img.naturalWidth === 0) {
+          URL.revokeObjectURL(url);
+          return reject(new Error('Image not fully loaded or has zero dimensions'));
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         
         canvas.toBlob((blob) => {
@@ -3030,3 +3042,4 @@ export async function exportProject(
     }
   }
 }
+
