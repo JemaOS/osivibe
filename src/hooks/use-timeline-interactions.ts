@@ -176,7 +176,11 @@ export const useTimelineClipDrag = (
     const isImageClip = clipType === 'image';
     const isVideoTrack = trackType === 'video';
     const isAudioTrack = trackType === 'audio';
+    const isTextTrack = trackType === 'text';
 
+    // Text tracks can accept any clip type
+    if (isTextTrack) return true;
+    
     if (isAudioClip) return isAudioTrack;
     
     if (isVideoClip) {
