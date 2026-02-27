@@ -1051,13 +1051,16 @@ export const Timeline: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1 overflow-hidden">
-                    <button
-                      onClick={() => toggleTrackMute(track.id)}
-                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target flex-shrink-0`}
-                      title={track.muted ? 'Unmute' : 'Mute'}
-                    >
-                      {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
-                    </button>
+                    {/* Mute button - only show for video or audio tracks */}
+                    {['video', 'audio'].includes(track.type) && (
+                      <button
+                        onClick={() => toggleTrackMute(track.id)}
+                        className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target flex-shrink-0`}
+                        title={track.muted ? 'Unmute' : 'Mute'}
+                      >
+                        {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleTrackLock(track.id)}
                       className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} touch-target flex-shrink-0`}
@@ -1065,8 +1068,8 @@ export const Timeline: React.FC = () => {
                     >
                       {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
-                    {/* Volume slider - only show when not muted */}
-                    {!track.muted && !isMinimal && (
+                    {/* Volume slider - only show for video or audio tracks and when not muted */}
+                    {['video', 'audio'].includes(track.type) && !track.muted && !isMinimal && (
                       <div className="flex items-center gap-1 sm:gap-1.5 ml-1 min-w-0 flex-1" title={`Volume: ${Math.round((track.volume ?? 1) * 100)}%`}>
                         <input
                           type="range"
