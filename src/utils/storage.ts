@@ -6,6 +6,8 @@ const DEBOUNCE_TIME = 500;
 
 // Open (or create) the IndexedDB database once and cache the promise
 let dbPromise: Promise<IDBDatabase> | null = null;
+// Keep a synchronous reference to the DB for use in beforeunload
+let cachedDB: IDBDatabase | null = null;
 
 const openDB = (): Promise<IDBDatabase> => {
   if (dbPromise) return dbPromise;
@@ -17,7 +19,10 @@ const openDB = (): Promise<IDBDatabase> => {
         db.createObjectStore('store');
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      cachedDB = request.result;
+      resolve(request.result);
+    };
     request.onerror = () => {
       dbPromise = null; // Allow retry on failure
       reject(request.error);
@@ -54,19 +59,32 @@ const flushPendingWrite = (): void => {
   if (pendingWrite) {
     const { name, value } = pendingWrite;
     pendingWrite = null;
-    // Use a synchronous-style write for beforeunload:
-    // We can't await here, but we can start the transaction.
-    // IndexedDB transactions started before the page unloads will complete.
-    try {
-      const request = indexedDB.open('osivibe-db', 1);
-      request.onsuccess = () => {
-        const db = request.result;
-        const transaction = db.transaction('store', 'readwrite');
+    // Use the already-cached DB connection for synchronous transaction start.
+    // IndexedDB transactions started synchronously during beforeunload will
+    // complete even after the page begins to unload (per spec).
+    // CRITICAL: Do NOT open a new indexedDB.open() here — it's async and
+    // the onsuccess callback may never fire during page teardown.
+    if (cachedDB) {
+      try {
+        const transaction = cachedDB.transaction('store', 'readwrite');
         const store = transaction.objectStore('store');
         store.put(value, name);
-      };
-    } catch (e) {
-      console.error('IndexedDB flush error:', e);
+      } catch (e) {
+        console.error('IndexedDB flush error:', e);
+      }
+    } else {
+      // Fallback: try opening a new connection (unreliable during unload)
+      try {
+        const request = indexedDB.open('osivibe-db', 1);
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction('store', 'readwrite');
+          const store = transaction.objectStore('store');
+          store.put(value, name);
+        };
+      } catch (e) {
+        console.error('IndexedDB flush fallback error:', e);
+      }
     }
   }
 };
@@ -163,5 +181,3 @@ export const indexedDBStorage = {
     }
   },
 };
-
-

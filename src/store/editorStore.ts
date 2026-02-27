@@ -2,7 +2,7 @@
 // Distributed under the license specified in the root directory of this project.
 
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import { indexedDBStorage } from '../utils/storage';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -1400,6 +1400,17 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         migrateTextOverlays(project.textOverlays, project.tracks);
       }
     }
+
+    // CRITICAL: Force a state update to notify React of the mutated blob URLs.
+    // The onRehydrateStorage callback runs AFTER set(state, true) in the persist
+    // middleware, so in-place mutations to media.url/thumbnail won't trigger
+    // re-renders unless we explicitly call setState with new object references.
+    useEditorStore.setState({
+      mediaFiles: [...state.mediaFiles],
+      tracks: [...state.tracks],
+      textOverlays: [...state.textOverlays],
+      projects: [...state.projects],
+    });
 
     console.log('✅ State rehydration complete');
   },
