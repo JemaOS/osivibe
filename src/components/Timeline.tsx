@@ -1139,33 +1139,33 @@ export const Timeline: React.FC = () => {
               <span className="fold-cover:hidden fold-open:inline">Track</span>
             </button>
             {showAddTrackMenu && (
-              <div className="absolute bottom-full left-0 mb-1 z-50 bg-neutral-800 border border-white/10 rounded-lg shadow-xl min-w-[180px] py-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <div className="absolute bottom-full left-0 mb-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-xl min-w-[180px] py-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
                 <button
                   onClick={() => handleAddTrack('video')}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
                 >
-                  <span>🎬</span>
+                  <Video className="w-4 h-4 text-primary flex-shrink-0" />
                   <span>Piste Vidéo</span>
                 </button>
                 <button
                   onClick={() => handleAddTrack('audio')}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
                 >
-                  <span>🎵</span>
+                  <Music className="w-4 h-4 text-primary flex-shrink-0" />
                   <span>Piste Audio</span>
                 </button>
                 <button
                   onClick={() => handleAddTrack('image')}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
                 >
-                  <span>🖼️</span>
+                  <Image className="w-4 h-4 text-primary flex-shrink-0" />
                   <span>Piste Image</span>
                 </button>
                 <button
                   onClick={() => handleAddTrack('text')}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
                 >
-                  <span>📝</span>
+                  <Type className="w-4 h-4 text-primary flex-shrink-0" />
                   <span>Piste Texte</span>
                 </button>
               </div>
