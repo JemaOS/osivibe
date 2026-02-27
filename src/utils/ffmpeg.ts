@@ -849,16 +849,34 @@ export function cancelExport() {
 export function getFilterString(filter: VideoFilter): string {
   const filters: string[] = [];
 
+  // Build a single eq= filter with all parameters to avoid multiple eq filters
+  // which can conflict with each other in FFmpeg filter chains
+  const eqParts: string[] = [];
+
   if (filter.brightness !== 0) {
-    filters.push(`eq=brightness=${filter.brightness / 100}`);
+    // CSS preview uses: brightness(1 + val/100) which is multiplicative
+    // FFmpeg eq=brightness is additive on -1..1 luma scale, which is much more aggressive
+    // To approximate CSS multiplicative brightness with FFmpeg additive:
+    // CSS brightness(1.5) ≈ 50% brighter; FFmpeg brightness=0.5 adds 0.5 to luma (way too much)
+    // A good approximation: FFmpeg brightness ≈ (val/100) * 0.25
+    // This maps CSS brightness range [-100,100] → FFmpeg [-0.25, 0.25] which visually matches better
+    eqParts.push(`brightness=${(filter.brightness / 100) * 0.25}`);
   }
 
   if (filter.contrast !== 0) {
-    filters.push(`eq=contrast=${1 + filter.contrast / 100}`);
+    // CSS preview uses: contrast(1 + val/100) which is a multiplier
+    // FFmpeg eq=contrast is also a multiplier (default 1.0), so this mapping is correct
+    eqParts.push(`contrast=${1 + filter.contrast / 100}`);
   }
 
   if (filter.saturation !== 0) {
-    filters.push(`eq=saturation=${1 + filter.saturation / 100}`);
+    // CSS preview uses: saturate(1 + val/100) which is a multiplier
+    // FFmpeg eq=saturation is also a multiplier (default 1.0), so this mapping is correct
+    eqParts.push(`saturation=${1 + filter.saturation / 100}`);
+  }
+
+  if (eqParts.length > 0) {
+    filters.push(`eq=${eqParts.join(':')}`);
   }
 
   if (filter.grayscale) {
@@ -918,7 +936,6 @@ function escapeFilterComplexExpr(expr: string): string {
  * @param videoWidth - The video width in pixels (export resolution)
  * @param videoHeight - The video height in pixels (export resolution)
  * @param fontPath - Path to the font file in FFmpeg virtual filesystem (optional, uses default if not provided)
- * @param referenceWidth - The reference width used in preview (typically ~600px). Used to scale fontSize proportionally.
  * @returns FFmpeg drawtext filter string
  */
 export function getTextFilterString(
@@ -926,17 +943,16 @@ export function getTextFilterString(
   videoWidth: number,
   videoHeight: number,
   fontPath: string = FFMPEG_FONT_PATH,
-  referenceWidth: number = 600
 ): string {
   const escapedText = escapeTextForFFmpeg(textOverlay.text);
   const fontColor = hexToFFmpegColor(textOverlay.color);
   
-  // Scale fontSize from preview context to export context
-  // In preview, text is displayed at fontSize scaled DOWN by (previewWidth / exportWidth)
-  // So in export, we need to scale fontSize UP by (exportWidth / referenceWidth)
-  // This ensures text appears at the same relative size in both preview and export
-  const scaleFactor = videoWidth / referenceWidth;
-  const scaledFontSize = Math.round(textOverlay.fontSize * scaleFactor);
+  // The fontSize stored in the data model is defined relative to the export resolution.
+  // In preview, VideoPlayer scales it DOWN by (previewWidth / exportWidth).
+  // In export, we use it directly — no scaling needed.
+  // Previously this used a hardcoded referenceWidth=600 which caused text to be
+  // (exportWidth / 600) times too large in the export.
+  const scaledFontSize = Math.max(1, Math.round(textOverlay.fontSize));
   
   // Calculate position in pixels from percentage
   // x and y are percentages (0-100), convert to pixel positions
@@ -1001,11 +1017,11 @@ function mapTransitionTypeToFFmpeg(type: TransitionType): string {
     'wipe-up': 'wipeup',
     'wipe-down': 'wipedown',
     'zoom-in': 'zoomin',
-    'zoom-out': 'fadefast', // No direct zoom-out, use fadefast as alternative
+    'zoom-out': 'squeezev', // squeezev provides a zoom-out-like shrink effect
     'rotate-in': 'radial',
     'rotate-out': 'radial',
     'circle-wipe': 'circleopen',
-    'diamond-wipe': 'rectcrop',
+    'diamond-wipe': 'diagtl', // diagtl provides a diamond-like diagonal reveal
     'cross-dissolve': 'dissolve',
   };
   
@@ -1562,11 +1578,31 @@ function buildSingleClipExternalAudio(
   let seg = 0;
 
   for (const ac of sortedAudio) {
-    const dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
+    let dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
     if (dur <= 0.001) continue;
 
-    const requestedStart = Math.max(0, ac.startTime - timeOriginSingle);
-    const start = Math.max(requestedStart, cursor);
+    // Calculate where this audio clip should start relative to the exported video
+    const relativeStart = ac.startTime - timeOriginSingle;
+    
+    // If the audio clip ends before the video clip starts, skip it entirely
+    if (relativeStart + dur <= 0) continue;
+    // If the audio clip starts after the video clip ends, skip it
+    if (relativeStart >= clipDuration) continue;
+    
+    // If the audio clip starts before the video clip, we need to trim the beginning
+    let audioTrimStart = ac.trimStart;
+    let effectiveStart = Math.max(0, relativeStart);
+    if (relativeStart < 0) {
+      // Audio starts before the video — skip the non-overlapping portion
+      audioTrimStart += Math.abs(relativeStart);
+      dur -= Math.abs(relativeStart);
+    }
+    
+    // Clamp duration so audio doesn't extend past the video clip
+    dur = Math.min(dur, clipDuration - effectiveStart);
+    if (dur <= 0.001) continue;
+
+    const start = Math.max(effectiveStart, cursor);
     const gap = start - cursor;
     if (gap > 0.01) {
       const gl = `agap0_${seg++}`;
@@ -1579,7 +1615,7 @@ function buildSingleClipExternalAudio(
     const al = `aext0_${seg++}`;
     const acVol = ac.volume ?? 1;
     const acVolFilter = acVol !== 1 ? `,volume=${acVol}` : '';
-    fc.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolFilter}[${al}]`);
+    fc.push(`[${inputIndex}:a]atrim=start=${audioTrimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolFilter}[${al}]`);
     parts.push(`[${al}]`);
     cursor += dur;
   }
@@ -2350,11 +2386,30 @@ function buildExternalAudioFilter(
     const inputIndex = externalAudioFileToInputIndex.get(ac.file);
     if (inputIndex == null) continue;
 
-    const dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
+    let dur = Math.max(0, ac.duration - ac.trimStart - ac.trimEnd);
     if (dur <= 0.001) continue;
 
-    const requestedStart = Math.max(0, ac.startTime - timeOrigin);
-    const start = Math.max(requestedStart, cursor);
+    // Calculate where this audio clip should start relative to the exported timeline
+    const relativeStart = ac.startTime - timeOrigin;
+    
+    // If the audio clip ends before the timeline starts, skip it entirely
+    if (relativeStart + dur <= 0) continue;
+    // If the audio clip starts after the total duration, skip it
+    if (relativeStart >= totalDuration) continue;
+    
+    // If the audio clip starts before the timeline origin, trim the beginning
+    let audioTrimStart = ac.trimStart;
+    let effectiveStart = Math.max(0, relativeStart);
+    if (relativeStart < 0) {
+      audioTrimStart += Math.abs(relativeStart);
+      dur -= Math.abs(relativeStart);
+    }
+    
+    // Clamp duration so audio doesn't extend past the total duration
+    dur = Math.min(dur, totalDuration - effectiveStart);
+    if (dur <= 0.001) continue;
+
+    const start = Math.max(effectiveStart, cursor);
     const gap = start - cursor;
     if (gap > 0.01) {
       const gl = `agape${seg++}`;
@@ -2366,7 +2421,7 @@ function buildExternalAudioFilter(
     const al = `aext${seg++}`;
     const acVolume = (ac as ExportAudioClip).volume ?? 1;
     const acVolumeFilter = acVolume !== 1 ? `,volume=${acVolume}` : '';
-    filterComplex.push(`[${inputIndex}:a]atrim=start=${ac.trimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolumeFilter}[${al}]`);
+    filterComplex.push(`[${inputIndex}:a]atrim=start=${audioTrimStart}:duration=${dur},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo${acVolumeFilter}[${al}]`);
     parts.push(`[${al}]`);
     cursor += dur;
   }
