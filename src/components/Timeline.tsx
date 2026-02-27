@@ -1268,6 +1268,8 @@ export const Timeline: React.FC = () => {
             <div
               className="timeline-track border-b border-white/10 relative"
               style={{ width: timelineWidth, height: TRACK_HEIGHT }}
+              onDrop={(e) => handleDrop(e, 'text-track')}
+              onDragOver={handleDragOver}
             >
               {textOverlays.map((text) => {
                 const textWidth = text.duration * PIXELS_PER_SECOND * ui.timelineZoom;

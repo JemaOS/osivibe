@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { TimelineClip, TextOverlay } from '../types';
+import { TimelineClip, TextOverlay, TimelineTrack } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
 export const useTimelineClipDrag = (
   tracksContainerRef: React.RefObject<HTMLDivElement>,
@@ -174,12 +175,16 @@ export const useTimelineClipDrag = (
     const isAudioClip = clipType === 'audio';
     const isVideoClip = clipType === 'video';
     const isImageClip = clipType === 'image';
+    const isTextClip = clipType === 'text';
     const isVideoTrack = trackType === 'video';
     const isAudioTrack = trackType === 'audio';
     const isTextTrack = trackType === 'text';
 
     // Text tracks can accept any clip type
     if (isTextTrack) return true;
+    
+    // Text clips can only be placed on text tracks
+    if (isTextClip) return isTextTrack;
     
     if (isAudioClip) return isAudioTrack;
     
@@ -644,7 +649,7 @@ export const useTimelineDrop = (
       'image': { type: 'video', keywords: ['image', 'overlay'] },
       'video': { type: 'video', keywords: ['video'] },
       'audio': { type: 'audio', keywords: ['audio'] },
-      'text': { type: 'text', keywords: ['text'] }, // Add text type mapping
+      'text': { type: 'text', keywords: ['text'] },
     };
 
     const config = typeMap[mediaType];
@@ -698,12 +703,34 @@ export const useTimelineDrop = (
         const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
         const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-        handleMediaDrop(media, trackId, time);
+        // If dropping on the text track (trackId === 'text-track'), check if media is compatible with text tracks
+        if (trackId === 'text-track') {
+          // Text tracks can accept any media type
+          const textTrack = tracks.find(t => t.type === 'text');
+          if (textTrack) {
+            handleMediaDrop(media, textTrack.id, time);
+          } else {
+            // If no text track exists, create one and add the media to it
+            const { addTrack } = useEditorStore.getState();
+            addTrack('text');
+            // Wait for the track to be added and then add the media to it
+            setTimeout(() => {
+              const updatedTracks = useEditorStore.getState().tracks;
+              const newTextTrack = updatedTracks.find(t => t.type === 'text');
+              if (newTextTrack) {
+                handleMediaDrop(media, newTextTrack.id, time);
+              }
+            }, 0);
+          }
+        } else {
+          // For other track types, proceed as before
+          handleMediaDrop(media, trackId, time);
+        }
       }
     } catch (error) {
       console.error('Error handling drop:', error);
     }
-  }, [mediaFiles, tracksContainerRef, PIXELS_PER_SECOND, ui.timelineZoom, handleMediaDrop]);
+  }, [mediaFiles, tracksContainerRef, PIXELS_PER_SECOND, ui.timelineZoom, handleMediaDrop, tracks]);
 
   const handleClipDrop = useCallback((e: React.DragEvent, clipId: string, trackType?: string) => {
     try {
