@@ -1300,13 +1300,3 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
 
 
 
-      updateClipThumbnails(project.tracks, project.mediaFiles);
-    }
-
-    console.log('✅ State rehydration complete');
-  },
-}));
-
-
-
-
