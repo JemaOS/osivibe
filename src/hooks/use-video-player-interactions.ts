@@ -974,8 +974,25 @@ export const useVideoPlayerCrop = (
 ) => {
   const [cropMode, setCropMode] = useState(false);
   const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 100, height: 100, locked: false });
-  const [resizingCrop, setResizingCrop] = useState<string | null>(null);
-  const [cropDragStart, setCropDragStart] = useState({ x: 0, y: 0, crop: { x: 0, y: 0, width: 100, height: 100 } });
+
+  // Refs for smooth drag — avoid React re-renders during mousemove
+  const cropOverlayRef = useRef<HTMLDivElement>(null);
+  const liveCropRef = useRef({ x: 0, y: 0, width: 100, height: 100 });
+  const rafRef = useRef<number | null>(null);
+  const isDraggingRef = useRef(false);
+  const dragHandleRef = useRef<string | null>(null);
+  const dragStartRef = useRef({ x: 0, y: 0, crop: { x: 0, y: 0, width: 100, height: 100 } });
+  const lockedRef = useRef(false);
+
+  // Apply crop values directly to DOM for GPU-accelerated rendering
+  const applyCropToDOM = useCallback((crop: { x: number; y: number; width: number; height: number }) => {
+    const el = cropOverlayRef.current;
+    if (!el) return;
+    el.style.left = `${crop.x}%`;
+    el.style.top = `${crop.y}%`;
+    el.style.width = `${crop.width}%`;
+    el.style.height = `${crop.height}%`;
+  }, []);
 
   const handleToggleCrop = useCallback(() => {
     const nextMode = !cropMode;
@@ -991,6 +1008,8 @@ export const useVideoPlayerCrop = (
       if (mainClip) {
         const crop = mainClip.clip.crop || { x: 0, y: 0, width: 100, height: 100, locked: false };
         setCropArea(crop);
+        liveCropRef.current = { x: crop.x, y: crop.y, width: crop.width, height: crop.height };
+        lockedRef.current = crop.locked;
       }
     }
   }, [cropMode, player.isPlaying, pause, getActiveClips, ui.selectedClipId]);
@@ -1001,16 +1020,6 @@ export const useVideoPlayerCrop = (
       setCropMode(false);
     }
   }, [ui.selectedClipId, updateClip, cropArea]);
-
-  const handleCropResizeStart = useCallback((e: React.MouseEvent, handle: string) => {
-    e.stopPropagation();
-    setResizingCrop(handle);
-    setCropDragStart({
-      x: e.clientX,
-      y: e.clientY,
-      crop: { ...cropArea }
-    });
-  }, [cropArea]);
 
   const calculateNewCropEdge = useCallback((
     handle: string,
@@ -1091,29 +1100,84 @@ export const useVideoPlayerCrop = (
     }
   }, []);
 
-  const calculateNewCrop = useCallback((deltaX: number, deltaY: number, crop: any) => {
-    const result = calculateNewCropEdge(resizingCrop || '', deltaX, deltaY, crop);
-    return result || { ...cropArea };
-  }, [calculateNewCropEdge, resizingCrop, cropArea]);
+  const handleCropResizeStart = useCallback((e: React.MouseEvent, handle: string) => {
+    e.stopPropagation();
+    isDraggingRef.current = true;
+    dragHandleRef.current = handle;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      crop: { ...liveCropRef.current }
+    };
+    lockedRef.current = cropArea.locked;
+  }, [cropArea.locked]);
+
+  // Unified drag handler for crop area move
+  const handleCropMoveStart = useCallback((e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    e.stopPropagation();
+    isDraggingRef.current = true;
+    dragHandleRef.current = 'move';
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      crop: { ...liveCropRef.current }
+    };
+    lockedRef.current = cropArea.locked;
+  }, [cropArea.locked]);
 
   useEffect(() => {
-    if (!resizingCrop || !videoContainerRef.current) return;
+    if (!cropMode) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = videoContainerRef.current?.getBoundingClientRect();
+      if (!isDraggingRef.current || !videoContainerRef.current) return;
+
+      const rect = videoContainerRef.current.getBoundingClientRect();
       if (!rect) return;
 
-      const deltaX = ((e.clientX - cropDragStart.x) / rect.width) * 100;
-      const deltaY = ((e.clientY - cropDragStart.y) / rect.height) * 100;
+      const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
+      const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+      const { crop } = dragStartRef.current;
+      const handle = dragHandleRef.current;
 
-      const { crop } = cropDragStart;
-      const newCrop = calculateNewCrop(deltaX, deltaY, crop);
+      let newCrop: { x: number; y: number; width: number; height: number };
 
-      setCropArea({ ...newCrop, locked: cropArea.locked });
+      if (handle === 'move') {
+        newCrop = {
+          ...crop,
+          x: Math.max(0, Math.min(100 - crop.width, crop.x + deltaX)),
+          y: Math.max(0, Math.min(100 - crop.height, crop.y + deltaY))
+        };
+      } else {
+        const result = calculateNewCropEdge(handle || '', deltaX, deltaY, crop);
+        newCrop = result || { ...crop };
+      }
+
+      liveCropRef.current = newCrop;
+
+      // Throttle DOM updates with requestAnimationFrame
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          applyCropToDOM(liveCropRef.current);
+          rafRef.current = null;
+        });
+      }
     };
 
     const handleMouseUp = () => {
-      setResizingCrop(null);
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      dragHandleRef.current = null;
+
+      // Cancel any pending rAF
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+
+      // Commit final value to React state (single re-render)
+      const final = liveCropRef.current;
+      setCropArea({ ...final, locked: lockedRef.current });
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -1122,8 +1186,18 @@ export const useVideoPlayerCrop = (
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [resizingCrop, cropDragStart, calculateNewCrop, videoContainerRef]);
+  }, [cropMode, videoContainerRef, calculateNewCropEdge, applyCropToDOM]);
+
+  // Keep liveCropRef in sync when cropArea changes from outside (e.g. toggle, apply)
+  useEffect(() => {
+    liveCropRef.current = { x: cropArea.x, y: cropArea.y, width: cropArea.width, height: cropArea.height };
+    lockedRef.current = cropArea.locked;
+  }, [cropArea]);
 
   return {
     cropMode,
@@ -1132,6 +1206,8 @@ export const useVideoPlayerCrop = (
     setCropArea,
     handleToggleCrop,
     handleApplyCrop,
-    handleCropResizeStart
+    handleCropResizeStart,
+    handleCropMoveStart,
+    cropOverlayRef
   };
 };

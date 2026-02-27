@@ -484,50 +484,22 @@ const ImageClipComponent = ({ item, index, ui, player, transitions, cropMode, ed
   );
 };
 
-const CropOverlay = ({ cropArea, setCropArea, handleCropResizeStart, setCropMode, handleApplyCrop, videoContainerRef }: any) => {
+const CropOverlay = React.memo(({ cropArea, handleCropResizeStart, handleCropMoveStart, setCropMode, handleApplyCrop, cropOverlayRef }: any) => {
   return (
     <div className="absolute inset-0 z-[100]">
       {/* Visible crop area with shadow for outside */}
       <div
+        ref={cropOverlayRef}
         className="absolute border-2 border-primary-500 bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]"
         style={{
           left: `${cropArea.x}%`,
           top: `${cropArea.y}%`,
           width: `${cropArea.width}%`,
           height: `${cropArea.height}%`,
-          cursor: 'move'
+          cursor: 'move',
+          willChange: 'left, top, width, height'
         }}
-        onMouseDown={(e) => {
-          // Allow dragging the entire crop area
-          if (e.target === e.currentTarget) {
-            e.stopPropagation();
-            const rect = videoContainerRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            
-            const startX = e.clientX;
-            const startY = e.clientY;
-            const startCrop = { ...cropArea };
-            
-            const handleDrag = (moveEvent: MouseEvent) => {
-              const deltaX = ((moveEvent.clientX - startX) / rect.width) * 100;
-              const deltaY = ((moveEvent.clientY - startY) / rect.height) * 100;
-              
-              setCropArea({
-                ...startCrop,
-                x: Math.max(0, Math.min(100 - startCrop.width, startCrop.x + deltaX)),
-                y: Math.max(0, Math.min(100 - startCrop.height, startCrop.y + deltaY))
-              });
-            };
-            
-            const handleDragEnd = () => {
-              window.removeEventListener('mousemove', handleDrag);
-              window.removeEventListener('mouseup', handleDragEnd);
-            };
-            
-            window.addEventListener('mousemove', handleDrag);
-            window.addEventListener('mouseup', handleDragEnd);
-          }
-        }}
+        onMouseDown={handleCropMoveStart}
       >
         {/* Corner handles - Small and unobtrusive */}
         <div
@@ -582,7 +554,7 @@ const CropOverlay = ({ cropArea, setCropArea, handleCropResizeStart, setCropMode
       </div>
     </div>
   );
-};
+});
 
 const TextOverlays = ({ currentTexts, getTextScaleFactor, ui, editingTextId, editingTextValue, handleTextMouseDown, player, pause, selectText, handleTextDoubleClick, handleTextEditChange, handleTextEditSubmit, handleTextEditKeyDown, handleTextResizeStart }: any) => {
   return (
@@ -1871,7 +1843,9 @@ const VideoPlayer: React.FC = () => {
     setCropArea,
     handleToggleCrop,
     handleApplyCrop,
-    handleCropResizeStart
+    handleCropResizeStart,
+    handleCropMoveStart,
+    cropOverlayRef
   } = useVideoPlayerCrop(videoContainerRef, player, pause, ui, updateClip, getActiveClips);
 
   usePreviewOptimizerInit(
@@ -2270,11 +2244,11 @@ const VideoPlayer: React.FC = () => {
               {cropMode && (
                 <CropOverlay
                   cropArea={cropArea}
-                  setCropArea={setCropArea}
                   handleCropResizeStart={handleCropResizeStart}
+                  handleCropMoveStart={handleCropMoveStart}
                   setCropMode={setCropMode}
                   handleApplyCrop={handleApplyCrop}
-                  videoContainerRef={videoContainerRef}
+                  cropOverlayRef={cropOverlayRef}
                 />
               )}
               
