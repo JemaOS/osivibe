@@ -447,7 +447,26 @@ export async function exportProjectWithMediaBunny(
     await output.start();
     onProgress?.(5, 'Export dÃ©marrÃ©...');
     let currentTimelineTime = 0;
-    const totalDuration = clips.reduce((acc,clip)=>acc+(clip.duration-clip.trimStart-clip.trimEnd),0);
+
+    // Calculate actual total duration by considering both video and audio clips
+    let totalDuration = 0;
+    // Check video clips
+    for (const clip of clips) {
+        const clipEndTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+        if (clipEndTime > totalDuration) {
+            totalDuration = clipEndTime;
+        }
+    }
+    // Check audio clips
+    if (audioClips) {
+        for (const clip of audioClips) {
+            const clipEndTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+            if (clipEndTime > totalDuration) {
+                totalDuration = clipEndTime;
+            }
+        }
+    }
+
     let processedDuration = 0;
     const sortedClips = [...clips].sort((a,b)=>a.startTime-b.startTime);
     const width=resolution.width, height=resolution.height;
@@ -489,6 +508,12 @@ export async function exportProjectWithMediaBunny(
     if (audioClips && audioClips.length > 0) {
         onProgress?.(92, 'Traitement des pistes audio...');
         await processExternalAudioClips(audioClips, audioConfig, audioSource);
+    }
+
+    // Add black frames if audio extends beyond video duration
+    if (currentTimelineTime < totalDuration) {
+        const remainingDuration = totalDuration - currentTimelineTime;
+        await processGapFrames(remainingDuration, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx);
     }
 
     if (isExportCancelled) throw new Error('Export cancelled');

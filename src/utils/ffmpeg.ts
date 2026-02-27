@@ -2485,13 +2485,16 @@ function buildMultiClipFilterChain(
 
   const trackIndices = Array.from(tracksMap.keys()).sort((a, b) => a - b);
   
-  const totalDuration = Math.max(
-    0,
-    ...clips.map((c) => {
-      const d = c.duration - c.trimStart - c.trimEnd;
-      return Math.max(0, c.startTime - timeOrigin) + Math.max(0, d);
-    })
-  );
+  // Calculate actual total duration by considering both video and audio clips
+  const videoDurations = clips.map((c) => {
+    const d = c.duration - c.trimStart - c.trimEnd;
+    return Math.max(0, c.startTime - timeOrigin) + Math.max(0, d);
+  });
+  const audioDurations = (externalAudioClips || []).map((ac) => {
+    const d = ac.duration - ac.trimStart - ac.trimEnd;
+    return Math.max(0, ac.startTime - timeOrigin) + Math.max(0, d);
+  });
+  const totalDuration = Math.max(0, ...videoDurations, ...audioDurations);
 
   const trackVideoLabels: string[] = [];
   const trackAudioLabels: string[] = [];
