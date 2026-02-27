@@ -2,7 +2,7 @@
 // Distributed under the license specified in the root directory of this project.
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move, Video, Music, Image } from 'lucide-react';
+import { ZoomIn, ZoomOut, Volume2, VolumeX, Lock, Unlock, Plus, Scissors, Copy, Trash2, Music2, Split, Crop, Type, Monitor, Move, Video, Music, Image, X } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { useTimelineClipDrag, useTimelineClipResize, useTimelineTextDrag, useTimelineTextResize, useTimelineTransitionDrag, useTimelineDrop } from '../hooks/use-timeline-interactions';
@@ -884,7 +884,6 @@ export const Timeline: React.FC = () => {
 
   // Add Track dropdown state
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
-  const addTrackMenuRef = useRef<HTMLDivElement>(null);
 
   const { copiedClip, copiedText, setCopiedClip, setCopiedText } = useTimelineKeyboardShortcuts();
   const { isDraggingPlayhead, isTouchScrubbing, setIsTouchScrubbing, handlePlayheadMouseDown, handlePlayheadTouchStart } = useTimelinePlayhead(tracksContainerRef, PIXELS_PER_SECOND);
@@ -900,18 +899,6 @@ export const Timeline: React.FC = () => {
 
   const timelineWidth = Math.max(projectDuration * PIXELS_PER_SECOND * ui.timelineZoom, 1000);
 
-  // Close add-track dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (addTrackMenuRef.current && !addTrackMenuRef.current.contains(e.target as Node)) {
-        setShowAddTrackMenu(false);
-      }
-    };
-    if (showAddTrackMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showAddTrackMenu]);
 
   const handleAddTrack = (type: TrackType) => {
     addTrack(type);
@@ -1129,48 +1116,80 @@ export const Timeline: React.FC = () => {
             </div>
           </div>
 
-          {/* Add Track Button with Dropdown */}
-          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0 relative" ref={addTrackMenuRef}>
-            <button 
-              onClick={() => setShowAddTrackMenu(!showAddTrackMenu)} 
+          {/* Add Track Button */}
+          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0">
+            <button
+              onClick={() => setShowAddTrackMenu(true)}
               className={`btn-secondary w-full ${getAddTrackBtnClass(isMinimal, isCompact)} touch-target`}
             >
               <Plus className={getAddTrackIconClass(isMinimal, isCompact)} />
               <span className="fold-cover:hidden fold-open:inline">Track</span>
             </button>
-            {showAddTrackMenu && (
-              <div className="absolute bottom-full left-0 mb-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-xl min-w-[180px] py-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
-                <button
-                  onClick={() => handleAddTrack('video')}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
-                >
-                  <Video className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span>Piste Vidéo</span>
-                </button>
-                <button
-                  onClick={() => handleAddTrack('audio')}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
-                >
-                  <Music className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span>Piste Audio</span>
-                </button>
-                <button
-                  onClick={() => handleAddTrack('image')}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
-                >
-                  <Image className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span>Piste Image</span>
-                </button>
-                <button
-                  onClick={() => handleAddTrack('text')}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-200 hover:bg-primary/20 transition-colors rounded-sm"
-                >
-                  <Type className="w-4 h-4 text-primary flex-shrink-0" />
-                  <span>Piste Texte</span>
-                </button>
-              </div>
-            )}
           </div>
+
+          {/* Add Track Modal */}
+          {showAddTrackMenu && (
+            <>
+              {/* Backdrop overlay */}
+              <div
+                className="fixed inset-0 bg-black/50 z-50"
+                onClick={() => setShowAddTrackMenu(false)}
+                aria-hidden="true"
+              />
+              {/* Centered modal */}
+              <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+                <div
+                  className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl p-6 min-w-[280px] pointer-events-auto animate-in fade-in zoom-in-95 duration-150"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Ajouter une piste"
+                >
+                  {/* Modal header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-white">Ajouter une piste</h2>
+                    <button
+                      onClick={() => setShowAddTrackMenu(false)}
+                      className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                      aria-label="Fermer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  {/* Track type options */}
+                  <div className="flex flex-col gap-1">
+                    <button
+                      onClick={() => handleAddTrack('video')}
+                      className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
+                    >
+                      <Video className="w-5 h-5 text-primary flex-shrink-0" />
+                      <span className="text-sm text-gray-200">Piste Vidéo</span>
+                    </button>
+                    <button
+                      onClick={() => handleAddTrack('audio')}
+                      className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
+                    >
+                      <Music className="w-5 h-5 text-primary flex-shrink-0" />
+                      <span className="text-sm text-gray-200">Piste Audio</span>
+                    </button>
+                    <button
+                      onClick={() => handleAddTrack('image')}
+                      className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
+                    >
+                      <Image className="w-5 h-5 text-primary flex-shrink-0" />
+                      <span className="text-sm text-gray-200">Piste Image</span>
+                    </button>
+                    <button
+                      onClick={() => handleAddTrack('text')}
+                      className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
+                    >
+                      <Type className="w-5 h-5 text-primary flex-shrink-0" />
+                      <span className="text-sm text-gray-200">Piste Texte</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Timeline Tracks */}
