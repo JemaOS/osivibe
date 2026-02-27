@@ -2679,13 +2679,6 @@ function tryMediaBunnyExport(
   safeMode?: boolean,
   audioClips?: ExportAudioClip[]
 ): Promise<Blob> | null {
-  // Only fall back to FFmpeg for image clips (not supported by MediaBunny)
-  const hasImages = clips.some(c => c.file.type.startsWith('image/'));
-  if (hasImages) {
-    console.log('⚠️ Image clips detected, using FFmpeg (MediaBunny does not support static images).');
-    return null;
-  }
-
   try {
     console.log('🐰 Using MediaBunny for export (primary engine)');
     return exportProjectWithMediaBunny(

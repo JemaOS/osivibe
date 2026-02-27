@@ -368,6 +368,184 @@ const addProcessedFrame = async (ctx: CanvasRenderingContext2D|OffscreenCanvasRe
     const f=new VideoFrame(canvas as any,{timestamp:relativeTimestamp*1_000_000}); const s=new VideoSample(f); await videoSource.add(s); s.close();
 };
 
+/** Check if a clip's file is an image (not a video). */
+const isImageClip = (clip: any): boolean => {
+    if (!clip.file) return false;
+    const type = clip.file.type || '';
+    if (type.startsWith('image/')) return true;
+    // Fallback: check file extension
+    const name = (clip.file.name || '').toLowerCase();
+    return /\.(png|jpe?g|gif|bmp|webp|svg|avif|ico)$/.test(name);
+};
+
+/** Load an image File as an ImageBitmap for efficient canvas drawing. */
+const loadImageBitmap = async (file: File): Promise<ImageBitmap> => {
+    const blob = file.slice(0, file.size, file.type);
+    return createImageBitmap(blob);
+};
+
+/**
+ * Draw an image onto the canvas, scaled to fit the export resolution while
+ * maintaining aspect ratio (letterbox / pillarbox with black bars).
+ * Supports crop and transform settings from the clip.
+ */
+const drawImageToCanvas = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    img: ImageBitmap,
+    width: number,
+    height: number,
+    clip?: any
+): void => {
+    const crop = clip?.crop;
+    const transform = clip?.transform;
+
+    if (crop && (crop.width < 100 || crop.height < 100 || crop.x > 0 || crop.y > 0)) {
+        // Crop: extract a sub-region of the image
+        const sx = (crop.x / 100) * img.width;
+        const sy = (crop.y / 100) * img.height;
+        const sw = (crop.width / 100) * img.width;
+        const sh = (crop.height / 100) * img.height;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, width, height);
+    } else if (transform && (transform.rotation !== 0 || transform.scale !== 100 || transform.x !== 50 || transform.y !== 50 || (transform.scaleX !== undefined && transform.scaleX !== 100) || (transform.scaleY !== undefined && transform.scaleY !== 100))) {
+        // Transform: position, scale, rotation
+        ctx.save();
+        const posX = (transform.x / 100) * width;
+        const posY = (transform.y / 100) * height;
+        const scaleVal = (transform.scale || 100) / 100;
+        const scaleXVal = transform.scaleX !== undefined ? transform.scaleX / 100 : scaleVal;
+        const scaleYVal = transform.scaleY !== undefined ? transform.scaleY / 100 : scaleVal;
+        const rotRad = (transform.rotation || 0) * Math.PI / 180;
+        ctx.translate(posX, posY);
+        ctx.rotate(rotRad);
+        ctx.scale(scaleXVal, scaleYVal);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2, img.width, img.height);
+        ctx.restore();
+    } else {
+        // Fit image to canvas maintaining aspect ratio (letterbox/pillarbox)
+        const imgAspect = img.width / img.height;
+        const canvasAspect = width / height;
+        let dw: number, dh: number, dx: number, dy: number;
+        if (imgAspect > canvasAspect) {
+            // Image is wider — pillarbox (black bars top/bottom)
+            dw = width;
+            dh = width / imgAspect;
+            dx = 0;
+            dy = (height - dh) / 2;
+        } else {
+            // Image is taller — letterbox (black bars left/right)
+            dh = height;
+            dw = height * imgAspect;
+            dx = (width - dw) / 2;
+            dy = 0;
+        }
+        // Fill black background first for letterbox/pillarbox bars
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, dx, dy, dw, dh);
+    }
+};
+
+/**
+ * Process an image clip: render the image as video frames for the clip's duration.
+ * Supports filters, transitions, text overlays, crop, and transform.
+ */
+const processImageClip = async (
+    clip: any,
+    index: number,
+    currentTimelineTime: number,
+    processedDuration: number,
+    totalDuration: number,
+    totalClips: number,
+    onProgress: any,
+    textOverlays: any,
+    transitions: any,
+    width: number,
+    height: number,
+    fps: number,
+    frameDuration: number,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    videoSource: any
+): Promise<void> => {
+    if (isExportCancelled) throw new Error('Export cancelled');
+
+    const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+    const totalFrames = Math.ceil(clipDuration * fps);
+
+    // Fill gap before this clip if needed
+    if (clip.startTime > currentTimelineTime + 0.01) {
+        await processGapFrames(clip.startTime - currentTimelineTime, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx);
+    }
+
+    onProgress?.(Math.round(5 + (processedDuration / totalDuration) * 90), `Traitement du clip image ${index + 1}/${totalClips}...`);
+
+    // Load the image
+    const imgBitmap = await loadImageBitmap(clip.file);
+
+    try {
+        // Get transitions for this clip
+        const clipTransitions = transitions?.filter((t: any) => t.clipId === clip.id) || [];
+        const startTransition = clipTransitions.find((t: any) => t.position === 'start');
+        const endTransition = clipTransitions.find((t: any) => t.position === 'end');
+
+        for (let frameIdx = 0; frameIdx < totalFrames; frameIdx++) {
+            if (isExportCancelled) throw new Error('Export cancelled');
+
+            const frameTime = frameIdx * frameDuration; // time within the clip
+            const timelineTime = clip.startTime + frameTime; // absolute timeline time
+
+            // Update progress periodically
+            if (frameIdx % 10 === 0) {
+                const clipProgress = frameIdx / totalFrames;
+                const totalProgress = 5 + ((processedDuration + clipDuration * clipProgress) / totalDuration) * 90;
+                onProgress?.(Math.round(totalProgress), `Traitement du clip image ${index + 1}/${totalClips}...`);
+            }
+
+            // Get active text overlays for this frame
+            const activeTexts = filterActiveTextOverlays(textOverlays, timelineTime);
+
+            // Prepare canvas
+            ctx.globalAlpha = 1.0;
+            ctx.filter = 'none';
+
+            // If there are transitions, fill black background first
+            if (startTransition || endTransition) {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, width, height);
+            }
+
+            ctx.save();
+
+            // Apply filter if present
+            if (clip.filter) {
+                ctx.filter = buildFilterString(clip.filter);
+            }
+
+            // Apply transitions
+            if (startTransition && frameTime < startTransition.duration) {
+                applyTransition(ctx, startTransition, frameTime, clipDuration, width, height, false);
+            } else if (endTransition && frameTime > (clipDuration - endTransition.duration)) {
+                applyTransition(ctx, endTransition, frameTime, clipDuration, width, height, true);
+            }
+
+            // Draw the image
+            drawImageToCanvas(ctx, imgBitmap, width, height, clip);
+
+            ctx.restore();
+
+            // Render text overlays on top
+            if (activeTexts.length > 0) {
+                renderTextOverlays(ctx, activeTexts, width, height);
+            }
+
+            // Create video frame and add to output
+            await addProcessedFrame(ctx, timelineTime, canvas, videoSource);
+        }
+    } finally {
+        imgBitmap.close();
+    }
+};
+
 const processSingleVideoSample = async (sample: any, clip: any, clipDuration: number, processedDuration: number, totalDuration: number, sortedClipsLength: number, clipIndex: number, onProgress: any, textOverlays: any, startTransition: any, endTransition: any, width: number, height: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D) => {
     const {relativeTimestamp,totalProgress}=calculateSampleProgress(sample,clip,clipDuration,processedDuration,totalDuration);
     updateProgressIfNeeded(totalProgress,processedDuration,totalDuration,clipIndex,sortedClipsLength,onProgress);
@@ -398,7 +576,8 @@ const processVideoSamples = async (videoSink: VideoSampleSink, clip: any, clipDu
 
 const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;id?:string;volume?:number}[]) => {
     let sampleRate=48000, numberOfChannels=2;
-    const probe = clips.find(c=>!c.audioMuted) || (audioClips&&audioClips.length>0?audioClips[0]:null);
+    // Skip image clips when probing for audio settings (images have no audio track)
+    const probe = clips.find(c=>!c.audioMuted && !isImageClip(c)) || (audioClips&&audioClips.length>0?audioClips[0]:null);
     if (probe) {
         try {
             const url=URL.createObjectURL(probe.file); const s=new UrlSource(url); const i=new Input({source:s,formats:ALL_FORMATS});
@@ -479,6 +658,14 @@ export async function exportProjectWithMediaBunny(
 
     const processClip = async (clip: any, index: number, ctt: number, pd: number, td: number, tc: number, op: any, to: any, tr: any, ac: any, w: number, h: number, f: number, fd: number, cv: HTMLCanvasElement|OffscreenCanvas, cx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, vs: any, as2: any) => {
         if (isExportCancelled) throw new Error('Export cancelled');
+
+        // Branch: image clips are rendered frame-by-frame from a static image
+        if (isImageClip(clip)) {
+            await processImageClip(clip, index, ctt, pd, td, tc, op, to, tr, w, h, f, fd, cv, cx, vs);
+            return;
+        }
+
+        // Video clip processing (original path)
         const cd = clip.duration-clip.trimStart-clip.trimEnd;
         if (clip.startTime>ctt+0.01) { await processGapFrames(clip.startTime-ctt,f,w,h,ctt,fd,vs,cv,cx); ctt=clip.startTime; }
         op?.(Math.round(5+(pd/td)*90),`Traitement du clip ${index+1}/${tc}...`);
