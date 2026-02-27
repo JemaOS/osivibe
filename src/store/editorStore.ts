@@ -1303,6 +1303,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       mediaFiles: [],
       tracks: [
         { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
+        { id: 'images-1', name: 'Images', type: 'image', clips: [], muted: false, locked: false, volume: 1 },
         { id: 'audio-1', name: 'Audio 1', type: 'audio', clips: [], muted: false, locked: false, volume: 1 },
       ],
       textOverlays: [],

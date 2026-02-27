@@ -2643,12 +2643,18 @@ async function _exportProjectInternal(
   aspectRatio?: AspectRatio,
   hardwareProfile?: AnyHardwareProfile,
   safeMode: boolean = false,
-  audioClips?: ExportAudioClip[]
+  audioClips?: ExportAudioClip[],
+  imageOverlays?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: any; id?: string; crop?: any; transform?: any }[]
 ): Promise<Blob> {
   // Try MediaBunny export first if no complex features
-  const mediaBunnyResult = tryMediaBunnyExport(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
-  if (mediaBunnyResult) {
-    return mediaBunnyResult;
+  try {
+    const mediaBunnyResult = await tryMediaBunnyExport(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips, imageOverlays);
+    if (mediaBunnyResult) {
+      return mediaBunnyResult;
+    }
+  } catch (mediaBunnyError) {
+    console.error('MediaBunny export failed, falling back to FFmpeg:', mediaBunnyError);
+    onProgress?.(0, 'MediaBunny a échoué, basculement vers FFmpeg...');
   }
 
   // Wait for any existing FFmpeg operation to complete
@@ -2668,7 +2674,7 @@ async function _exportProjectInternal(
   }
 }
 
-function tryMediaBunnyExport(
+async function tryMediaBunnyExport(
   clips: ExportClip[],
   settings: ExportSettings,
   onProgress?: (progress: number, message: string) => void,
@@ -2677,11 +2683,12 @@ function tryMediaBunnyExport(
   aspectRatio?: AspectRatio,
   hardwareProfile?: AnyHardwareProfile,
   safeMode?: boolean,
-  audioClips?: ExportAudioClip[]
-): Promise<Blob> | null {
+  audioClips?: ExportAudioClip[],
+  imageOverlays?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: any; id?: string; crop?: any; transform?: any }[]
+): Promise<Blob | null> {
   try {
     console.log('🐰 Using MediaBunny for export (primary engine)');
-    return exportProjectWithMediaBunny(
+    return await exportProjectWithMediaBunny(
       clips,
       settings,
       onProgress,
@@ -2690,7 +2697,8 @@ function tryMediaBunnyExport(
       aspectRatio,
       hardwareProfile,
       safeMode,
-      audioClips
+      audioClips,
+      imageOverlays
     );
   } catch (error) {
     console.error('MediaBunny export failed, falling back to FFmpeg:', error);
@@ -2998,7 +3006,8 @@ export async function exportProject(
   transitions?: Transition[],
   aspectRatio?: AspectRatio,
   hardwareProfile?: AnyHardwareProfile,
-  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number }[]
+  audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number }[],
+  imageOverlays?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; crop?: any; transform?: any }[]
 ): Promise<Blob> {
   const MAX_RETRIES = 1;
   let attempt = 0;
@@ -3006,7 +3015,7 @@ export async function exportProject(
   while (true) {
     try {
       const safeMode = attempt > 0;
-      return await _exportProjectInternal(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
+      return await _exportProjectInternal(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips, imageOverlays);
     } catch (error) {
       console.error(`Export attempt ${attempt + 1} failed:`, error);
       

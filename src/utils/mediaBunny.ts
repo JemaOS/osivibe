@@ -153,16 +153,27 @@ export async function generateThumbnail(file: File, time: number = 0): Promise<s
     finally { URL.revokeObjectURL(url); }
 }
 
-const processGapFrames = async (gapDuration: number, fps: number, width: number, height: number, currentTimelineTime: number, frameDuration: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D) => {
+const processGapFrames = async (gapDuration: number, fps: number, width: number, height: number, currentTimelineTime: number, frameDuration: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, onFrameReady?: (cx: any, timelineTime: number, w: number, h: number) => void) => {
     const gapFrames = Math.ceil(gapDuration*fps);
-    ctx.fillStyle='black'; ctx.fillRect(0,0,width,height);
-    const bm = await createImageBitmap(canvas as any);
-    for (let j=0; j<gapFrames; j++) {
-        if (isExportCancelled) { bm.close(); throw new Error('Export cancelled'); }
-        const ts=currentTimelineTime+(j*frameDuration);
-        const f=new VideoFrame(bm,{timestamp:ts*1_000_000}); const s=new VideoSample(f); await videoSource.add(s); s.close();
+    if (onFrameReady) {
+        // When there are overlays, render each frame individually so overlays can be composited
+        for (let j=0; j<gapFrames; j++) {
+            if (isExportCancelled) throw new Error('Export cancelled');
+            const ts=currentTimelineTime+(j*frameDuration);
+            ctx.fillStyle='black'; ctx.fillRect(0,0,width,height);
+            onFrameReady(ctx, ts, width, height);
+            const f=new VideoFrame(canvas as any,{timestamp:ts*1_000_000}); const s=new VideoSample(f); await videoSource.add(s); s.close();
+        }
+    } else {
+        ctx.fillStyle='black'; ctx.fillRect(0,0,width,height);
+        const bm = await createImageBitmap(canvas as any);
+        for (let j=0; j<gapFrames; j++) {
+            if (isExportCancelled) { bm.close(); throw new Error('Export cancelled'); }
+            const ts=currentTimelineTime+(j*frameDuration);
+            const f=new VideoFrame(bm,{timestamp:ts*1_000_000}); const s=new VideoSample(f); await videoSource.add(s); s.close();
+        }
+        bm.close();
     }
-    bm.close();
 };
 
 const processAudioSamples = async (audioSink: AudioSampleSink|null, clip: any, audioConfig: any, audioSource: any) => {
@@ -270,7 +281,31 @@ const checkClipEffectFlags = (sample: any, clip: any, width: number, height: num
 };
 
 const addFrameDirectly = async (sample: any, relativeTimestamp: number, videoSource: any) => {
-    const f=new VideoFrame(sample as any,{timestamp:relativeTimestamp*1_000_000}); const s=new VideoSample(f); await videoSource.add(s); s.close();
+    // If the sample is a native VideoFrame, use it directly
+    if (typeof VideoFrame !== 'undefined' && sample instanceof VideoFrame) {
+        const f = new VideoFrame(sample, {timestamp: relativeTimestamp * 1_000_000});
+        const s = new VideoSample(f); await videoSource.add(s); s.close();
+        return;
+    }
+    // Otherwise (MediaBunny VideoSample or other type), draw to canvas first
+    const w = (sample as any).displayWidth || (sample as any).codedWidth || 1920;
+    const h = (sample as any).displayHeight || (sample as any).codedHeight || 1080;
+    const offscreen = new OffscreenCanvas(w, h);
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) throw new Error('Could not create offscreen canvas context');
+    try {
+        if (typeof sample.draw === 'function') {
+            sample.draw(ctx, 0, 0, w, h);
+        } else {
+            (ctx.drawImage as any)(sample, 0, 0, w, h);
+        }
+    } catch (drawErr) {
+        console.warn('addFrameDirectly: draw failed, filling black frame', drawErr);
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, w, h);
+    }
+    const f = new VideoFrame(offscreen, {timestamp: relativeTimestamp * 1_000_000});
+    const s = new VideoSample(f); await videoSource.add(s); s.close();
 };
 
 const prepareCanvasForEffects = (ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, startTransition: any, endTransition: any, clip: any) => {
@@ -445,6 +480,57 @@ const drawImageToCanvas = (
     }
 };
 
+/** Draw an image overlay on top of the current canvas content (for compositing on video frames). */
+const drawImageOverlayOnCanvas = (
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    img: ImageBitmap,
+    width: number,
+    height: number,
+    overlay: any
+): void => {
+    ctx.save();
+    const transform = overlay.transform || { x: 50, y: 50, scale: 100, rotation: 0 };
+    const scaleX = transform.scaleX ?? transform.scale ?? 100;
+    const scaleY = transform.scaleY ?? transform.scale ?? 100;
+    const baseSize = 0.8; // 80% of canvas as base size (matches preview ImageClipComponent)
+    const actualW = width * baseSize * (scaleX / 100);
+    const actualH = height * baseSize * (scaleY / 100);
+    const posX = (transform.x / 100) * width;
+    const posY = (transform.y / 100) * height;
+    const rotRad = ((transform.rotation || 0) * Math.PI) / 180;
+
+    // Apply filter if present
+    if (overlay.filter) {
+        ctx.filter = buildFilterString(overlay.filter);
+    }
+
+    ctx.translate(posX, posY);
+    ctx.rotate(rotRad);
+
+    if (overlay.crop && (overlay.crop.width < 100 || overlay.crop.height < 100 || overlay.crop.x > 0 || overlay.crop.y > 0)) {
+        const sx = (overlay.crop.x / 100) * img.width;
+        const sy = (overlay.crop.y / 100) * img.height;
+        const sw = (overlay.crop.width / 100) * img.width;
+        const sh = (overlay.crop.height / 100) * img.height;
+        ctx.drawImage(img, sx, sy, sw, sh, -actualW / 2, -actualH / 2, actualW, actualH);
+    } else {
+        ctx.drawImage(img, -actualW / 2, -actualH / 2, actualW, actualH);
+    }
+
+    ctx.restore();
+    ctx.filter = 'none';
+};
+
+/** Get active image overlays at a given timeline time. */
+const getActiveImageOverlays = (imageOverlays: any[], timelineTime: number): any[] => {
+    if (!imageOverlays || imageOverlays.length === 0) return [];
+    return imageOverlays.filter((ov: any) => {
+        const start = ov.startTime;
+        const end = ov.startTime + (ov.duration - ov.trimStart - ov.trimEnd);
+        return timelineTime >= start && timelineTime <= end;
+    });
+};
+
 /**
  * Process an image clip: render the image as video frames for the clip's duration.
  * Supports filters, transitions, text overlays, crop, and transform.
@@ -465,7 +551,8 @@ const processImageClip = async (
     frameDuration: number,
     canvas: HTMLCanvasElement | OffscreenCanvas,
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-    videoSource: any
+    videoSource: any,
+    onFrameReady?: (cx: any, timelineTime: number, w: number, h: number) => void
 ): Promise<void> => {
     if (isExportCancelled) throw new Error('Export cancelled');
 
@@ -474,7 +561,7 @@ const processImageClip = async (
 
     // Fill gap before this clip if needed
     if (clip.startTime > currentTimelineTime + 0.01) {
-        await processGapFrames(clip.startTime - currentTimelineTime, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx);
+        await processGapFrames(clip.startTime - currentTimelineTime, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx, onFrameReady);
     }
 
     onProgress?.(Math.round(5 + (processedDuration / totalDuration) * 90), `Traitement du clip image ${index + 1}/${totalClips}...`);
@@ -538,6 +625,9 @@ const processImageClip = async (
                 renderTextOverlays(ctx, activeTexts, width, height);
             }
 
+            // Composite image overlays on top
+            if (onFrameReady) onFrameReady(ctx, timelineTime, width, height);
+
             // Create video frame and add to output
             await addProcessedFrame(ctx, timelineTime, canvas, videoSource);
         }
@@ -546,29 +636,32 @@ const processImageClip = async (
     }
 };
 
-const processSingleVideoSample = async (sample: any, clip: any, clipDuration: number, processedDuration: number, totalDuration: number, sortedClipsLength: number, clipIndex: number, onProgress: any, textOverlays: any, startTransition: any, endTransition: any, width: number, height: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D) => {
+const processSingleVideoSample = async (sample: any, clip: any, clipDuration: number, processedDuration: number, totalDuration: number, sortedClipsLength: number, clipIndex: number, onProgress: any, textOverlays: any, startTransition: any, endTransition: any, width: number, height: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, onFrameReady?: (cx: any, timelineTime: number, w: number, h: number) => void) => {
     const {relativeTimestamp,totalProgress}=calculateSampleProgress(sample,clip,clipDuration,processedDuration,totalDuration);
     updateProgressIfNeeded(totalProgress,processedDuration,totalDuration,clipIndex,sortedClipsLength,onProgress);
     const activeTexts=filterActiveTextOverlays(textOverlays,relativeTimestamp);
     const {hasFilter,hasCrop,hasTransform,hasTransition,hasText,isSameResolution}=checkClipEffectFlags(sample,clip,width,height,startTransition,endTransition,activeTexts);
-    if (!hasFilter&&!hasCrop&&!hasTransform&&!hasTransition&&!hasText&&isSameResolution) { await addFrameDirectly(sample,relativeTimestamp,videoSource); }
+    const hasOverlayCallback = !!onFrameReady;
+    if (!hasFilter&&!hasCrop&&!hasTransform&&!hasTransition&&!hasText&&isSameResolution&&!hasOverlayCallback) { await addFrameDirectly(sample,relativeTimestamp,videoSource); }
     else {
         prepareCanvasForEffects(ctx,startTransition,endTransition,clip);
         applyClipTransitions(ctx,sample,clip,clipDuration,startTransition,endTransition,width,height);
         drawSampleToCanvas(ctx,sample,width,height,clip);
         ctx.restore();
         if (hasText) renderTextOverlays(ctx,activeTexts,width,height);
+        // Composite image overlays on top of the video frame
+        if (onFrameReady) onFrameReady(ctx, relativeTimestamp, width, height);
         await addProcessedFrame(ctx,relativeTimestamp,canvas,videoSource);
     }
 };
 
-const processVideoSamples = async (videoSink: VideoSampleSink, clip: any, clipDuration: number, processedDuration: number, totalDuration: number, sortedClipsLength: number, clipIndex: number, onProgress: any, textOverlays: any, startTransition: any, endTransition: any, width: number, height: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D) => {
+const processVideoSamples = async (videoSink: VideoSampleSink, clip: any, clipDuration: number, processedDuration: number, totalDuration: number, sortedClipsLength: number, clipIndex: number, onProgress: any, textOverlays: any, startTransition: any, endTransition: any, width: number, height: number, videoSource: any, canvas: HTMLCanvasElement|OffscreenCanvas, ctx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, onFrameReady?: (cx: any, timelineTime: number, w: number, h: number) => void) => {
     for await (const sample of videoSink.samples()) {
         if (isExportCancelled) { sample.close(); throw new Error('Export cancelled'); }
         const ts=sample.timestamp;
         if (ts>(clip.duration-clip.trimEnd)+0.1) { sample.close(); break; }
         if (ts>=clip.trimStart&&ts<=(clip.duration-clip.trimEnd)) {
-            await processSingleVideoSample(sample,clip,clipDuration,processedDuration,totalDuration,sortedClipsLength,clipIndex,onProgress,textOverlays,startTransition,endTransition,width,height,videoSource,canvas,ctx);
+            await processSingleVideoSample(sample,clip,clipDuration,processedDuration,totalDuration,sortedClipsLength,clipIndex,onProgress,textOverlays,startTransition,endTransition,width,height,videoSource,canvas,ctx,onFrameReady);
         }
         sample.close();
     }
@@ -607,7 +700,8 @@ export async function exportProjectWithMediaBunny(
     aspectRatio?: AspectRatio,
     hardwareProfile?: any,
     safeMode: boolean = false,
-    audioClips?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;id?:string;volume?:number}[]
+    audioClips?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;id?:string;volume?:number}[],
+    imageOverlays?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;filter?:VideoFilter;id?:string;crop?:CropSettings;transform?:TransformSettings}[]
 ): Promise<Blob> {
     isExportCancelled = false;
     onProgress?.(0, 'Initialisation de MediaBunny...');
@@ -656,18 +750,51 @@ export async function exportProjectWithMediaBunny(
     const fps = Number.parseInt(settings.fps)||30;
     const frameDuration = 1/fps;
 
+    // Pre-load image overlay bitmaps
+    const overlayBitmaps = new Map<string, ImageBitmap>();
+    if (imageOverlays && imageOverlays.length > 0) {
+        for (const ov of imageOverlays) {
+            try {
+                const bm = await loadImageBitmap(ov.file);
+                overlayBitmaps.set(ov.id || ov.file.name, bm);
+            } catch (e) {
+                console.warn('Failed to load image overlay:', ov.file.name, e);
+            }
+        }
+    }
+
+    // Helper: composite active image overlays on the canvas at a given timeline time
+    const compositeImageOverlays = (cx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, timelineTime: number, w: number, h: number) => {
+        if (!imageOverlays || imageOverlays.length === 0) return;
+        const activeOverlays = getActiveImageOverlays(imageOverlays, timelineTime);
+        for (const ov of activeOverlays) {
+            const bm = overlayBitmaps.get(ov.id || ov.file.name);
+            if (bm) {
+                drawImageOverlayOnCanvas(cx, bm, w, h, ov);
+            }
+        }
+    };
+
     const processClip = async (clip: any, index: number, ctt: number, pd: number, td: number, tc: number, op: any, to: any, tr: any, ac: any, w: number, h: number, f: number, fd: number, cv: HTMLCanvasElement|OffscreenCanvas, cx: CanvasRenderingContext2D|OffscreenCanvasRenderingContext2D, vs: any, as2: any) => {
         if (isExportCancelled) throw new Error('Export cancelled');
 
         // Branch: image clips are rendered frame-by-frame from a static image
         if (isImageClip(clip)) {
-            await processImageClip(clip, index, ctt, pd, td, tc, op, to, tr, w, h, f, fd, cv, cx, vs);
+            // Create overlay callback for image clips too (in case overlays are on top)
+            const imgOverlayCallback = (imageOverlays && imageOverlays.length > 0) ? (cx2: any, absTime: number, ow: number, oh: number) => {
+                compositeImageOverlays(cx2, absTime, ow, oh);
+            } : undefined;
+            await processImageClip(clip, index, ctt, pd, td, tc, op, to, tr, w, h, f, fd, cv, cx, vs, imgOverlayCallback);
             return;
         }
 
         // Video clip processing (original path)
         const cd = clip.duration-clip.trimStart-clip.trimEnd;
-        if (clip.startTime>ctt+0.01) { await processGapFrames(clip.startTime-ctt,f,w,h,ctt,fd,vs,cv,cx); ctt=clip.startTime; }
+        // Create gap overlay callback for compositing image overlays during gaps
+        const gapOverlayCallback = (imageOverlays && imageOverlays.length > 0) ? (cx2: any, absTime: number, ow: number, oh: number) => {
+            compositeImageOverlays(cx2, absTime, ow, oh);
+        } : undefined;
+        if (clip.startTime>ctt+0.01) { await processGapFrames(clip.startTime-ctt,f,w,h,ctt,fd,vs,cv,cx,gapOverlayCallback); ctt=clip.startTime; }
         op?.(Math.round(5+(pd/td)*90),`Traitement du clip ${index+1}/${tc}...`);
         const url = URL.createObjectURL(clip.file);
         try {
@@ -677,7 +804,12 @@ export async function exportProjectWithMediaBunny(
             if (!clip.audioMuted) { try { const at=await input.getPrimaryAudioTrack(); aSink=new AudioSampleSink(at); } catch(e) { console.warn('No audio track found for clip',clip.id); } }
             const ct=tr?.filter((t:any)=>t.clipId===clip.id)||[];
             const st=ct.find((t:any)=>t.position==='start'), et=ct.find((t:any)=>t.position==='end');
-            await processVideoSamples(vSink,clip,cd,pd,td,tc,index,op,to,st,et,w,h,vs,cv,cx);
+            // Create overlay callback that converts relative timestamp to absolute timeline time
+            const overlayCallback = (imageOverlays && imageOverlays.length > 0) ? (cx2: any, relTs: number, ow: number, oh: number) => {
+                const absoluteTime = clip.startTime + relTs;
+                compositeImageOverlays(cx2, absoluteTime, ow, oh);
+            } : undefined;
+            await processVideoSamples(vSink,clip,cd,pd,td,tc,index,op,to,st,et,w,h,vs,cv,cx,overlayCallback);
             await processAudioSamples(aSink,clip,ac,as2);
         } catch(err) {
             if (isExportCancelled||(err instanceof Error&&err.message==='Export cancelled')) throw err;
@@ -700,8 +832,17 @@ export async function exportProjectWithMediaBunny(
     // Add black frames if audio extends beyond video duration
     if (currentTimelineTime < totalDuration) {
         const remainingDuration = totalDuration - currentTimelineTime;
-        await processGapFrames(remainingDuration, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx);
+        const endGapOverlayCallback = (imageOverlays && imageOverlays.length > 0) ? (cx2: any, absTime: number, ow: number, oh: number) => {
+            compositeImageOverlays(cx2, absTime, ow, oh);
+        } : undefined;
+        await processGapFrames(remainingDuration, fps, width, height, currentTimelineTime, frameDuration, videoSource, canvas, ctx, endGapOverlayCallback);
     }
+
+    // Clean up overlay bitmaps
+    for (const bm of overlayBitmaps.values()) {
+        bm.close();
+    }
+    overlayBitmaps.clear();
 
     if (isExportCancelled) throw new Error('Export cancelled');
     onProgress?.(95, 'Finalisation...');

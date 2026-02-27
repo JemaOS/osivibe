@@ -171,32 +171,21 @@ export const useTimelineClipDrag = (
     return findBestGapPosition(clipsOnTrack, preferredTime, clipDuration);
   }, [tracks, findBestGapPosition]);
 
-  const isClipCompatibleWithTrack = useCallback((clipType: string, trackType: string, trackName: string): boolean => {
-    const isAudioClip = clipType === 'audio';
-    const isVideoClip = clipType === 'video';
-    const isImageClip = clipType === 'image';
-    const isTextClip = clipType === 'text';
-    const isVideoTrack = trackType === 'video';
-    const isAudioTrack = trackType === 'audio';
-    const isTextTrack = trackType === 'text';
-
+  const isClipCompatibleWithTrack = useCallback((clipType: string, trackType: string, _trackName: string): boolean => {
     // Text tracks can accept any clip type
-    if (isTextTrack) return true;
+    if (trackType === 'text') return true;
     
     // Text clips can only be placed on text tracks
-    if (isTextClip) return isTextTrack;
+    if (clipType === 'text') return trackType === 'text';
     
-    if (isAudioClip) return isAudioTrack;
+    // Audio clips go to audio tracks only
+    if (clipType === 'audio') return trackType === 'audio';
     
-    if (isVideoClip) {
-      const isImageTrack = trackName.toLowerCase().includes('image');
-      return isVideoTrack && !isImageTrack;
-    }
+    // Video clips go to video tracks only
+    if (clipType === 'video') return trackType === 'video';
     
-    if (isImageClip) {
-      const isVideoNamedTrack = trackName.toLowerCase().includes('video');
-      return isVideoTrack && !isVideoNamedTrack;
-    }
+    // Image clips go to image tracks only
+    if (clipType === 'image') return trackType === 'image';
     
     return false;
   }, []);
@@ -682,7 +671,7 @@ export const useTimelineDrop = (
 
   const findSmartTrack = useCallback((mediaType: string, tracksList: any[]) => {
     const typeMap: Record<string, { type: string; keywords: string[] }> = {
-      'image': { type: 'video', keywords: ['image', 'overlay'] },
+      'image': { type: 'image', keywords: ['image', 'overlay'] },
       'video': { type: 'video', keywords: ['video'] },
       'audio': { type: 'audio', keywords: ['audio'] },
       'text': { type: 'text', keywords: ['text'] },
@@ -690,13 +679,13 @@ export const useTimelineDrop = (
 
     const config = typeMap[mediaType];
     if (config) {
-      const smartTrack = tracksList.find(t => 
+      const smartTrack = tracksList.find(t =>
         t.type === config.type && config.keywords.some(k => t.name.toLowerCase().includes(k))
       );
       if (smartTrack) return smartTrack;
     }
     
-    const fallbackType = mediaType === 'audio' ? 'audio' : mediaType === 'text' ? 'text' : 'video';
+    const fallbackType = mediaType === 'audio' ? 'audio' : mediaType === 'text' ? 'text' : mediaType === 'image' ? 'image' : 'video';
     return tracksList.find(t => t.type === fallbackType);
   }, []);
 
@@ -705,7 +694,8 @@ export const useTimelineDrop = (
     if (!targetTrack) return;
 
     const isCompatible = (media.type === 'audio' && targetTrack.type === 'audio') ||
-                         ((media.type === 'video' || media.type === 'image') && targetTrack.type === 'video') ||
+                         (media.type === 'image' && targetTrack.type === 'image') ||
+                         (media.type === 'video' && targetTrack.type === 'video') ||
                          (targetTrack.type === 'text'); // Text tracks can accept any media type
 
     if (isCompatible) {

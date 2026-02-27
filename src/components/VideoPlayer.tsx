@@ -1460,7 +1460,7 @@ const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: numbe
     const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean; trackVolume: number }[] = [];
     
     tracks.forEach((track, index) => {
-      if (track.type !== 'video') return;
+      if (track.type !== 'video' && track.type !== 'image') return;
       
       const clip = track.clips.find((c: any) => {
         const clipStart = c.startTime;

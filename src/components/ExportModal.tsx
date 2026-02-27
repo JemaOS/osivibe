@@ -72,14 +72,20 @@ export const ExportModal: React.FC = () => {
         .flatMap((t, trackIndex) => t.clips.map(c => ({ ...c, trackIndex })))
         .sort((a, b) => a.startTime - b.startTime);
 
+      // Collect image overlay clips (from image tracks) — these are composited on top of video
+      const imageOverlayClips = tracks
+        .filter(t => t.type === 'image')
+        .flatMap((t) => t.clips)
+        .sort((a, b) => a.startTime - b.startTime);
+
       // Collect all clips from audio tracks (WAV/MP3/etc). Muted tracks are ignored.
       const audioTimelineClips = tracks
         .filter((t) => t.type === 'audio' && !t.muted)
         .flatMap((t) => t.clips)
         .sort((a, b) => a.startTime - b.startTime);
 
-      if (videoClips.length === 0) {
-        alert('Aucun clip vidéo à exporter');
+      if (videoClips.length === 0 && imageOverlayClips.length === 0) {
+        alert('Aucun clip vidéo ou image à exporter');
         setIsExporting(false);
         return;
       }
@@ -153,6 +159,23 @@ export const ExportModal: React.FC = () => {
         };
       });
 
+      // Prepare image overlay clips (from image tracks — composited on top of video)
+      const imageOverlaysToExport = imageOverlayClips.map(clip => {
+        const media = mediaFiles.find(m => m.id === clip.mediaId);
+        if (!media) throw new Error('Fichier média introuvable');
+        return {
+          id: clip.id,
+          file: media.file,
+          startTime: clip.startTime,
+          duration: clip.duration,
+          trimStart: clip.trimStart,
+          trimEnd: clip.trimEnd,
+          filter: filters[clip.id],
+          crop: clip.crop,
+          transform: clip.transform,
+        };
+      });
+
       // Prepare external audio-track clips (WAV, etc.)
       const audioClipsToExport = audioTimelineClips
         .map((clip) => {
@@ -197,7 +220,8 @@ export const ExportModal: React.FC = () => {
           transitions,
           selectedAspectRatio,
           hardwareProfile,
-          audioClipsToExport
+          audioClipsToExport,
+          imageOverlaysToExport
         );
 
         clearTimeout(exportTimeout);

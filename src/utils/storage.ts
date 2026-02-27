@@ -52,6 +52,7 @@ const writeToIDB = async (name: string, value: any): Promise<void> => {
 // Flush any pending debounced write immediately.
 // Called on beforeunload to prevent data loss.
 const flushPendingWrite = (): void => {
+  console.log(`[💾 storage] flushPendingWrite called, hasPendingWrite=${!!pendingWrite}, hasTimeout=${!!saveTimeout}`);
   if (saveTimeout) {
     clearTimeout(saveTimeout);
     saveTimeout = null;
@@ -59,6 +60,7 @@ const flushPendingWrite = (): void => {
   if (pendingWrite) {
     const { name, value } = pendingWrite;
     pendingWrite = null;
+    console.log(`[💾 storage] flushPendingWrite FLUSHING "${name}" to IndexedDB, cachedDB=${!!cachedDB}`);
     // Use the already-cached DB connection for synchronous transaction start.
     // IndexedDB transactions started synchronously during beforeunload will
     // complete even after the page begins to unload (per spec).
@@ -111,21 +113,40 @@ export const cleanupStorage = (): void => {
 export const indexedDBStorage = {
   getItem: async (name: string) => {
     try {
+      console.log(`[💾 storage] getItem("${name}") called`);
       const db = await openDB();
       return new Promise((resolve, reject) => {
         try {
           const transaction = db.transaction('store', 'readonly');
           const store = transaction.objectStore('store');
           const getRequest = store.get(name);
-          getRequest.onsuccess = () => resolve(getRequest.result ?? null);
+          getRequest.onsuccess = () => {
+            const result = getRequest.result ?? null;
+            if (result) {
+              const hasState = result && typeof result === 'object' && 'state' in result;
+              const hasVersion = result && typeof result === 'object' && 'version' in result;
+              console.log(`[💾 storage] getItem("${name}") found data:`, {
+                hasState,
+                hasVersion,
+                version: hasVersion ? result.version : 'N/A',
+                stateKeys: hasState ? Object.keys(result.state) : 'N/A',
+                mediaFilesCount: hasState && result.state.mediaFiles ? result.state.mediaFiles.length : 0,
+                tracksCount: hasState && result.state.tracks ? result.state.tracks.length : 0,
+                hasFileObjects: hasState && result.state.mediaFiles ? result.state.mediaFiles.some((m: any) => m.file instanceof File) : false,
+              });
+            } else {
+              console.log(`[💾 storage] getItem("${name}") returned null — no saved state`);
+            }
+            resolve(result);
+          };
           getRequest.onerror = () => reject(getRequest.error);
         } catch (e) {
-          // Store might not exist yet or other error
+          console.error('[💾 storage] getItem transaction error:', e);
           resolve(null);
         }
       });
     } catch (e) {
-      console.error('IndexedDB getItem error:', e);
+      console.error('[💾 storage] getItem error:', e);
       return null;
     }
   },
@@ -135,6 +156,13 @@ export const indexedDBStorage = {
     // JSON.stringify comparison which couldn't handle File objects.
     saveVersion++;
     const thisVersion = saveVersion;
+
+    console.log(`[💾 storage] setItem("${name}") called, saveVersion=${thisVersion}`, {
+      hasState: value && typeof value === 'object' && 'state' in value,
+      hasVersion: value && typeof value === 'object' && 'version' in value,
+      mediaFilesCount: value?.state?.mediaFiles?.length ?? 0,
+      tracksCount: value?.state?.tracks?.length ?? 0,
+    });
 
     // Store the pending write so it can be flushed on beforeunload
     pendingWrite = { name, value };
@@ -151,15 +179,23 @@ export const indexedDBStorage = {
         saveTimeout = null;
         // Only write if no newer version has been queued
         if (thisVersion < saveVersion) {
+          console.log(`[💾 storage] setItem skipped (version ${thisVersion} < ${saveVersion})`);
           resolve();
           return;
         }
         try {
+          console.log(`[💾 storage] setItem WRITING to IndexedDB, version=${thisVersion}`);
           await writeToIDB(name, value);
           lastSavedVersion = thisVersion;
-          pendingWrite = null;
+          // BUG FIX: Only clear pendingWrite if it hasn't been replaced by a newer write.
+          // Previously, this unconditionally set pendingWrite = null, which could wipe out
+          // a newer pending write that arrived during the async writeToIDB call.
+          if (pendingWrite && pendingWrite.value === value) {
+            pendingWrite = null;
+          }
+          console.log(`[💾 storage] setItem WRITE COMPLETE, lastSavedVersion=${lastSavedVersion}`);
         } catch (e) {
-          console.error('IndexedDB setItem error:', e);
+          console.error('[💾 storage] setItem write error:', e);
         }
         resolve();
       }, DEBOUNCE_TIME);
@@ -177,7 +213,7 @@ export const indexedDBStorage = {
         deleteRequest.onerror = () => reject(deleteRequest.error);
       });
     } catch (e) {
-      console.error('IndexedDB removeItem error:', e);
+      console.error('[💾 storage] removeItem error:', e);
     }
   },
 };
