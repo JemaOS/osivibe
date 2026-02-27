@@ -644,6 +644,7 @@ export const useTimelineDrop = (
       'image': { type: 'video', keywords: ['image', 'overlay'] },
       'video': { type: 'video', keywords: ['video'] },
       'audio': { type: 'audio', keywords: ['audio'] },
+      'text': { type: 'text', keywords: ['text'] }, // Add text type mapping
     };
 
     const config = typeMap[mediaType];
@@ -654,7 +655,7 @@ export const useTimelineDrop = (
       if (smartTrack) return smartTrack;
     }
     
-    const fallbackType = mediaType === 'audio' ? 'audio' : 'video';
+    const fallbackType = mediaType === 'audio' ? 'audio' : mediaType === 'text' ? 'text' : 'video';
     return tracksList.find(t => t.type === fallbackType);
   }, []);
 
@@ -663,7 +664,8 @@ export const useTimelineDrop = (
     if (!targetTrack) return;
 
     const isCompatible = (media.type === 'audio' && targetTrack.type === 'audio') ||
-                         ((media.type === 'video' || media.type === 'image') && targetTrack.type === 'video');
+                         ((media.type === 'video' || media.type === 'image') && targetTrack.type === 'video') ||
+                         (targetTrack.type === 'text'); // Text tracks can accept any media type
 
     if (isCompatible) {
        addClipToTrack(trackId, media, Math.max(0, time));
