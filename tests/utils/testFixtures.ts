@@ -137,11 +137,13 @@ export function createMockTrack(
 export function createMockTextOverlay(
   text: string = 'Test Text',
   startTime: number = 0,
-  duration: number = 5
+  duration: number = 5,
+  trackId: string = 'text-track-1'
 ): TextOverlay {
   return {
     id: generateId(),
     text,
+    trackId,
     x: 50,
     y: 50,
     fontSize: 24,

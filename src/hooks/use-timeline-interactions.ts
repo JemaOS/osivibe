@@ -377,7 +377,7 @@ export const useTimelineTextDrag = (
   tracksContainerRef: React.RefObject<HTMLDivElement>,
   PIXELS_PER_SECOND: number
 ) => {
-  const { textOverlays, ui, selectText, updateTextOverlay } = useEditorStore();
+  const { textOverlays, tracks, ui, selectText, updateTextOverlay, moveTextOverlayToTrack } = useEditorStore();
   const [isDraggingText, setIsDraggingText] = useState(false);
   const [draggedTextId, setDraggedTextId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -429,6 +429,22 @@ export const useTimelineTextDrag = (
     return bestTime;
   }, []);
 
+  // Helper to find which text track the mouse is currently over
+  const findTextTrackAtY = useCallback((clientY: number): string | null => {
+    const container = tracksContainerRef.current;
+    if (!container) return null;
+
+    // Find all track elements with data-track-type="text"
+    const trackElements = container.querySelectorAll('[data-track-type="text"]');
+    for (const el of trackElements) {
+      const rect = el.getBoundingClientRect();
+      if (clientY >= rect.top && clientY <= rect.bottom) {
+        return el.getAttribute('data-track-id');
+      }
+    }
+    return null;
+  }, [tracksContainerRef]);
+
   useEffect(() => {
     if (!isDraggingText || !draggedTextId) return;
 
@@ -441,11 +457,23 @@ export const useTimelineTextDrag = (
       
       const currentText = textOverlays.find(t => t.id === draggedTextId);
       if (currentText) {
-        const otherTexts = textOverlays.filter(t => t.id !== draggedTextId).sort((a, b) => a.startTime - b.startTime);
+        // Detect if mouse is over a different text track
+        const targetTrackId = findTextTrackAtY(e.clientY);
+        const effectiveTrackId = targetTrackId || currentText.trackId;
+        
+        // Filter collision check to only overlays on the target track (excluding the dragged one)
+        const otherTexts = textOverlays
+          .filter(t => t.id !== draggedTextId && t.trackId === effectiveTrackId)
+          .sort((a, b) => a.startTime - b.startTime);
         newTime = calculateTextCollision(newTime, currentText, otherTexts);
+        
+        // Move to target track if different
+        if (targetTrackId && targetTrackId !== currentText.trackId) {
+          moveTextOverlayToTrack(draggedTextId, targetTrackId);
+        }
       }
 
-      updateTextOverlay(draggedTextId, { startTime: newTime });
+      updateTextOverlay(draggedTextId, { startTime: newTime }, true);
     };
 
     const handleMouseUp = () => {
@@ -460,7 +488,7 @@ export const useTimelineTextDrag = (
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingText, draggedTextId, dragOffset, ui.timelineZoom, updateTextOverlay, textOverlays, tracksContainerRef, PIXELS_PER_SECOND, calculateTextCollision]);
+  }, [isDraggingText, draggedTextId, dragOffset, ui.timelineZoom, updateTextOverlay, moveTextOverlayToTrack, textOverlays, tracks, tracksContainerRef, PIXELS_PER_SECOND, calculateTextCollision, findTextTrackAtY]);
 
   return {
     draggedTextId,
@@ -703,29 +731,8 @@ export const useTimelineDrop = (
         const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
         const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
 
-        // If dropping on the text track (trackId === 'text-track'), check if media is compatible with text tracks
-        if (trackId === 'text-track') {
-          // Text tracks can accept any media type
-          const textTrack = tracks.find(t => t.type === 'text');
-          if (textTrack) {
-            handleMediaDrop(media, textTrack.id, time);
-          } else {
-            // If no text track exists, create one and add the media to it
-            const { addTrack } = useEditorStore.getState();
-            addTrack('text');
-            // Wait for the track to be added and then add the media to it
-            setTimeout(() => {
-              const updatedTracks = useEditorStore.getState().tracks;
-              const newTextTrack = updatedTracks.find(t => t.type === 'text');
-              if (newTextTrack) {
-                handleMediaDrop(media, newTextTrack.id, time);
-              }
-            }, 0);
-          }
-        } else {
-          // For other track types, proceed as before
-          handleMediaDrop(media, trackId, time);
-        }
+        // Drop media onto the target track (text tracks are now regular tracks with real IDs)
+        handleMediaDrop(media, trackId, time);
       }
     } catch (error) {
       console.error('Error handling drop:', error);

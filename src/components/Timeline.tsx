@@ -1093,30 +1093,6 @@ export const Timeline: React.FC = () => {
               );
             })}
 
-            {/* Text Track Label */}
-            <div
-              className="border-b border-white/10 px-1 fold-cover:px-1 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
-              style={{ height: TRACK_HEIGHT }}
-            >
-              <div className="flex items-center gap-1">
-                {/* Show icon on small screens for better identification */}
-                {(isMinimal || isCompact) && (
-                  <Type className={`${getTrackIconClass(isMinimal)} text-neutral-400 flex-shrink-0`} />
-                )}
-                <p
-                  className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}
-                  title="Textes" // Full name on hover
-                >
-                  {getTrackLabel('Textes', layoutMode)}
-                </p>
-              </div>
-              <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1">
-                {/* Only show icon if not already shown above */}
-                {!isMinimal && !isCompact && (
-                  <Type className={`w-4 h-4 text-neutral-400`} />
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Add Track Button */}
@@ -1235,12 +1211,14 @@ export const Timeline: React.FC = () => {
               <div
                 key={track.id}
                 className="timeline-track border-b border-white/10 relative"
+                data-track-id={track.id}
+                data-track-type={track.type}
                 onDrop={(e) => handleDrop(e, track.id)}
                 onDragOver={handleDragOver}
                 style={{ width: timelineWidth, height: TRACK_HEIGHT }}
               >
-                {/* Track clips */}
-                {track.clips.map((clip) => (
+                {/* Regular track clips (non-text tracks) */}
+                {track.type !== 'text' && track.clips.map((clip) => (
                   <TimelineClipComponent
                     key={clip.id}
                     clip={clip}
@@ -1261,60 +1239,54 @@ export const Timeline: React.FC = () => {
                     handleResizeMouseDown={handleResizeMouseDown}
                   />
                 ))}
+                {/* Text overlays for text-type tracks */}
+                {track.type === 'text' && textOverlays
+                  .filter((text) => text.trackId === track.id)
+                  .map((text) => {
+                    const textWidth = text.duration * PIXELS_PER_SECOND * ui.timelineZoom;
+                    const textX = text.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
+                    const isSelected = ui.selectedTextId === text.id;
+
+                    return (
+                      <div
+                        key={text.id}
+                        className={`timeline-clip absolute bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
+                          draggedTextId === text.id ? 'dragging' : ''
+                        } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded touch-target`}
+                        style={{
+                          left: `${textX}px`,
+                          width: `${textWidth}px`,
+                          top: clipTop,
+                          height: clipHeight,
+                        }}
+                        onMouseDown={(e) => handleTextMouseDown(e, text.id)}
+                        onContextMenu={(e) => handleTextContextMenu(e, text.id)}
+                      >
+                        {/* Resize handles - larger for touch */}
+                        <div
+                          className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                          onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
+                          title="Étendre le début"
+                        >
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
+                        </div>
+                        <div
+                          className={`absolute right-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
+                          onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
+                          title="Étendre la fin"
+                        >
+                          <div className="absolute right-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
+                        </div>
+
+                        {/* Text content */}
+                        <p className={`${getRulerTextClass(isMinimal, isCompact)} font-medium text-white truncate relative z-10`}>
+                          {text.text}
+                        </p>
+                      </div>
+                    );
+                  })}
               </div>
             ))}
-
-            {/* Text Track */}
-            <div
-              className="timeline-track border-b border-white/10 relative"
-              style={{ width: timelineWidth, height: TRACK_HEIGHT }}
-              onDrop={(e) => handleDrop(e, 'text-track')}
-              onDragOver={handleDragOver}
-            >
-              {textOverlays.map((text) => {
-                const textWidth = text.duration * PIXELS_PER_SECOND * ui.timelineZoom;
-                const textX = text.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
-                const isSelected = ui.selectedTextId === text.id;
-
-                return (
-                  <div
-                    key={text.id}
-                    className={`timeline-clip absolute bg-purple-500/30 border border-purple-500/50 ${isSelected ? 'selected ring-2 ring-purple-500' : ''} ${
-                      draggedTextId === text.id ? 'dragging' : ''
-                    } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing rounded touch-target`}
-                    style={{
-                      left: `${textX}px`,
-                      width: `${textWidth}px`,
-                      top: clipTop,
-                      height: clipHeight,
-                    }}
-                    onMouseDown={(e) => handleTextMouseDown(e, text.id)}
-                    onContextMenu={(e) => handleTextContextMenu(e, text.id)}
-                  >
-                    {/* Resize handles - larger for touch */}
-                    <div
-                      className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
-                      onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
-                      title="Étendre le début"
-                    >
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
-                    </div>
-                    <div
-                      className={`absolute right-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
-                      onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
-                      title="Étendre la fin"
-                    >
-                      <div className="absolute right-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
-                    </div>
-
-                    {/* Text content */}
-                    <p className={`${getRulerTextClass(isMinimal, isCompact)} font-medium text-white truncate relative z-10`}>
-                      {text.text}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
 
             {/* Playhead - with larger touch target */}
             <div

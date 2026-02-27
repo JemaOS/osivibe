@@ -243,6 +243,7 @@ interface EditorState {
   addTextOverlay: (text: Partial<TextOverlay>) => void;
   updateTextOverlay: (id: string, updates: Partial<TextOverlay>, skipHistory?: boolean) => void;
   removeTextOverlay: (id: string) => void;
+  moveTextOverlayToTrack: (textId: string, targetTrackId: string) => void;
   selectText: (id: string | null) => void;
   
   // Transition actions
@@ -951,15 +952,42 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     let startTime = text.startTime ?? state.player.currentTime;
     const duration = text.duration ?? 5;
     
-    // Check for collision and find next available spot
-    const sortedTexts = [...state.textOverlays].sort((a, b) => a.startTime - b.startTime);
+    // Determine which text track to assign this overlay to
+    let targetTrackId = text.trackId;
+    if (!targetTrackId) {
+      // Find the first text track, or auto-create one
+      const textTracks = state.tracks.filter(t => t.type === 'text');
+      if (textTracks.length > 0) {
+        targetTrackId = textTracks[0].id;
+      } else {
+        // Auto-create a text track
+        const newTrackId = uuidv4();
+        const trackCount = state.tracks.filter(t => t.type === 'text').length;
+        const newTrack: TimelineTrack = {
+          id: newTrackId,
+          name: `Texte ${trackCount + 1}`,
+          type: 'text',
+          clips: [],
+          muted: false,
+          locked: false,
+          volume: 1,
+        };
+        set((s) => ({ tracks: [...s.tracks, newTrack] }));
+        targetTrackId = newTrackId;
+      }
+    }
+    
+    // Check for collision only within the same track
+    const sameTrackTexts = state.textOverlays
+      .filter(t => t.trackId === targetTrackId)
+      .sort((a, b) => a.startTime - b.startTime);
     let isColliding = true;
     
     const checkCollision = (t: TextOverlay) => (startTime < t.startTime + t.duration) && (startTime + duration > t.startTime);
 
     // Iteratively find a free spot
     while (isColliding) {
-      const collider = sortedTexts.find(checkCollision);
+      const collider = sameTrackTexts.find(checkCollision);
       
       if (collider) {
         // Move to the end of the colliding clip
@@ -972,6 +1000,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     const newText: TextOverlay = {
       id: uuidv4(),
       text: text.text || 'Nouveau texte',
+      trackId: targetTrackId,
       x: text.x ?? 50,
       y: text.y ?? 50,
       fontSize: text.fontSize ?? 32,
@@ -1009,6 +1038,24 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         ...state.ui,
         selectedTextId: state.ui.selectedTextId === id ? null : state.ui.selectedTextId,
       },
+    }));
+  },
+  
+  moveTextOverlayToTrack: (textId, targetTrackId) => {
+    const state = get();
+    const textOverlay = state.textOverlays.find(t => t.id === textId);
+    if (!textOverlay || textOverlay.trackId === targetTrackId) return;
+    
+    // Verify target track exists and is a text track
+    const targetTrack = state.tracks.find(t => t.id === targetTrackId && t.type === 'text');
+    if (!targetTrack) return;
+    
+    get().saveState(); // Save state before action
+    
+    set((s) => ({
+      textOverlays: s.textOverlays.map(t =>
+        t.id === textId ? { ...t, trackId: targetTrackId } : t
+      ),
     }));
   },
   
@@ -1288,10 +1335,45 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     // Update clip thumbnails in active project
     updateClipThumbnails(state.tracks, state.mediaFiles);
 
+    // Migrate text overlays: assign trackId to any text overlays missing one
+    const migrateTextOverlays = (textOverlays: any[], tracks: any[]) => {
+      if (!textOverlays || textOverlays.length === 0) return;
+      
+      const orphanedTexts = textOverlays.filter((t: any) => !t.trackId);
+      if (orphanedTexts.length === 0) return;
+      
+      // Find or create a text track
+      let textTrack = tracks.find((t: any) => t.type === 'text');
+      if (!textTrack) {
+        textTrack = {
+          id: uuidv4(),
+          name: 'Texte 1',
+          type: 'text',
+          clips: [],
+          muted: false,
+          locked: false,
+          volume: 1,
+        };
+        tracks.push(textTrack);
+      }
+      
+      // Assign the text track ID to orphaned text overlays
+      for (const text of orphanedTexts) {
+        text.trackId = textTrack.id;
+      }
+      
+      console.log(`📝 Migrated ${orphanedTexts.length} text overlay(s) to track "${textTrack.name}"`);
+    };
+
+    migrateTextOverlays(state.textOverlays, state.tracks);
+
     // Regenerate Blob URLs and update thumbnails for projects history
     for (const project of state.projects) {
       regenerateMediaBlobUrls(project.mediaFiles);
       updateClipThumbnails(project.tracks, project.mediaFiles);
+      if (project.textOverlays) {
+        migrateTextOverlays(project.textOverlays, project.tracks);
+      }
     }
 
     console.log('✅ State rehydration complete');

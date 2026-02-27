@@ -71,6 +71,7 @@ export interface TimelineTrack {
 export interface TextOverlay {
   id: string;
   text: string;
+  trackId: string; // ID of the text track this overlay belongs to
   x: number; // 0-100 percentage
   y: number; // 0-100 percentage
   fontSize: number;
