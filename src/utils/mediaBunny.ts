@@ -827,25 +827,15 @@ export async function exportProjectWithMediaBunny(
     const audioSupported = await isAudioCodecSupported(defaultAudioCodec, 48000, 2, 128_000);
     
     if (!audioSupported) {
-        // Try opus as fallback (universally supported in WebCodecs)
         if (defaultAudioCodec !== 'opus') {
             const opusSupported = await isAudioCodecSupported('opus', 48000, 2, 128_000);
             if (opusSupported) {
                 audioCodecOverride = 'opus';
-                console.warn('⚠️ AAC audio encoding not supported, falling back to Opus');
+                console.warn('⚠️ AAC audio encoding not supported, falling back to Opus audio in MP4 container');
                 onProgress?.(2, 'AAC non supporté, utilisation de Opus...');
-                
-                // If we're using Opus audio, we need WebM container (MP4 doesn't support Opus well)
-                // Force WebM format if not already
-                if (!isWebM) {
-                    isWebM = true;
-                    formatOverridden = true;
-                    // Need to recreate output format for WebM
-                    console.warn('⚠️ Switching to WebM container for Opus audio compatibility');
-                    onProgress?.(2, 'Basculement vers WebM pour compatibilité audio...');
-                }
+                // Keep MP4 container — MP4 (ISOBMFF) supports Opus audio since 2018
+                // No need to switch to WebM
             } else {
-                // Neither AAC nor Opus supported — very unlikely but handle it
                 throw new Error('No supported audio encoder found (AAC, Opus all unsupported). Cannot export with MediaBunny.');
             }
         } else {
