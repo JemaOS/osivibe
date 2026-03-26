@@ -768,6 +768,140 @@ const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boole
     return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height } as any;
 };
 
+/**
+ * Pre-mix all audio sources (video clip audio + external audio clips) into a single AudioBuffer
+ * using the Web Audio API's OfflineAudioContext. This is necessary because MediaBunny's
+ * AudioSampleSource cannot mix overlapping audio streams.
+ */
+async function premixAllAudio(
+    clips: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;audioMuted?:boolean;volume?:number}[],
+    audioClips: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;volume?:number}[] | undefined,
+    sampleRate: number,
+    numberOfChannels: number,
+    totalDuration: number,
+    onProgress?: (progress:number,message:string)=>void
+): Promise<AudioBuffer | null> {
+    if (totalDuration <= 0) return null;
+    
+    // Check if there are any audio sources to mix
+    const hasVideoAudio = clips.some(c => !c.audioMuted && !isImageClip(c));
+    const hasExternalAudio = audioClips && audioClips.length > 0;
+    if (!hasVideoAudio && !hasExternalAudio) return null;
+    
+    try {
+        const totalSamples = Math.ceil(totalDuration * sampleRate);
+        const offlineCtx = new OfflineAudioContext(numberOfChannels, totalSamples, sampleRate);
+        
+        // Add video clip audio
+        for (const clip of clips) {
+            if (clip.audioMuted || isImageClip(clip)) continue;
+            if (isExportCancelled) throw new Error('Export cancelled');
+            
+            try {
+                const arrayBuffer = await clip.file.arrayBuffer();
+                const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+                const source = offlineCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                
+                // Apply volume
+                const vol = (clip as any).volume ?? 1;
+                if (vol !== 1) {
+                    const gain = offlineCtx.createGain();
+                    gain.gain.value = vol;
+                    source.connect(gain);
+                    gain.connect(offlineCtx.destination);
+                } else {
+                    source.connect(offlineCtx.destination);
+                }
+                
+                const clipDuration = clip.duration - clip.trimStart - clip.trimEnd;
+                source.start(clip.startTime, clip.trimStart, clipDuration);
+            } catch (e) {
+                console.warn('Could not decode audio from video clip, skipping:', e);
+            }
+        }
+        
+        // Add external audio clips
+        if (audioClips) {
+            for (const ac of audioClips) {
+                if (isExportCancelled) throw new Error('Export cancelled');
+                
+                try {
+                    const arrayBuffer = await ac.file.arrayBuffer();
+                    const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
+                    const source = offlineCtx.createBufferSource();
+                    source.buffer = audioBuffer;
+                    
+                    const vol = ac.volume ?? 1;
+                    const gain = offlineCtx.createGain();
+                    gain.gain.value = vol;
+                    source.connect(gain);
+                    gain.connect(offlineCtx.destination);
+                    
+                    const clipDuration = ac.duration - ac.trimStart - ac.trimEnd;
+                    source.start(ac.startTime, ac.trimStart, clipDuration);
+                } catch (e) {
+                    console.warn('Could not decode external audio clip, skipping:', e);
+                }
+            }
+        }
+        
+        onProgress?.(4, 'Mixage audio...');
+        
+        if (isExportCancelled) throw new Error('Export cancelled');
+        const mixedBuffer = await offlineCtx.startRendering();
+        console.log(`🔊 Audio pre-mixed: ${mixedBuffer.duration.toFixed(2)}s, ${mixedBuffer.sampleRate}Hz, ${mixedBuffer.numberOfChannels}ch`);
+        return mixedBuffer;
+    } catch (e) {
+        if (e instanceof Error && e.message === 'Export cancelled') throw e;
+        console.error('Audio pre-mixing failed:', e);
+        return null;
+    }
+}
+
+/**
+ * Feed a pre-mixed AudioBuffer to MediaBunny's AudioSampleSource as AudioSample chunks.
+ */
+async function feedMixedAudioToSource(
+    mixedBuffer: AudioBuffer,
+    audioSource: any,
+    chunkDurationSec: number = 0.1
+): Promise<void> {
+    const sampleRate = mixedBuffer.sampleRate;
+    const numberOfChannels = mixedBuffer.numberOfChannels;
+    const totalFrames = mixedBuffer.length;
+    const chunkFrames = Math.ceil(chunkDurationSec * sampleRate);
+    
+    for (let offset = 0; offset < totalFrames; offset += chunkFrames) {
+        if (isExportCancelled) throw new Error('Export cancelled');
+        
+        const remaining = totalFrames - offset;
+        const frames = Math.min(chunkFrames, remaining);
+        const timestamp = offset / sampleRate;
+        
+        // Create planar float32 data (channels laid out sequentially)
+        const planarData = new Float32Array(frames * numberOfChannels);
+        for (let ch = 0; ch < numberOfChannels; ch++) {
+            const channelData = mixedBuffer.getChannelData(ch);
+            planarData.set(channelData.subarray(offset, offset + frames), ch * frames);
+        }
+        
+        // Create AudioData (WebCodecs API) with planar format
+        const audioData = new AudioData({
+            format: 'f32-planar' as any,
+            sampleRate: sampleRate,
+            numberOfFrames: frames,
+            numberOfChannels: numberOfChannels,
+            timestamp: Math.round(timestamp * 1_000_000), // microseconds
+            data: planarData,
+        });
+        
+        const sample = new AudioSample(audioData);
+        await audioSource.add(sample);
+        sample.close();
+    }
+}
+
 export async function exportProjectWithMediaBunny(
     clips: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;filter?:VideoFilter;id?:string;audioMuted?:boolean;crop?:CropSettings;transform?:TransformSettings}[],
     settings: ExportSettings,
@@ -897,6 +1031,10 @@ export async function exportProjectWithMediaBunny(
         }
     }
 
+    // Pre-mix all audio sources using Web Audio API's OfflineAudioContext
+    onProgress?.(3, 'Préparation audio...');
+    const mixedAudio = await premixAllAudio(clips, audioClips, audioConfig.sampleRate, audioConfig.numberOfChannels, totalDuration, onProgress);
+
     let processedDuration = 0;
     const sortedClips = [...clips].sort((a,b)=>a.startTime-b.startTime);
     const width=resolution.width, height=resolution.height;
@@ -958,8 +1096,7 @@ export async function exportProjectWithMediaBunny(
             const source=new UrlSource(url); const input=new Input({source,formats:ALL_FORMATS});
             const vt=await input.getPrimaryVideoTrack(); const vSink=new VideoSampleSink(vt);
             if (isExportCancelled) { URL.revokeObjectURL(url); throw new Error('Export cancelled'); }
-            let aSink: AudioSampleSink|null = null;
-            if (!clip.audioMuted) { try { const at=await input.getPrimaryAudioTrack(); aSink=new AudioSampleSink(at); } catch(e) { console.warn('No audio track found for clip',clip.id); } }
+            // Audio is now pre-mixed via OfflineAudioContext — no per-clip audio sink needed
             const ct=tr?.filter((t:any)=>t.clipId===clip.id)||[];
             const st=ct.find((t:any)=>t.position==='start'), et=ct.find((t:any)=>t.position==='end');
             // Create overlay callback that converts relative timestamp to absolute timeline time
@@ -968,7 +1105,7 @@ export async function exportProjectWithMediaBunny(
                 compositeImageOverlays(cx2, absoluteTime, ow, oh);
             } : undefined;
             await processVideoSamples(vSink,clip,cd,pd,td,tc,index,op,to,st,et,w,h,vs,cv,cx,overlayCallback);
-            await processAudioSamples(aSink,clip,ac,as2);
+            // Audio samples are handled by premixAllAudio + feedMixedAudioToSource
         } catch(err) {
             if (isExportCancelled||(err instanceof Error&&err.message==='Export cancelled')) throw err;
             console.error(`Error processing clip ${index}:`,err); throw err;
@@ -981,11 +1118,7 @@ export async function exportProjectWithMediaBunny(
         processedDuration+=cd; currentTimelineTime=Math.max(currentTimelineTime,clip.startTime+cd);
     }
 
-    // Process external audio clips (separate audio track) after all video clips
-    if (audioClips && audioClips.length > 0) {
-        onProgress?.(92, 'Traitement des pistes audio...');
-        await processExternalAudioClips(audioClips, audioConfig, audioSource);
-    }
+    // External audio clips are handled by premixAllAudio + feedMixedAudioToSource
 
     // Add black frames if audio extends beyond video duration
     if (currentTimelineTime < totalDuration) {
@@ -1001,6 +1134,12 @@ export async function exportProjectWithMediaBunny(
         bm.close();
     }
     overlayBitmaps.clear();
+
+    // Feed pre-mixed audio to the output
+    if (mixedAudio) {
+        onProgress?.(93, 'Encodage audio...');
+        await feedMixedAudioToSource(mixedAudio, audioSource);
+    }
 
     if (isExportCancelled) throw new Error('Export cancelled');
     onProgress?.(95, 'Finalisation...');
