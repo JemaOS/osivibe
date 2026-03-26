@@ -853,6 +853,24 @@ export async function exportProjectWithMediaBunny(
         }
     }
     
+    // After audio negotiation may have changed isWebM, ensure video codec is compatible with the container
+    if (isWebM && (!codecOverride || codecOverride === 'avc')) {
+        // Need a WebM-compatible video codec (VP9 or VP8, not AVC)
+        const vp9Supported = await isCodecSupported('vp9', resolution.width, resolution.height, initialVideoConfig.bitrate);
+        if (vp9Supported) {
+            codecOverride = 'vp9';
+        } else {
+            const vp8Supported = await isCodecSupported('vp8', resolution.width, resolution.height, initialVideoConfig.bitrate);
+            if (vp8Supported) {
+                codecOverride = 'vp8';
+                console.warn('⚠️ VP9 not supported, using VP8 for WebM export');
+                onProgress?.(3, 'VP9 non supporté, utilisation de VP8...');
+            } else {
+                throw new Error('No supported WebM video encoder found (VP9, VP8 both unsupported). Cannot export with MediaBunny.');
+            }
+        }
+    }
+    
     lastExportFormatOverridden = formatOverridden;
     lastExportActualFormat = isWebM ? 'webm' : 'mp4';
     
