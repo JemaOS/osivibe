@@ -16,6 +16,11 @@ import {
 import { ExportSettings, VideoFilter, TextOverlay, Transition, AspectRatio, getResolutionForAspectRatio, CropSettings, TransformSettings } from '../types';
 
 let isExportCancelled = false;
+let lastExportFormatOverridden = false;
+let lastExportActualFormat: 'mp4' | 'webm' = 'mp4';
+export function getLastExportFormatInfo(): { formatOverridden: boolean; actualFormat: 'mp4' | 'webm' } {
+    return { formatOverridden: lastExportFormatOverridden, actualFormat: lastExportActualFormat };
+}
 
 const buildFilterString = (filter: VideoFilter): string => {
     const filters: string[] = [];
@@ -682,13 +687,39 @@ const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:
     return { codec: isWebM?'opus':'aac', bitrate: 128_000, numberOfChannels, sampleRate } as any;
 };
 
-const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boolean) => {
+/**
+ * Test if a specific video encoder configuration is supported by the browser.
+ * Uses the WebCodecs VideoEncoder.isConfigSupported() API.
+ */
+async function isCodecSupported(codec: string, width: number, height: number, bitrate: number): Promise<boolean> {
+    if (typeof VideoEncoder === 'undefined') return false;
+    try {
+        const codecString = codec === 'vp9' ? 'vp09.00.40.08' :
+                           codec === 'vp8' ? 'vp8' :
+                           codec === 'avc' ? 'avc1.640028' :
+                           codec === 'av1' ? 'av01.0.08M.08' : codec;
+        const config = {
+            codec: codecString,
+            width,
+            height,
+            bitrate,
+            hardwareAcceleration: 'no-preference' as HardwareAcceleration,
+        };
+        const support = await VideoEncoder.isConfigSupported(config);
+        return support.supported === true;
+    } catch {
+        return false;
+    }
+}
+
+const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boolean, codecOverride?: string) => {
     let bitrate=2_500_000;
     if (settings.resolution==='4K') bitrate=8_000_000;
     else if (settings.resolution==='720p') bitrate=1_500_000;
     if (settings.quality==='high') bitrate*=1.5;
     if (settings.quality==='low') bitrate*=0.7;
-    return { codec: isWebM?'vp9':'avc', bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height } as any;
+    const defaultCodec = isWebM ? 'vp9' : 'avc';
+    return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height } as any;
 };
 
 export async function exportProjectWithMediaBunny(
@@ -707,11 +738,49 @@ export async function exportProjectWithMediaBunny(
     onProgress?.(0, 'Initialisation de MediaBunny...');
     const effectiveAspectRatio = aspectRatio||settings.aspectRatio||'16:9';
     const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
-    const isWebM = settings.format==='webm';
+    let isWebM = settings.format==='webm';
+    
+    // Negotiate codec: test if the requested codec is actually supported by the browser's encoder
+    let codecOverride: string | undefined;
+    let formatOverridden = false;
+    const initialVideoConfig = getVideoConfig(settings, resolution, isWebM);
+    const requestedCodec = isWebM ? 'vp9' : 'avc';
+    const codecSupported = await isCodecSupported(requestedCodec, resolution.width, resolution.height, initialVideoConfig.bitrate);
+    
+    if (!codecSupported) {
+        if (isWebM) {
+            // VP9 not supported, try VP8
+            const vp8Supported = await isCodecSupported('vp8', resolution.width, resolution.height, initialVideoConfig.bitrate);
+            if (vp8Supported) {
+                codecOverride = 'vp8';
+                console.warn('⚠️ VP9 encoding not supported on this hardware, falling back to VP8 for WebM');
+                onProgress?.(1, 'VP9 non supporté, utilisation de VP8...');
+            } else {
+                // Neither VP9 nor VP8 supported, force MP4/H.264
+                const h264Supported = await isCodecSupported('avc', resolution.width, resolution.height, initialVideoConfig.bitrate);
+                if (h264Supported) {
+                    isWebM = false;
+                    codecOverride = 'avc';
+                    formatOverridden = true;
+                    console.warn('⚠️ VP9/VP8 encoding not supported on this hardware, forcing H.264/MP4 output');
+                    onProgress?.(1, 'VP9/VP8 non supportés, export en MP4/H.264...');
+                } else {
+                    throw new Error('No supported video encoder found (VP9, VP8, H.264 all unsupported). Cannot export with MediaBunny.');
+                }
+            }
+        } else {
+            // H.264 not supported (very rare)
+            throw new Error('H.264 encoding not supported by this browser. Cannot export with MediaBunny.');
+        }
+    }
+    
+    lastExportFormatOverridden = formatOverridden;
+    lastExportActualFormat = isWebM ? 'webm' : 'mp4';
+    
     const outputFormat = isWebM ? new WebMOutputFormat() : new Mp4OutputFormat();
     const target = new BufferTarget();
     const output = new Output({ format: outputFormat, target });
-    const videoConfig = getVideoConfig(settings, resolution, isWebM);
+    const videoConfig = getVideoConfig(settings, resolution, isWebM, codecOverride);
     const videoSource = new VideoSampleSource(videoConfig);
     output.addVideoTrack(videoSource);
     const audioConfig = await getAudioConfig(clips, isWebM, audioClips);

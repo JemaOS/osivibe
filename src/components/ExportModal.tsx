@@ -8,6 +8,7 @@ import { ExportResolution, ExportFormat, ExportQuality } from '../types';
 import { exportProject, cancelExport } from '../utils/ffmpeg';
 import { downloadBlob } from '../utils/helpers';
 import { getHardwareProfile } from '../utils/previewOptimizer';
+import { getLastExportFormatInfo } from '../utils/mediaBunny';
 
 // Aspect ratio options for export
 type AspectRatioOption = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
@@ -228,11 +229,19 @@ export const ExportModal: React.FC = () => {
         setExportProgress(100);
         setExportMessage('Finalisation...');
 
+        // Check if the format was auto-changed during export (e.g., VP9 unsupported → H.264)
+        const formatInfo = getLastExportFormatInfo();
+        const actualFormat = formatInfo.formatOverridden ? formatInfo.actualFormat : exportSettings.format;
+
         // Download the file
-        const filename = `${exportSettings.filename || 'video'}.${exportSettings.format}`;
+        const filename = `${exportSettings.filename || 'video'}.${actualFormat}`;
         downloadBlob(blob, filename);
 
-        setExportMessage('Export terminé !');
+        if (formatInfo.formatOverridden) {
+          setExportMessage(`Export terminé ! (Format changé en ${formatInfo.actualFormat.toUpperCase()} car le codec demandé n'est pas supporté)`);
+        } else {
+          setExportMessage('Export terminé !');
+        }
         setTimeout(() => {
           closeExportModal();
           setIsExporting(false);
