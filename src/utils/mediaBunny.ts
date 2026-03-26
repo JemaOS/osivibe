@@ -213,9 +213,8 @@ const processAudioSamples = async (audioSink: AudioSampleSink|null, clip: any, a
         if (ts > (clip.duration-clip.trimEnd)+0.1) { sample.close(); break; }
         if (ts >= clip.trimStart && ts <= (clip.duration-clip.trimEnd)) {
             const rel = ts-clip.trimStart+clip.startTime;
-            const sr=(sample as any).sampleRate, nc=(sample as any).numberOfChannels;
-            if (sr&&nc&&(sr!==audioConfig.sampleRate||nc!==audioConfig.numberOfChannels)) { /* skip */ }
-            else { sample.setTimestamp(rel); await audioSource.add(sample); }
+            sample.setTimestamp(rel);
+            await audioSource.add(sample);
         }
         sample.close();
     }
@@ -270,8 +269,8 @@ const processExternalAudioClips = async (audioClips: {file:File;startTime:number
                 if (ts>(ac.duration-ac.trimEnd)+0.1) { sample.close(); break; }
                 if (ts>=ac.trimStart&&ts<=(ac.duration-ac.trimEnd)) {
                     const rel=ts-ac.trimStart+ac.startTime;
-                    const sr=(sample as any).sampleRate, nc=(sample as any).numberOfChannels;
-                    if (sr&&nc&&(sr!==audioConfig.sampleRate||nc!==audioConfig.numberOfChannels)) { sample.close(); continue; }
+                    // Removed sample rate/channel mismatch check — let the encoder handle differences
+                    // Previously this silently dropped ALL samples from files with different sample rates
                     if (vol!==1) {
                         const scaled=scaleAudioSampleVolume(sample,vol);
                         if (scaled) { scaled.setTimestamp(rel); await audioSource.add(scaled); scaled.close(); }
@@ -283,6 +282,7 @@ const processExternalAudioClips = async (audioClips: {file:File;startTime:number
         } catch(err) {
             if (isExportCancelled||(err instanceof Error&&err.message==='Export cancelled')) throw err;
             console.error(`Error processing external audio clip ${ac.id||'?'}:`,err);
+            throw err;  // Re-throw to trigger FFmpeg fallback for unsupported audio formats
         } finally { URL.revokeObjectURL(url); }
     }
 };
