@@ -16,6 +16,7 @@ import {
 import { ExportSettings, VideoFilter, TextOverlay, Transition, AspectRatio, getResolutionForAspectRatio, CropSettings, TransformSettings } from '../types';
 
 let isExportCancelled = false;
+let cancelRejectFn: ((reason: Error) => void) | null = null;
 let lastExportFormatOverridden = false;
 let lastExportActualFormat: 'mp4' | 'webm' = 'mp4';
 export function getLastExportFormatInfo(): { formatOverridden: boolean; actualFormat: 'mp4' | 'webm' } {
@@ -107,7 +108,30 @@ const hasClipEffects = (clip: any, _width: number, _height: number) => {
     return { hasFilter, hasCrop, hasTransform, hasTransition: false, hasText: false, isSameResolution: true };
 };
 
-export function cancelMediaBunnyExport() { isExportCancelled = true; }
+export function cancelMediaBunnyExport() {
+    isExportCancelled = true;
+    if (cancelRejectFn) {
+        cancelRejectFn(new Error('Export cancelled'));
+        cancelRejectFn = null;
+    }
+}
+
+/**
+ * Race a promise against the cancellation signal.
+ * If cancelMediaBunnyExport() is called while the promise is pending,
+ * this will reject immediately with 'Export cancelled'.
+ */
+function withCancellation<T>(promise: Promise<T>): Promise<T> {
+    if (isExportCancelled) return Promise.reject(new Error('Export cancelled'));
+    const cancelPromise = new Promise<never>((_, reject) => {
+        const prevReject = cancelRejectFn;
+        cancelRejectFn = (err) => {
+            if (prevReject) prevReject(err);
+            reject(err);
+        };
+    });
+    return Promise.race([promise, cancelPromise]);
+}
 
 export async function getVideoDuration(file: File): Promise<number> {
     const url = URL.createObjectURL(file);
@@ -573,6 +597,7 @@ const processImageClip = async (
 
     // Load the image
     const imgBitmap = await loadImageBitmap(clip.file);
+    if (isExportCancelled) { imgBitmap.close(); throw new Error('Export cancelled'); }
 
     try {
         // Get transitions for this clip
@@ -735,6 +760,7 @@ export async function exportProjectWithMediaBunny(
     imageOverlays?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;filter?:VideoFilter;id?:string;crop?:CropSettings;transform?:TransformSettings}[]
 ): Promise<Blob> {
     isExportCancelled = false;
+    cancelRejectFn = null;
     onProgress?.(0, 'Initialisation de MediaBunny...');
     const effectiveAspectRatio = aspectRatio||settings.aspectRatio||'16:9';
     const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
@@ -787,6 +813,7 @@ export async function exportProjectWithMediaBunny(
     const audioSource = new AudioSampleSource(audioConfig);
     output.addAudioTrack(audioSource);
     await output.start();
+    if (isExportCancelled) throw new Error('Export cancelled');
     onProgress?.(5, 'Export dÃ©marrÃ©...');
     let currentTimelineTime = 0;
 
@@ -869,6 +896,7 @@ export async function exportProjectWithMediaBunny(
         try {
             const source=new UrlSource(url); const input=new Input({source,formats:ALL_FORMATS});
             const vt=await input.getPrimaryVideoTrack(); const vSink=new VideoSampleSink(vt);
+            if (isExportCancelled) { URL.revokeObjectURL(url); throw new Error('Export cancelled'); }
             let aSink: AudioSampleSink|null = null;
             if (!clip.audioMuted) { try { const at=await input.getPrimaryAudioTrack(); aSink=new AudioSampleSink(at); } catch(e) { console.warn('No audio track found for clip',clip.id); } }
             const ct=tr?.filter((t:any)=>t.clipId===clip.id)||[];
@@ -915,7 +943,8 @@ export async function exportProjectWithMediaBunny(
 
     if (isExportCancelled) throw new Error('Export cancelled');
     onProgress?.(95, 'Finalisation...');
-    await output.finalize();
+    await withCancellation(output.finalize());
+    cancelRejectFn = null;
     if (target.buffer) return new Blob([target.buffer],{type:isWebM?'video/webm':'video/mp4'});
     else throw new Error('Export failed: No buffer generated');
 }

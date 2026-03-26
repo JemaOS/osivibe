@@ -48,10 +48,10 @@ export const ExportModal: React.FC = () => {
     if (isExporting) {
       if (window.confirm('Voulez-vous vraiment annuler l\'export en cours ?')) {
         cancelExport();
-        setIsExporting(false);
-        setExportProgress(0);
-        setExportMessage('');
-        closeExportModal();
+        setExportMessage('Annulation en cours...');
+        // Don't close modal or reset state here.
+        // The handleExport catch block will detect the cancellation
+        // error and handle cleanup (setIsExporting(false), closeExportModal, etc.)
       }
     } else {
       closeExportModal();
@@ -267,6 +267,7 @@ export const ExportModal: React.FC = () => {
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
+      closeExportModal();
     }
   };
 
