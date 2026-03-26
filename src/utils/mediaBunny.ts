@@ -697,7 +697,7 @@ const processVideoSamples = async (videoSink: VideoSampleSink, clip: any, clipDu
     }
 };
 
-const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;id?:string;volume?:number}[]) => {
+const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;id?:string;volume?:number}[], audioCodecOverride?: string) => {
     let sampleRate=48000, numberOfChannels=2;
     // Skip image clips when probing for audio settings (images have no audio track)
     const probe = clips.find(c=>!c.audioMuted && !isImageClip(c)) || (audioClips&&audioClips.length>0?audioClips[0]:null);
@@ -709,7 +709,8 @@ const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:
             URL.revokeObjectURL(url);
         } catch(e) { console.warn('Could not detect audio settings from first clip, using defaults',e); }
     }
-    return { codec: isWebM?'opus':'aac', bitrate: 128_000, numberOfChannels, sampleRate } as any;
+    const defaultCodec = isWebM ? 'opus' : 'aac';
+    return { codec: audioCodecOverride || defaultCodec, bitrate: 128_000, numberOfChannels, sampleRate } as any;
 };
 
 /**
@@ -731,6 +732,26 @@ async function isCodecSupported(codec: string, width: number, height: number, bi
             hardwareAcceleration: 'no-preference' as HardwareAcceleration,
         };
         const support = await VideoEncoder.isConfigSupported(config);
+        return support.supported === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Test if a specific audio encoder configuration is supported by the browser.
+ * Uses the WebCodecs AudioEncoder.isConfigSupported() API.
+ */
+async function isAudioCodecSupported(codec: string, sampleRate: number, numberOfChannels: number, bitrate: number): Promise<boolean> {
+    if (typeof AudioEncoder === 'undefined') return false;
+    try {
+        const config = {
+            codec: codec,
+            sampleRate: sampleRate,
+            numberOfChannels: numberOfChannels,
+            bitrate: bitrate,
+        };
+        const support = await AudioEncoder.isConfigSupported(config);
         return support.supported === true;
     } catch {
         return false;
@@ -800,6 +821,38 @@ export async function exportProjectWithMediaBunny(
         }
     }
     
+    // Negotiate audio codec
+    let audioCodecOverride: string | undefined;
+    const defaultAudioCodec = isWebM ? 'opus' : 'aac';
+    const audioSupported = await isAudioCodecSupported(defaultAudioCodec, 48000, 2, 128_000);
+    
+    if (!audioSupported) {
+        // Try opus as fallback (universally supported in WebCodecs)
+        if (defaultAudioCodec !== 'opus') {
+            const opusSupported = await isAudioCodecSupported('opus', 48000, 2, 128_000);
+            if (opusSupported) {
+                audioCodecOverride = 'opus';
+                console.warn('⚠️ AAC audio encoding not supported, falling back to Opus');
+                onProgress?.(2, 'AAC non supporté, utilisation de Opus...');
+                
+                // If we're using Opus audio, we need WebM container (MP4 doesn't support Opus well)
+                // Force WebM format if not already
+                if (!isWebM) {
+                    isWebM = true;
+                    formatOverridden = true;
+                    // Need to recreate output format for WebM
+                    console.warn('⚠️ Switching to WebM container for Opus audio compatibility');
+                    onProgress?.(2, 'Basculement vers WebM pour compatibilité audio...');
+                }
+            } else {
+                // Neither AAC nor Opus supported — very unlikely but handle it
+                throw new Error('No supported audio encoder found (AAC, Opus all unsupported). Cannot export with MediaBunny.');
+            }
+        } else {
+            throw new Error('Opus audio encoding not supported by this browser. Cannot export with MediaBunny.');
+        }
+    }
+    
     lastExportFormatOverridden = formatOverridden;
     lastExportActualFormat = isWebM ? 'webm' : 'mp4';
     
@@ -809,7 +862,7 @@ export async function exportProjectWithMediaBunny(
     const videoConfig = getVideoConfig(settings, resolution, isWebM, codecOverride);
     const videoSource = new VideoSampleSource(videoConfig);
     output.addVideoTrack(videoSource);
-    const audioConfig = await getAudioConfig(clips, isWebM, audioClips);
+    const audioConfig = await getAudioConfig(clips, isWebM, audioClips, audioCodecOverride);
     const audioSource = new AudioSampleSource(audioConfig);
     output.addAudioTrack(audioSource);
     await output.start();
