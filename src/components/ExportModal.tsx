@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Download } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { ExportResolution, ExportFormat, ExportQuality } from '../types';
@@ -42,21 +42,31 @@ export const ExportModal: React.FC = () => {
   const [exportMessage, setExportMessage] = useState('');
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
 
-  if (!ui.isExportModalOpen) return null;
-
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     if (isExporting) {
-      if (window.confirm('Voulez-vous vraiment annuler l\'export en cours ?')) {
-        cancelExport();
-        setExportMessage('Annulation en cours...');
-        // Don't close modal or reset state here.
-        // The handleExport catch block will detect the cancellation
-        // error and handle cleanup (setIsExporting(false), closeExportModal, etc.)
-      }
+      // Immediately cancel — no confirmation dialog, no intermediate state
+      cancelExport();
+      setIsExporting(false);
+      setExportProgress(0);
+      setExportMessage('');
+      closeExportModal();
     } else {
       closeExportModal();
     }
-  };
+  }, [isExporting, closeExportModal]);
+
+  // Close on ESC key — also cancels export if in progress
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCancel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleCancel]);
+
+  if (!ui.isExportModalOpen) return null;
 
   const handleExport = async () => {
     try {
@@ -278,8 +288,8 @@ export const ExportModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6">
-      <div className="glass-panel w-full max-w-md p-0 overflow-hidden relative z-[101] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6" onClick={handleCancel}>
+      <div className="glass-panel w-full max-w-md p-0 overflow-hidden relative z-[101] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/20 flex items-center justify-between flex-shrink-0">
           <h2 className="text-lg sm:text-h2 font-semibold text-neutral-800">Exporter la video</h2>
