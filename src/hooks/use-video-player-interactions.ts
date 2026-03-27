@@ -59,26 +59,25 @@ const calculateSeekThreshold = (
 const performSeek = (
   videoEl: HTMLVideoElement,
   localTime: number,
-  isSeekingRef: React.MutableRefObject<boolean>,
+  clipId: string,
+  seekingSet: React.MutableRefObject<Set<string>>,
   isMobile: boolean,
   isScrubbing: boolean = false,
   isPlaying: boolean = false
 ) => {
-  if (!isSeekingRef.current) {
-    isSeekingRef.current = true;
-    if (videoEl.readyState > 0) {
-      // During scrubbing or playback: use fastSeek for nearest-keyframe seeking (much faster on H.264)
-      // When paused (not scrubbing): use precise currentTime for frame-accurate positioning
-      if ((isScrubbing || isPlaying) && typeof videoEl.fastSeek === 'function') {
-        videoEl.fastSeek(localTime);
-      } else {
-        videoEl.currentTime = localTime;
-      }
+  if (seekingSet.current.has(clipId)) return; // Only this clip is blocked
+  seekingSet.current.add(clipId);
+  if (videoEl.readyState > 0) {
+    // During scrubbing or playback: use fastSeek for nearest-keyframe seeking (much faster on H.264)
+    // When paused (not scrubbing): use precise currentTime for frame-accurate positioning
+    if ((isScrubbing || isPlaying) && typeof videoEl.fastSeek === 'function') {
+      videoEl.fastSeek(localTime);
+    } else {
+      videoEl.currentTime = localTime;
     }
-    setTimeout(() => {
-      isSeekingRef.current = false;
-    }, isMobile ? 100 : 50);
   }
+  const cooldown = isMobile ? 100 : 50;
+  setTimeout(() => seekingSet.current.delete(clipId), cooldown);
 };
 
 const applyVideoFilter = (
@@ -98,14 +97,15 @@ const handleVideoSeek = (
   videoEl: HTMLVideoElement,
   localTime: number,
   seekThreshold: number,
-  isSeekingRef: React.MutableRefObject<boolean>,
+  clipId: string,
+  seekingSet: React.MutableRefObject<Set<string>>,
   isMobile: boolean,
   isScrubbing: boolean = false,
   isPlaying: boolean = false
 ) => {
   const timeDiff = Math.abs(videoEl.currentTime - localTime);
   if (timeDiff > seekThreshold) {
-    performSeek(videoEl, localTime, isSeekingRef, isMobile, isScrubbing, isPlaying);
+    performSeek(videoEl, localTime, clipId, seekingSet, isMobile, isScrubbing, isPlaying);
   }
 };
 
@@ -116,7 +116,7 @@ const syncSingleVideoClip = (
   player: any,
   isMobile: boolean,
   isScrubbing: boolean,
-  isSeekingRef: React.MutableRefObject<boolean>,
+  isSeekingRef: React.MutableRefObject<Set<string>>,
   filters: any
 ) => {
   updateVideoSrc(videoEl, item.media.url);
@@ -127,7 +127,7 @@ const syncSingleVideoClip = (
   
   if (!player.isPlaying || isScrubbing) {
     const seekThreshold = calculateSeekThreshold(isMobile, isScrubbing, player.isPlaying);
-    handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile, isScrubbing, player.isPlaying);
+    handleVideoSeek(videoEl, localTime, seekThreshold, item.clip.id, isSeekingRef, isMobile, isScrubbing, player.isPlaying);
   } else {
     // During playback: only seek if drift exceeds threshold
     // Use fastSeek for drift correction during playback (faster than precise seek)
@@ -141,7 +141,12 @@ const syncSingleVideoClip = (
     }
   }
   
-  if (!isMobile || !player.isPlaying) {
+  // Skip expensive CSS filters during scrubbing for smooth performance
+  if (isScrubbing) {
+    if (videoEl.style.filter && videoEl.style.filter !== 'none') {
+      videoEl.style.filter = 'none';
+    }
+  } else if (!isMobile || !player.isPlaying) {
     applyVideoFilter(videoEl, item.clip.id, filters);
   }
 };
@@ -164,7 +169,7 @@ export const useVideoPlayerSync = (
 ) => {
   const lastSyncTimeRef = useRef<number>(0);
   const syncDebounceRef = useRef<number | null>(null);
-  const isSeekingRef = useRef<boolean>(false);
+  const isSeekingRef = useRef<Set<string>>(new Set());
 
   const syncVideoVolumeAndPlayback = useCallback(() => {
     const activeClips = getActiveClips();
@@ -287,23 +292,34 @@ export const useVideoPlayerSync = (
     const currentTime = useEditorStore.getState().player.currentTime;
     const activeClips = getActiveClips();
     
-    activeClips.forEach((item) => {
-      if (item.media.type !== 'video') return;
-      
-      const videoEl = videoRefs.current[item.clip.id];
-      if (!videoEl) return;
+    const videoClips = activeClips.filter(item => item.media.type === 'video' && videoRefs.current[item.clip.id]);
 
-      syncSingleVideoClip(
-        item,
-        videoEl,
-        currentTime,
-        player,
-        isMobile,
-        isScrubbing,
-        isSeekingRef,
-        filters
-      );
-    });
+    if (isScrubbing && videoClips.length > 1) {
+      // Seek only the topmost clip immediately (last in array = highest z-index)
+      const topClip = videoClips[videoClips.length - 1];
+      const topVideoEl = videoRefs.current[topClip.clip.id];
+      if (topVideoEl) {
+        syncSingleVideoClip(topClip, topVideoEl, currentTime, player, isMobile, isScrubbing, isSeekingRef, filters);
+      }
+      // Defer other clips to next animation frame
+      requestAnimationFrame(() => {
+        videoClips.forEach((item, index) => {
+          if (index === videoClips.length - 1) return; // Skip top clip (already seeked)
+          const videoEl = videoRefs.current[item.clip.id];
+          if (videoEl) {
+            syncSingleVideoClip(item, videoEl, currentTime, player, isMobile, false, isSeekingRef, filters);
+          }
+        });
+      });
+    } else {
+      // Normal: seek all clips (single clip or not scrubbing)
+      videoClips.forEach((item) => {
+        const videoEl = videoRefs.current[item.clip.id];
+        if (videoEl) {
+          syncSingleVideoClip(item, videoEl, currentTime, player, isMobile, isScrubbing, isSeekingRef, filters);
+        }
+      });
+    }
     
     if (useMediaBunny && isMediaBunnyReady && canvasRef.current && (!player.isPlaying || forceSync)) {
       renderMediaBunny(currentTime, canvasRef.current.width, canvasRef.current.height).catch(console.error);
