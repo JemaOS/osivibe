@@ -60,12 +60,20 @@ const performSeek = (
   videoEl: HTMLVideoElement,
   localTime: number,
   isSeekingRef: React.MutableRefObject<boolean>,
-  isMobile: boolean
+  isMobile: boolean,
+  isScrubbing: boolean = false,
+  isPlaying: boolean = false
 ) => {
   if (!isSeekingRef.current) {
     isSeekingRef.current = true;
     if (videoEl.readyState > 0) {
-      videoEl.currentTime = localTime;
+      // During scrubbing or playback: use fastSeek for nearest-keyframe seeking (much faster on H.264)
+      // When paused (not scrubbing): use precise currentTime for frame-accurate positioning
+      if ((isScrubbing || isPlaying) && typeof videoEl.fastSeek === 'function') {
+        videoEl.fastSeek(localTime);
+      } else {
+        videoEl.currentTime = localTime;
+      }
     }
     setTimeout(() => {
       isSeekingRef.current = false;
@@ -91,11 +99,13 @@ const handleVideoSeek = (
   localTime: number,
   seekThreshold: number,
   isSeekingRef: React.MutableRefObject<boolean>,
-  isMobile: boolean
+  isMobile: boolean,
+  isScrubbing: boolean = false,
+  isPlaying: boolean = false
 ) => {
   const timeDiff = Math.abs(videoEl.currentTime - localTime);
   if (timeDiff > seekThreshold) {
-    performSeek(videoEl, localTime, isSeekingRef, isMobile);
+    performSeek(videoEl, localTime, isSeekingRef, isMobile, isScrubbing, isPlaying);
   }
 };
 
@@ -117,12 +127,17 @@ const syncSingleVideoClip = (
   
   if (!player.isPlaying || isScrubbing) {
     const seekThreshold = calculateSeekThreshold(isMobile, isScrubbing, player.isPlaying);
-    handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile);
+    handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile, isScrubbing, player.isPlaying);
   } else {
     // During playback: only seek if drift exceeds threshold
+    // Use fastSeek for drift correction during playback (faster than precise seek)
     const drift = Math.abs(videoEl.currentTime - localTime);
     if (drift > 0.3) {
-      videoEl.currentTime = localTime;
+      if (typeof videoEl.fastSeek === 'function') {
+        videoEl.fastSeek(localTime);
+      } else {
+        videoEl.currentTime = localTime;
+      }
     }
   }
   
@@ -248,7 +263,7 @@ export const useVideoPlayerSync = (
     const isScrubbing = isScrubbingRef.current;
     
     const PLAYING_SYNC_INTERVAL = isMobile ? 16 : 16;
-    const SCRUBBING_SYNC_INTERVAL = isMobile ? 100 : 50;
+    const SCRUBBING_SYNC_INTERVAL = isMobile ? 150 : 100;
     
     const MIN_SYNC_INTERVAL = isScrubbing ? SCRUBBING_SYNC_INTERVAL : PLAYING_SYNC_INTERVAL;
     const PAUSED_SYNC_INTERVAL = isMobile ? 50 : 33;

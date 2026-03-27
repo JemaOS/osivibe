@@ -295,9 +295,9 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
             webkit-playsinline="true"
             muted={false}
             controls={false}
-            preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
+            preload="auto"
             onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
-          />
+/>
         </div>
       </div>
     );
@@ -319,9 +319,9 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
           webkit-playsinline="true"
           muted={false}
           controls={false}
-          preload={hardwareProfile?.isMobile ? 'metadata' : 'auto'}
-          onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
-        />
+            preload="auto"
+            onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
+/>
       </div>
     </div>
   );
