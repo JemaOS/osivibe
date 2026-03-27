@@ -99,8 +99,6 @@ const handleVideoSeek = (
   }
 };
 
-const SEEK_GRACE_PERIOD_MS = 300;
-
 const syncSingleVideoClip = (
   item: any,
   videoEl: HTMLVideoElement,
@@ -109,61 +107,22 @@ const syncSingleVideoClip = (
   isMobile: boolean,
   isScrubbing: boolean,
   isSeekingRef: React.MutableRefObject<boolean>,
-  filters: any,
-  lastSeekTimeRef: React.MutableRefObject<number>
+  filters: any
 ) => {
   updateVideoSrc(videoEl, item.media.url);
-  
-  // Only set user-requested playbackRate when NOT playing (during playback,
-  // the adaptive sync below may temporarily adjust playbackRate to correct drift).
-  if (!player.isPlaying) {
-    updatePlaybackRate(videoEl, player.playbackRate);
-  }
+  updatePlaybackRate(videoEl, player.playbackRate);
   
   const clipStart = item.clip.startTime;
   const localTime = currentTime - clipStart + item.clip.trimStart;
   
-  const seekThreshold = calculateSeekThreshold(isMobile, isScrubbing, player.isPlaying);
-  
   if (!player.isPlaying || isScrubbing) {
-    // Reset playbackRate to user rate when scrubbing or paused, in case
-    // adaptive sync had adjusted it during playback.
-    if (videoEl.playbackRate !== player.playbackRate) {
-      videoEl.playbackRate = player.playbackRate;
-    }
+    const seekThreshold = calculateSeekThreshold(isMobile, isScrubbing, player.isPlaying);
     handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile);
-    // Record seek time so the grace period applies after scrub ends
-    lastSeekTimeRef.current = Date.now();
   } else {
-    // Adaptive sync: use playbackRate correction for small drifts to avoid
-    // expensive seeks that cause visible stuttering on <video> elements.
-    const drift = videoEl.currentTime - localTime;
-    const absDrift = Math.abs(drift);
-    const timeSinceLastSeek = Date.now() - lastSeekTimeRef.current;
-    const inGracePeriod = timeSinceLastSeek < SEEK_GRACE_PERIOD_MS;
-
-    if (absDrift > 0.3) {
-      // Large drift: hard seek (will cause a brief stutter but necessary)
+    // During playback: only seek if drift exceeds threshold
+    const drift = Math.abs(videoEl.currentTime - localTime);
+    if (drift > 0.3) {
       videoEl.currentTime = localTime;
-      videoEl.playbackRate = player.playbackRate; // Reset to user rate after hard seek
-      lastSeekTimeRef.current = Date.now();
-    } else if (inGracePeriod) {
-      // Grace period after a seek/scrub: skip playbackRate adjustments to let
-      // the video element settle at the new position without visible jerk.
-      if (videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
-    } else if (absDrift > 0.05) {
-      // Small drift: use playback rate adjustment to gradually catch up (smooth, no stutter)
-      // If video is ahead, slow down slightly; if behind, speed up slightly
-      videoEl.playbackRate = drift > 0
-        ? player.playbackRate * 0.97
-        : player.playbackRate * 1.03;
-    } else {
-      // In sync: ensure normal playback rate
-      if (videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
     }
   }
   
@@ -191,7 +150,6 @@ export const useVideoPlayerSync = (
   const lastSyncTimeRef = useRef<number>(0);
   const syncDebounceRef = useRef<number | null>(null);
   const isSeekingRef = useRef<boolean>(false);
-  const lastSeekTimeRef = useRef<number>(0);
 
   const syncVideoVolumeAndPlayback = useCallback(() => {
     const activeClips = getActiveClips();
@@ -217,12 +175,7 @@ export const useVideoPlayerSync = (
         videoEl.volume = targetVolume;
       }
       
-      // During playback, don't override playbackRate here — the adaptive sync
-      // in syncSingleVideoClip may be using a slightly adjusted rate to correct
-      // drift without seeking. Only force the user-requested rate when paused.
-      if (!player.isPlaying && videoEl.playbackRate !== player.playbackRate) {
-        videoEl.playbackRate = player.playbackRate;
-      }
+      updatePlaybackRate(videoEl, player.playbackRate);
 
       if (player.isPlaying) {
         if (videoEl.paused) {
@@ -233,11 +186,6 @@ export const useVideoPlayerSync = (
       } else {
         if (!videoEl.paused) {
           videoEl.pause();
-        }
-        // Reset playbackRate to user-requested rate when pausing, in case
-        // adaptive sync had adjusted it during playback.
-        if (videoEl.playbackRate !== player.playbackRate) {
-          videoEl.playbackRate = player.playbackRate;
         }
       }
     });
@@ -338,8 +286,7 @@ export const useVideoPlayerSync = (
         isMobile,
         isScrubbing,
         isSeekingRef,
-        filters,
-        lastSeekTimeRef
+        filters
       );
     });
     
