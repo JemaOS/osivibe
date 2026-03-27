@@ -246,6 +246,7 @@ interface EditorState {
   setTrackVolume: (id: string, volume: number) => void;
   
   // Clip actions
+  addMediaToTimeline: (mediaFile: MediaFile) => void;
   addClipToTrack: (trackId: string, mediaFile: MediaFile, startTime: number) => void;
   removeClip: (clipId: string) => void;
   updateClip: (clipId: string, updates: Partial<TimelineClip>, skipHistory?: boolean) => void;
@@ -762,6 +763,44 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   },
   
   // Clip actions
+  addMediaToTimeline: (mediaFile) => {
+    const state = get();
+    // Determine the correct track type: video and image → 'video', audio → 'audio'
+    const trackType: TrackType = mediaFile.type === 'audio' ? 'audio' : 'video';
+    
+    // Helper: calculate the end time of the last clip on a track
+    const getTrackEndTime = (track: TimelineTrack): number => {
+      return track.clips.reduce((max, clip) => {
+        const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+        return clipEnd > max ? clipEnd : max;
+      }, 0);
+    };
+    
+    // Find existing tracks of the matching type
+    const matchingTracks = state.tracks.filter(t => t.type === trackType);
+    
+    let targetTrack: TimelineTrack | undefined;
+    
+    if (matchingTracks.length > 0) {
+      // Use the first matching track — clips will be appended at the end
+      targetTrack = matchingTracks[0];
+    }
+    
+    if (targetTrack) {
+      // Add clip to existing track at the end
+      const startTime = getTrackEndTime(targetTrack);
+      get().addClipToTrack(targetTrack.id, mediaFile, startTime);
+    } else {
+      // No matching track exists — create one, then add the clip
+      get().addTrack(trackType);
+      const updatedState = get();
+      const newTrack = updatedState.tracks.find(t => t.type === trackType);
+      if (newTrack) {
+        get().addClipToTrack(newTrack.id, mediaFile, 0);
+      }
+    }
+  },
+  
   addClipToTrack: (trackId, mediaFile, startTime) => {
     get().saveState(); // Save state before action
     

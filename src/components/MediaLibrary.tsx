@@ -20,7 +20,7 @@ import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/
 import { v4 as uuidv4 } from 'uuid';
 
 export const MediaLibrary: React.FC = () => {
-  const { mediaFiles, addMediaFile, removeMediaFile, tracks, addClipToTrack, player } = useEditorStore();
+  const { mediaFiles, addMediaFile, removeMediaFile, addMediaToTimeline, player } = useEditorStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, fileName: '' });
@@ -222,19 +222,7 @@ export const MediaLibrary: React.FC = () => {
   };
 
   const handleAddToTimeline = (media: MediaFile) => {
-    // Find appropriate track
-    const trackType = media.type === 'audio' ? 'audio' : 'video';
-    const track = tracks.find(t => t.type === trackType);
-    
-    if (track) {
-      // Find the end of the last clip in the track
-      const lastClipEnd = track.clips.reduce((max, clip) => {
-        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-        return clipEnd > max ? clipEnd : max;
-      }, 0);
-      
-      addClipToTrack(track.id, media, lastClipEnd);
-    }
+    addMediaToTimeline(media);
   };
 
   const filteredMedia = filter === 'all' 
