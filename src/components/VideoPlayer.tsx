@@ -259,8 +259,14 @@ const calculateTransitionStyle = (
 
 const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunny, videoRefs, hardwareProfile, getVideoStyle, getCropStyle, setVideoRef }: any) => {
   const isSelected = ui.selectedClipId === item.clip.id;
-  const zIndex = 10 + index;
-  const transitionStyle = calculateTransitionStyle(item.clip, player.currentTime, transitions);
+  const isUpcoming = item.isUpcoming === true;
+  const zIndex = isUpcoming ? 1 : 10 + index;
+  const transitionStyle = isUpcoming ? {} : calculateTransitionStyle(item.clip, player.currentTime, transitions);
+
+  // Upcoming clips: hidden container style to keep video element alive and buffered
+  const upcomingContainerStyle: React.CSSProperties = isUpcoming
+    ? { opacity: 0, position: 'absolute', pointerEvents: 'none', width: 0, height: 0, overflow: 'hidden' }
+    : {};
 
   if (useMediaBunny) {
     return (
@@ -283,7 +289,7 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
       <div
         key={item.clip.id}
         className="absolute inset-0 overflow-hidden"
-        style={{ zIndex }}
+        style={{ zIndex, ...upcomingContainerStyle }}
       >
         <div className="w-full h-full" style={transitionStyle}>
           <video
@@ -293,7 +299,7 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
             style={{ ...getCropStyle(item.clip), ...videoStyle }}
             playsInline
             webkit-playsinline="true"
-            muted={false}
+            muted={isUpcoming}
             controls={false}
             preload="auto"
             onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
@@ -307,7 +313,7 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
     <div
       key={item.clip.id}
       className="absolute inset-0 w-full h-full"
-      style={{ zIndex }}
+      style={{ zIndex, ...upcomingContainerStyle }}
     >
       <div className="w-full h-full" style={transitionStyle}>
         <video
@@ -317,7 +323,7 @@ const VideoClipComponent = ({ item, index, ui, player, transitions, useMediaBunn
           style={videoStyle}
           playsInline
           webkit-playsinline="true"
-          muted={false}
+          muted={isUpcoming}
           controls={false}
             preload="auto"
             onError={(e) => console.error('Video error:', e.currentTarget.error, item.media.url)}
@@ -1348,55 +1354,8 @@ const useKeyboardShortcuts = (
   }, [player.currentTime, projectDuration, togglePlayPause, seek, toggleMute, toggleFullscreen, editingTextId, cropMode, player.isPlaying, pause, setCropMode]);
 };
 
-const usePreloadClips = (
-  player: any,
-  tracks: any[],
-  mediaFiles: any[],
-  getActiveClips: any,
-  preloadedClipsRef: any
-) => {
-  useEffect(() => {
-    const activeClips = getActiveClips();
-    
-    const upcomingClips: string[] = [];
-    
-    tracks.forEach((track) => {
-      if (track.type !== 'video') return;
-      
-      track.clips.forEach((clip: any) => {
-        const clipStart = clip.startTime;
-        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
-        
-        if (clipStart > player.currentTime && clipStart <= player.currentTime + 2) {
-          upcomingClips.push(clip.id);
-        }
-      });
-    });
-    
-    upcomingClips.forEach((clipId) => {
-      if (preloadedClipsRef.current.has(clipId)) return;
-      
-      const clip = tracks.flatMap(t => t.clips).find(c => c.id === clipId);
-      if (!clip) return;
-      
-      const media = mediaFiles.find(m => m.id === clip.mediaId);
-      if (!media || media.type !== 'video') return;
-      
-      const preloadVideo = document.createElement('video');
-      preloadVideo.preload = 'auto';
-      preloadVideo.muted = true;
-      preloadVideo.src = media.url;
-      preloadVideo.currentTime = clip.trimStart;
-      
-      preloadedClipsRef.current.add(clipId);
-      
-      setTimeout(() => {
-        preloadedClipsRef.current.delete(clipId);
-        preloadVideo.src = '';
-      }, 10000);
-    });
-  }, [player.currentTime, tracks, mediaFiles, getActiveClips, preloadedClipsRef]);
-};
+// usePreloadClips removed — upcoming clips are now rendered in the DOM via
+// the lookahead window in useActiveClipsData, making orphaned preload elements unnecessary.
 
 const useMenuCloseHandlers = (
   showQualityMenu: boolean,
@@ -1455,25 +1414,28 @@ const useMenuCloseHandlers = (
   }, [showSpeedMenu, setShowSpeedMenu, speedMenuRef, speedButtonRef]);
 };
 
+const LOOKAHEAD_SECONDS = 5;
+
 const useActiveClipsData = (tracks: any[], mediaFiles: any[], currentTime: number) => {
   return useMemo(() => {
-    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean; trackVolume: number }[] = [];
+    const result: { clip: TimelineClip; media: MediaFile; trackIndex: number; trackMuted: boolean; trackVolume: number; isUpcoming: boolean }[] = [];
     
     tracks.forEach((track, index) => {
       if (track.type !== 'video' && track.type !== 'image') return;
       
-      const clip = track.clips.find((c: any) => {
+      track.clips.forEach((c: any) => {
         const clipStart = c.startTime;
         const clipEnd = c.startTime + (c.duration - c.trimStart - c.trimEnd);
-        return currentTime >= clipStart && currentTime <= clipEnd;
-      });
-      
-      if (clip) {
-        const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
-        if (media) {
-          result.push({ clip, media, trackIndex: index, trackMuted: track.muted, trackVolume: track.volume ?? 1 });
+        const isActive = currentTime >= clipStart && currentTime <= clipEnd;
+        const isUpcoming = !isActive && currentTime < clipStart && (clipStart - currentTime) <= LOOKAHEAD_SECONDS;
+        
+        if (isActive || isUpcoming) {
+          const media = mediaFiles.find((m: any) => m.id === c.mediaId);
+          if (media) {
+            result.push({ clip: c, media, trackIndex: index, trackMuted: track.muted, trackVolume: track.volume ?? 1, isUpcoming });
+          }
         }
-      }
+      });
     });
     
     return result;
@@ -1671,17 +1633,19 @@ const ProgressBar = ({
 
 // Helper to check if big play button should be visible
 const shouldShowBigPlayButton = (player: any, activeClips: any[], cropMode: boolean, editingTextId: string | null, transformingImageId: string | null, resizingImageId: string | null, rotatingImageId: string | null, draggedTextId: string | null, ui: any, resizingTextId: string | null) => {
-  return !player.isPlaying && 
-    activeClips.length > 0 && 
-    !cropMode && 
-    !editingTextId && 
-    !transformingImageId && 
-    !resizingImageId && 
-    !rotatingImageId && 
-    !draggedTextId && 
-    !ui.selectedClipId && 
-    !ui.selectedTextId && 
-    !resizingTextId && 
+  // Only count non-upcoming clips for the big play button visibility
+  const visibleClips = activeClips.filter((c: any) => !c.isUpcoming);
+  return !player.isPlaying &&
+    visibleClips.length > 0 &&
+    !cropMode &&
+    !editingTextId &&
+    !transformingImageId &&
+    !resizingImageId &&
+    !rotatingImageId &&
+    !draggedTextId &&
+    !ui.selectedClipId &&
+    !ui.selectedTextId &&
+    !resizingTextId &&
     !ui.isMobileSidebarOpen;
 };
 
@@ -1754,7 +1718,6 @@ const VideoPlayer: React.FC = () => {
   const syncDebounceRef = useRef<number | null>(null);
   const isSeekingRef = useRef<boolean>(false);
   const pendingSeekRef = useRef<number | null>(null);
-  const preloadedClipsRef = useRef<Set<string>>(new Set());
   
   // DEBUG: Diagnostic logging refs
   const debugLogCounterRef = useRef<number>(0);
@@ -1985,7 +1948,8 @@ const VideoPlayer: React.FC = () => {
     };
   }, [syncVideosDebounced, audioMutedStates]);
   
-  usePreloadClips(player, tracks, mediaFiles, getActiveClips, preloadedClipsRef);
+  // Preloading is now handled by the lookahead window in useActiveClipsData —
+  // upcoming clips are rendered (hidden) in the DOM so their <video> elements buffer automatically.
 
   useVideoPlayerAnimation(
     player,
@@ -2217,29 +2181,31 @@ const VideoPlayer: React.FC = () => {
             />
           )}
 
-          {activeClips.length > 0 ? (
-            <>
-              {/* Render all active clips (videos and images) layered */}
-              <ActiveClipsRenderer
-                activeClips={activeClips}
-                ui={ui}
-                player={player}
-                transitions={transitions}
-                useMediaBunny={useMediaBunny}
-                videoRefs={videoRefs}
-                hardwareProfile={hardwareProfile}
-                getVideoStyle={getVideoStyle}
-                getCropStyle={getCropStyle}
-                setVideoRef={setVideoRef}
-                cropMode={cropMode}
-                editingTextId={editingTextId}
-                filters={filters}
-                selectClip={selectClip}
-                handleImageTransformStart={handleImageTransformStart}
-                handleImageResizeStart={handleImageResizeStart}
-                handleImageRotateStart={handleImageRotateStart}
-              />
+          {/* Always render ActiveClipsRenderer when there are any clips (including upcoming) to keep video elements alive */}
+          {activeClips.length > 0 && (
+            <ActiveClipsRenderer
+              activeClips={activeClips}
+              ui={ui}
+              player={player}
+              transitions={transitions}
+              useMediaBunny={useMediaBunny}
+              videoRefs={videoRefs}
+              hardwareProfile={hardwareProfile}
+              getVideoStyle={getVideoStyle}
+              getCropStyle={getCropStyle}
+              setVideoRef={setVideoRef}
+              cropMode={cropMode}
+              editingTextId={editingTextId}
+              filters={filters}
+              selectClip={selectClip}
+              handleImageTransformStart={handleImageTransformStart}
+              handleImageResizeStart={handleImageResizeStart}
+              handleImageRotateStart={handleImageRotateStart}
+            />
+          )}
 
+          {activeClips.some((c: any) => !c.isUpcoming) ? (
+            <>
               {/* Crop Overlay */}
               {cropMode && (
                 <CropOverlay

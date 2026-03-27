@@ -174,13 +174,24 @@ export const useVideoPlayerSync = (
   const syncVideoVolumeAndPlayback = useCallback(() => {
     const activeClips = getActiveClips();
     
-    const mainVideoId = activeClips.find(c => c.media.type === 'video')?.clip.id;
+    // Only consider non-upcoming clips for main video selection
+    const mainVideoId = activeClips.find(c => c.media.type === 'video' && !c.isUpcoming)?.clip.id;
 
     activeClips.forEach((item) => {
       if (item.media.type !== 'video') return;
       
       const videoEl = videoRefs.current[item.clip.id];
       if (!videoEl) return;
+
+      // Upcoming clips: keep muted and paused — they are only pre-buffering
+      if (item.isUpcoming) {
+        videoEl.volume = 0;
+        videoEl.muted = true;
+        if (!videoEl.paused) {
+          videoEl.pause();
+        }
+        return;
+      }
 
       const isMainVideo = mainVideoId === item.clip.id;
 
@@ -193,6 +204,10 @@ export const useVideoPlayerSync = (
       
       if (videoEl.volume !== targetVolume) {
         videoEl.volume = targetVolume;
+      }
+      // Ensure muted attribute is cleared for active clips so audio plays
+      if (videoEl.muted && targetVolume > 0) {
+        videoEl.muted = false;
       }
       
       updatePlaybackRate(videoEl, player.playbackRate);
@@ -292,19 +307,34 @@ export const useVideoPlayerSync = (
     const currentTime = useEditorStore.getState().player.currentTime;
     const activeClips = getActiveClips();
     
-    const videoClips = activeClips.filter(item => item.media.type === 'video' && videoRefs.current[item.clip.id]);
+    // Separate active (visible) clips from upcoming (pre-buffering) clips
+    const activeVideoClips = activeClips.filter(item => item.media.type === 'video' && !item.isUpcoming && videoRefs.current[item.clip.id]);
+    const upcomingVideoClips = activeClips.filter(item => item.media.type === 'video' && item.isUpcoming && videoRefs.current[item.clip.id]);
 
-    if (isScrubbing && videoClips.length > 1) {
+    // Pre-seek upcoming clips to their trimStart so they're buffered at the right position
+    upcomingVideoClips.forEach((item) => {
+      const videoEl = videoRefs.current[item.clip.id];
+      if (!videoEl) return;
+      updateVideoSrc(videoEl, item.media.url);
+      // Seek to trimStart so the video is buffered at the correct starting frame
+      const targetTime = item.clip.trimStart;
+      const drift = Math.abs(videoEl.currentTime - targetTime);
+      if (drift > 0.5) {
+        videoEl.currentTime = targetTime;
+      }
+    });
+
+    if (isScrubbing && activeVideoClips.length > 1) {
       // Seek only the topmost clip immediately (last in array = highest z-index)
-      const topClip = videoClips[videoClips.length - 1];
+      const topClip = activeVideoClips[activeVideoClips.length - 1];
       const topVideoEl = videoRefs.current[topClip.clip.id];
       if (topVideoEl) {
         syncSingleVideoClip(topClip, topVideoEl, currentTime, player, isMobile, isScrubbing, isSeekingRef, filters);
       }
       // Defer other clips to next animation frame
       requestAnimationFrame(() => {
-        videoClips.forEach((item, index) => {
-          if (index === videoClips.length - 1) return; // Skip top clip (already seeked)
+        activeVideoClips.forEach((item, index) => {
+          if (index === activeVideoClips.length - 1) return; // Skip top clip (already seeked)
           const videoEl = videoRefs.current[item.clip.id];
           if (videoEl) {
             syncSingleVideoClip(item, videoEl, currentTime, player, isMobile, false, isSeekingRef, filters);
@@ -312,8 +342,8 @@ export const useVideoPlayerSync = (
         });
       });
     } else {
-      // Normal: seek all clips (single clip or not scrubbing)
-      videoClips.forEach((item) => {
+      // Normal: seek all active clips (single clip or not scrubbing)
+      activeVideoClips.forEach((item) => {
         const videoEl = videoRefs.current[item.clip.id];
         if (videoEl) {
           syncSingleVideoClip(item, videoEl, currentTime, player, isMobile, isScrubbing, isSeekingRef, filters);
