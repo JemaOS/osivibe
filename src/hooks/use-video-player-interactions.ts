@@ -124,7 +124,7 @@ const syncSingleVideoClip = (
     // During playback, still seek if the video element is far from the expected
     // position (e.g., a new clip just became active after a split and its video
     // element starts at 0 instead of trimStart).
-    const PLAYBACK_DRIFT_THRESHOLD = 0.5; // seconds
+    const PLAYBACK_DRIFT_THRESHOLD = 0.15; // seconds – unified with audio threshold for A/V sync
     const timeDiff = Math.abs(videoEl.currentTime - localTime);
     if (timeDiff > PLAYBACK_DRIFT_THRESHOLD) {
       performSeek(videoEl, localTime, isSeekingRef, isMobile);
@@ -198,18 +198,21 @@ export const useVideoPlayerSync = (
     });
   }, [player.isPlaying, player.volume, player.isMuted, player.playbackRate, getActiveClips, videoClipsWithDetachedAudio, videoRefs]);
 
-  const syncSingleAudioClip = useCallback((item: any, audioEl: HTMLAudioElement) => {
+  const syncSingleAudioClip = useCallback((item: any, audioEl: HTMLAudioElement, syncTime?: number) => {
     if (audioEl.getAttribute('src') !== item.media.url) {
       audioEl.setAttribute('src', item.media.url);
       audioEl.load();
     }
 
+    // Bug #2 fix: read currentTime from the store directly (same source as video sync)
+    // Bug #3 fix: prefer the atomic syncTime passed from the caller when available
+    const resolvedTime = syncTime ?? useEditorStore.getState().player.currentTime;
     const clipStart = item.clip.startTime;
-    const localTime = player.currentTime - clipStart + item.clip.trimStart;
+    const localTime = resolvedTime - clipStart + item.clip.trimStart;
     const timeDiff = Math.abs((audioEl.currentTime || 0) - localTime);
     
     const isScrubbing = isScrubbingRef.current;
-    const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.1 : 0.05);
+    const seekThreshold = isScrubbing ? 0.25 : (player.isPlaying ? 0.15 : 0.05);
     
     handleAudioSeek(audioEl, localTime, timeDiff, seekThreshold);
 
@@ -222,9 +225,9 @@ export const useVideoPlayerSync = (
     audioEl.muted = targetVol === 0;
 
     handleAudioPlayPause(audioEl, player.isPlaying);
-  }, [player.currentTime, player.isPlaying, player.isMuted, player.playbackRate, player.volume, isScrubbingRef]);
+  }, [player.isPlaying, player.isMuted, player.playbackRate, player.volume, isScrubbingRef]);
 
-  const syncAudioVolumeAndPlayback = useCallback(() => {
+  const syncAudioVolumeAndPlayback = useCallback((syncTime?: number) => {
     const activeAudio = getActiveAudioClips();
     const activeIds = new Set(activeAudio.map((a) => a.clip.id));
     
@@ -240,7 +243,7 @@ export const useVideoPlayerSync = (
     activeAudio.forEach((item) => {
       const audioEl = audioRefs.current[item.clip.id];
       if (!audioEl) return;
-      syncSingleAudioClip(item, audioEl);
+      syncSingleAudioClip(item, audioEl, syncTime);
     });
   }, [getActiveAudioClips, audioRefs, syncSingleAudioClip]);
 
@@ -299,7 +302,9 @@ export const useVideoPlayerSync = (
     }
     
     syncVideoVolumeAndPlayback();
-    syncAudioVolumeAndPlayback();
+    // Bug #3 fix: pass the same atomic time to audio sync so both video and audio
+    // target the exact same timestamp within this sync cycle
+    syncAudioVolumeAndPlayback(currentTime);
   }, [player.isPlaying, filters, syncVideoVolumeAndPlayback, syncAudioVolumeAndPlayback, getActiveClips, isMobileRef, isScrubbingRef, player.playbackRate, useMediaBunny, isMediaBunnyReady, canvasRef, renderMediaBunny, videoRefs]);
 
   useEffect(() => {

@@ -71,10 +71,10 @@ const addClipToTrack = (track: TimelineTrack, clipToMove: TimelineClip): Timelin
 
 // Helper for splitClip to perform the split operation on state
 const performSplitClip = (
-  state: { tracks: TimelineTrack[] },
+  state: { tracks: TimelineTrack[]; transitions: Transition[] },
   clipId: string,
   splitTime: number
-): { tracks: TimelineTrack[] } | typeof state => {
+): { tracks: TimelineTrack[]; transitions: Transition[] } | typeof state => {
   // First, find the track containing the clip
   const trackIndex = state.tracks.findIndex(t => t.clips.some(c => c.id === clipId));
   if (trackIndex === -1) return state; // Clip not found in any track
@@ -154,7 +154,22 @@ const performSplitClip = (
   const newTracks = [...state.tracks];
   newTracks[trackIndex] = newTrack;
 
-  return { tracks: newTracks };
+  // Reassign end transitions from the original clip to the new second clip.
+  // When a clip is split, end transitions should follow the second part (the new tail).
+  const newTransitions = (state.transitions || []).map((t) => {
+    if (t.clipId === clipId && t.position === 'end') {
+      console.log('🔀 Reassigning end transition to second clip:', {
+        transitionId: t.id,
+        transitionType: t.type,
+        fromClipId: clipId,
+        toClipId: secondClip.id,
+      });
+      return { ...t, clipId: secondClip.id };
+    }
+    return t;
+  });
+
+  return { tracks: newTracks, transitions: newTransitions };
 };
 
 // Helper for rehydration: regenerate Blob URLs for media files

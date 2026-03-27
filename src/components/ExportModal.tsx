@@ -2,7 +2,7 @@
 // Distributed under the license specified in the root directory of this project.
 
 import React, { useState } from 'react';
-import { X, Download, Loader2 } from 'lucide-react';
+import { X, Download } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { ExportResolution, ExportFormat, ExportQuality } from '../types';
 import { exportProject, cancelExport } from '../utils/ffmpeg';
@@ -91,12 +91,12 @@ export const ExportModal: React.FC = () => {
         return;
       }
 
-      console.log('Exporting', videoClips.length, 'clips');
+      console.debug('Exporting', videoClips.length, 'clips');
 
       // DEBUG: Log text overlays being exported
-      console.log('🔤 DEBUG - Text overlays to export:', textOverlays.length);
+      console.debug('🔤 DEBUG - Text overlays to export:', textOverlays.length);
       textOverlays.forEach((text, index) => {
-        console.log(`  Text ${index + 1}:`, {
+        console.debug(`  Text ${index + 1}:`, {
           id: text.id,
           text: text.text,
           x: text.x,
@@ -110,9 +110,9 @@ export const ExportModal: React.FC = () => {
       });
 
       // DEBUG: Log transitions being exported
-      console.log('🔀 DEBUG - Transitions to export:', transitions.length);
+      console.debug('🔀 DEBUG - Transitions to export:', transitions.length);
       transitions.forEach((transition, index) => {
-        console.log(`  Transition ${index + 1}:`, {
+        console.debug(`  Transition ${index + 1}:`, {
           id: transition.id,
           type: transition.type,
           clipId: transition.clipId,
@@ -122,10 +122,10 @@ export const ExportModal: React.FC = () => {
       });
 
       // DEBUG: Log clip IDs for matching
-      console.log('🎬 DEBUG - Video clips for export:');
+      console.debug('🎬 DEBUG - Video clips for export:');
       videoClips.forEach((clip, index) => {
         const hasTransition = transitions.find(t => t.clipId === clip.id);
-        console.log(`  Clip ${index + 1}:`, {
+        console.debug(`  Clip ${index + 1}:`, {
           id: clip.id,
           name: clip.name,
           startTime: clip.startTime,
@@ -205,15 +205,15 @@ export const ExportModal: React.FC = () => {
       try {
         // Get hardware profile for optimization
         const hardwareProfile = getHardwareProfile();
-        console.log('🖥️ Using hardware profile for export:', hardwareProfile);
+        console.debug('🖥️ Using hardware profile for export:', hardwareProfile);
 
         // Export video with progress callback, including text overlays, transitions, and aspect ratio
-        console.log('📐 DEBUG - Exporting with aspect ratio:', selectedAspectRatio);
+        console.debug('📐 DEBUG - Exporting with aspect ratio:', selectedAspectRatio);
         const blob = await exportProject(
           clipsToExport,
           exportSettings,
           (progress, message) => {
-            console.log('Export progress:', progress, message);
+            console.debug('Export progress:', progress, message);
             setExportProgress(Math.round(Math.min(99, Math.max(0, progress))));
             setExportMessage(message || 'Traitement en cours...');
           },
@@ -259,7 +259,7 @@ export const ExportModal: React.FC = () => {
       
       // Don't show alert if the error is due to user cancellation
       if (errorMessage.includes('called FFmpeg.terminate()') || errorMessage === 'Export cancelled') {
-        console.log('Export cancelled by user');
+        console.debug('Export cancelled by user');
       } else {
         alert('Erreur lors de l\'export: ' + errorMessage);
       }
@@ -432,64 +432,50 @@ export const ExportModal: React.FC = () => {
               </div>
             </>
           ) : (
-            <div className="py-4 sm:py-8">
-              {/* Progress */}
-              <div className="text-center mb-4 sm:mb-6">
-                <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 relative">
-                  <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                    {/* Background Circle */}
-                    <path
-                      className="text-neutral-200"
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                    />
-                    {/* Progress Circle */}
-                    <path
-                      className="text-primary-500 transition-all duration-300 ease-out"
-                      strokeDasharray={`${exportProgress}, 100`}
-                      d="M18 2.0845
-                        a 15.9155 15.9155 0 0 1 0 31.831
-                        a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs sm:text-small font-bold text-primary-700">
-                      {exportProgress}%
-                    </span>
-                  </div>
+            /* Simplified export progress — clean minimal display */
+            <div className="flex flex-col items-center justify-center py-8 space-y-4">
+              {/* Circular progress with percentage */}
+              <div className="relative w-20 h-20 sm:w-24 sm:h-24">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  {/* Background Circle */}
+                  <circle
+                    cx="50" cy="50" r="45"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="6"
+                    className="text-neutral-200"
+                  />
+                  {/* Progress Circle */}
+                  <circle
+                    cx="50" cy="50" r="45"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="6"
+                    className="text-primary-500 transition-all duration-300 ease-out"
+                    strokeDasharray={`${2 * Math.PI * 45}`}
+                    strokeDashoffset={`${2 * Math.PI * 45 * (1 - exportProgress / 100)}`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xl sm:text-2xl font-bold text-primary-700">
+                    {exportProgress}%
+                  </span>
                 </div>
-                <p className="text-sm sm:text-body-lg font-medium text-neutral-800 mb-1 sm:mb-2">
-                  {exportMessage}
-                </p>
-                <p className="text-xs sm:text-small text-neutral-500">
-                  Veuillez patienter...
-                </p>
               </div>
 
-              {/* Progress Bar */}
-              <div className="w-full h-1.5 sm:h-2 bg-neutral-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary-500 transition-all duration-300"
-                  style={{ width: `${exportProgress}%` }}
-                />
-              </div>
+              {/* Single status label */}
+              <p className="text-sm text-neutral-500">
+                {exportProgress >= 100 ? 'Export terminé !' : 'Export en cours...'}
+              </p>
 
-              <div className="mt-4 sm:mt-6 flex justify-center">
-                <button
-                  onClick={handleCancel}
-                  className="btn-secondary px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
-                >
-                  Annuler l'export
-                </button>
-              </div>
+              {/* Cancel button */}
+              <button
+                onClick={handleCancel}
+                className="btn-secondary px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
+              >
+                Annuler l'export
+              </button>
             </div>
           )}
         </div>

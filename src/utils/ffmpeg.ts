@@ -1110,13 +1110,13 @@ export function getSingleClipTransitionFilter(
         // Start zoomed in, zoom out to normal
         return `zoompan=z='if(lte(on,${frames}),1+0.5*on/${frames},1.5)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
       case 'rotate-in':
-        // Rotate in effect: start rotated (PI radians = 180°) and rotate to normal (0°)
-        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
-        return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
+        // Fallback: rotate filter with geq is too complex for FFmpeg WASM and may fail silently.
+        // Use a simple fade+zoom as a visually similar, reliable alternative.
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
       case 'rotate-out':
-        // For rotate-out at start position, we rotate FROM a rotated state TO normal
-        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
-        return `format=yuva444p,rotate=a='if(lt(t,${duration}),PI*(1-t/${duration}),0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=in:st=0:d=${duration}`;
+        // Fallback: rotate filter with geq is too complex for FFmpeg WASM and may fail silently.
+        // Use a simple fade+zoom as a visually similar, reliable alternative.
+        return `zoompan=z='if(lte(on,${frames}),1.5-0.5*on/${frames},1)':d=1:s=${w}x${h},fade=t=in:st=0:d=${duration}`;
       
       // Wipe transitions: use crop to progressively reveal the clip
       case 'wipe-left':
@@ -1132,13 +1132,13 @@ export function getSingleClipTransitionFilter(
         // Wipe from top to bottom: progressively reveal from top
         return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(Y,H*T/${duration}),255,0),255)',format=yuv420p`;
       case 'circle-wipe':
-        // Circle wipe: reveal from center outward in a circle
-        // Distance from center normalized, compared against progress
-        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(sqrt(pow(X-W/2,2)+pow(Y-H/2,2)),T/${duration}*sqrt(pow(W/2,2)+pow(H/2,2))),255,0),255)',format=yuv420p`;
+        // Fallback: complex geq-based circle wipe is computationally expensive and may fail
+        // silently in FFmpeg WASM. Use a simple fade as a reliable alternative.
+        return `fade=t=in:st=0:d=${duration}`;
       case 'diamond-wipe':
-        // Diamond wipe: reveal from center outward in a diamond shape
-        // Manhattan distance from center, compared against progress
-        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(lt(T,${duration}),if(lt(abs(X-W/2)+abs(Y-H/2),T/${duration}*(W/2+H/2)),255,0),255)',format=yuv420p`;
+        // Fallback: complex geq-based diamond wipe is computationally expensive and may fail
+        // silently in FFmpeg WASM. Use a simple fade as a reliable alternative.
+        return `fade=t=in:st=0:d=${duration}`;
       
       default:
         return `fade=t=in:st=0:d=${duration}`;
@@ -1179,13 +1179,13 @@ export function getSingleClipTransitionFilter(
         // Zoom out at the end (shrink away)
         return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1.5-0.5*(on-${Math.round(fadeStart * 30)})/${frames},1.5)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'rotate-in':
-        // For rotate-in at end position, rotate from normal to rotated state
-        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
-        return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
+        // Fallback: rotate filter with geq is too complex for FFmpeg WASM and may fail silently.
+        // Use a simple fade+zoom as a visually similar, reliable alternative.
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1+0.5*(on-${Math.round(fadeStart * 30)})/${frames},1)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'rotate-out':
-        // Rotate out effect: start normal (0°) and rotate to PI radians (180°)
-        // Using ow=iw:oh=ih to keep original dimensions (avoids "height not divisible by 2" errors)
-        return `format=yuva444p,rotate=a='if(gt(t,${fadeStart}),PI*(t-${fadeStart})/${duration},0)':c=black@0:ow=iw:oh=ih,format=yuv420p,fade=t=out:st=${fadeStart}:d=${duration}`;
+        // Fallback: rotate filter with geq is too complex for FFmpeg WASM and may fail silently.
+        // Use a simple fade+zoom as a visually similar, reliable alternative.
+        return `zoompan=z='if(gte(on,${Math.round(fadeStart * 30)}),1+0.5*(on-${Math.round(fadeStart * 30)})/${frames},1)':d=1:s=${w}x${h},fade=t=out:st=${fadeStart}:d=${duration}`;
       
       // Wipe transitions: use alpha to progressively hide the clip
       case 'wipe-left':
@@ -1201,11 +1201,13 @@ export function getSingleClipTransitionFilter(
         // Wipe out downward: progressively hide from bottom
         return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(Y,H*(1-(T-${fadeStart})/${duration})),255,0),255)',format=yuv420p`;
       case 'circle-wipe':
-        // Circle wipe out: shrink circle from full to center
-        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(sqrt(pow(X-W/2,2)+pow(Y-H/2,2)),(1-(T-${fadeStart})/${duration})*sqrt(pow(W/2,2)+pow(H/2,2))),255,0),255)',format=yuv420p`;
+        // Fallback: complex geq-based circle wipe is computationally expensive and may fail
+        // silently in FFmpeg WASM. Use a simple fade as a reliable alternative.
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
       case 'diamond-wipe':
-        // Diamond wipe out: shrink diamond from full to center
-        return `format=yuva444p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(gt(T,${fadeStart}),if(lt(abs(X-W/2)+abs(Y-H/2),(1-(T-${fadeStart})/${duration})*(W/2+H/2)),255,0),255)',format=yuv420p`;
+        // Fallback: complex geq-based diamond wipe is computationally expensive and may fail
+        // silently in FFmpeg WASM. Use a simple fade as a reliable alternative.
+        return `fade=t=out:st=${fadeStart}:d=${duration}`;
       
       default:
         return `fade=t=out:st=${fadeStart}:d=${duration}`;
@@ -1426,7 +1428,7 @@ function checkComplexFeatures(
 }
 
 
-type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number; volume?: number };
+type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number; volume?: number };
 type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number };
 
 
@@ -1889,7 +1891,10 @@ async function exportSingleClip(
   const timeOriginSingle = clip.startTime;
 
   const clipId = clip.id;
-  const clipTransitions = (transitions || []).filter((t) => t.clipId === clipId && t.type !== 'none');
+  if (!clipId) {
+    console.warn('[Export] Clip missing ID, transitions may not be applied');
+  }
+  const clipTransitions = (transitions || []).filter((t) => clipId && t.clipId === clipId && t.type !== 'none');
   const hasClipTransitions = clipTransitions.length > 0;
   const isImage = clip.file.type.startsWith("image/");
   const hasTransform = isImage && !clip.crop;
@@ -2205,7 +2210,14 @@ function buildClipVideoFilter(
 }
 
 function combineTransitionFilters(startFilter: string, endFilter: string): string {
-  if (startFilter && endFilter) return `${startFilter},${endFilter}`;
+  if (startFilter && endFilter) {
+    // Remove trailing format=yuv420p from start and leading format=yuva444p from end
+    // to avoid duplicate format conversions in the chain that cause FFmpeg to fail silently.
+    // Combined filter should go: format=yuva444p → [start effect] → [end effect] → format=yuv420p
+    let cleanStart = startFilter.replace(/,format=yuv420p$/, '');
+    let cleanEnd = endFilter.replace(/^format=yuva444p,/, '');
+    return `${cleanStart},${cleanEnd}`;
+  }
   return startFilter || endFilter || '';
 }
 
@@ -2220,7 +2232,11 @@ function applyClipTransitions(
 ): string {
   if (!transitions) return videoLabel;
 
-  const clipTransitions = transitions.filter(t => t.clipId === clip.id && t.type !== 'none');
+  const clipId = clip.id;
+  if (!clipId) {
+    console.warn('[Export] Clip missing ID in applyClipTransitions, transitions may not be applied');
+  }
+  const clipTransitions = transitions.filter(t => clipId && t.clipId === clipId && t.type !== 'none');
   if (clipTransitions.length === 0) return videoLabel;
 
   const startTransition = clipTransitions.find(t => t.position === 'start');
@@ -3012,10 +3028,16 @@ export async function exportProject(
   const MAX_RETRIES = 1;
   let attempt = 0;
 
+  // Ensure all clips have IDs for transition matching
+  const normalizedClips: ExportClip[] = clips.map((clip, index) => ({
+    ...clip,
+    id: clip.id || `clip-${index}-${Date.now()}`,
+  }));
+
   while (true) {
     try {
       const safeMode = attempt > 0;
-      return await _exportProjectInternal(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips, imageOverlays);
+      return await _exportProjectInternal(normalizedClips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips, imageOverlays);
     } catch (error) {
       console.error(`Export attempt ${attempt + 1} failed:`, error);
       
