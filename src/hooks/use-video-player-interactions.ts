@@ -111,7 +111,11 @@ const syncSingleVideoClip = (
 ) => {
   updateVideoSrc(videoEl, item.media.url);
   
-  updatePlaybackRate(videoEl, player.playbackRate);
+  // Only set user-requested playbackRate when NOT playing (during playback,
+  // the adaptive sync below may temporarily adjust playbackRate to correct drift).
+  if (!player.isPlaying) {
+    updatePlaybackRate(videoEl, player.playbackRate);
+  }
   
   const clipStart = item.clip.startTime;
   const localTime = currentTime - clipStart + item.clip.trimStart;
@@ -121,13 +125,26 @@ const syncSingleVideoClip = (
   if (!player.isPlaying || isScrubbing) {
     handleVideoSeek(videoEl, localTime, seekThreshold, isSeekingRef, isMobile);
   } else {
-    // During playback, still seek if the video element is far from the expected
-    // position (e.g., a new clip just became active after a split and its video
-    // element starts at 0 instead of trimStart).
-    const PLAYBACK_DRIFT_THRESHOLD = 0.15; // seconds – unified with audio threshold for A/V sync
-    const timeDiff = Math.abs(videoEl.currentTime - localTime);
-    if (timeDiff > PLAYBACK_DRIFT_THRESHOLD) {
-      performSeek(videoEl, localTime, isSeekingRef, isMobile);
+    // Adaptive sync: use playbackRate correction for small drifts to avoid
+    // expensive seeks that cause visible stuttering on <video> elements.
+    const drift = videoEl.currentTime - localTime;
+    const absDrift = Math.abs(drift);
+
+    if (absDrift > 0.3) {
+      // Large drift: hard seek (will cause a brief stutter but necessary)
+      videoEl.currentTime = localTime;
+      videoEl.playbackRate = player.playbackRate; // Reset to user rate after hard seek
+    } else if (absDrift > 0.05) {
+      // Small drift: use playback rate adjustment to gradually catch up (smooth, no stutter)
+      // If video is ahead, slow down slightly; if behind, speed up slightly
+      videoEl.playbackRate = drift > 0
+        ? player.playbackRate * 0.97
+        : player.playbackRate * 1.03;
+    } else {
+      // In sync: ensure normal playback rate
+      if (videoEl.playbackRate !== player.playbackRate) {
+        videoEl.playbackRate = player.playbackRate;
+      }
     }
   }
   
@@ -180,7 +197,10 @@ export const useVideoPlayerSync = (
         videoEl.volume = targetVolume;
       }
       
-      if (videoEl.playbackRate !== player.playbackRate) {
+      // During playback, don't override playbackRate here — the adaptive sync
+      // in syncSingleVideoClip may be using a slightly adjusted rate to correct
+      // drift without seeking. Only force the user-requested rate when paused.
+      if (!player.isPlaying && videoEl.playbackRate !== player.playbackRate) {
         videoEl.playbackRate = player.playbackRate;
       }
 
@@ -193,6 +213,11 @@ export const useVideoPlayerSync = (
       } else {
         if (!videoEl.paused) {
           videoEl.pause();
+        }
+        // Reset playbackRate to user-requested rate when pausing, in case
+        // adaptive sync had adjusted it during playback.
+        if (videoEl.playbackRate !== player.playbackRate) {
+          videoEl.playbackRate = player.playbackRate;
         }
       }
     });
