@@ -18,6 +18,7 @@ let currentProgressCallback: ((progress: number, message: string) => void) | und
 let currentTotalDuration = 0;
 let isOperationInProgress = false; // Prevent multiple simultaneous FFmpeg operations
 let currentOperationType: string | null = null; // Track what operation is running
+let exportCancelled = false; // Flag to signal user-initiated cancellation
 
 // Used to detect stalls (no progress callbacks coming from ffmpeg.wasm)
 let lastProgressUpdateAt = 0;
@@ -832,6 +833,9 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> 
 }
 
 export function cancelExport() {
+  // Set cancellation flag FIRST so retry logic and error handlers can detect it
+  exportCancelled = true;
+
   // Cancel MediaBunny export if running
   cancelMediaBunnyExport();
 
@@ -844,6 +848,26 @@ export function cancelExport() {
     ffmpeg = null;
     isLoaded = false;
   }
+
+  // Reset operation tracking so a new export can start after cancellation
+  isFontLoaded = false;
+  isOperationInProgress = false;
+  currentOperationType = null;
+}
+
+/**
+ * Check if the export was cancelled by the user.
+ * Also resets the flag so subsequent exports are not affected.
+ */
+export function wasExportCancelled(): boolean {
+  return exportCancelled;
+}
+
+/**
+ * Reset the cancellation flag. Called at the start of a new export.
+ */
+export function resetExportCancelled(): void {
+  exportCancelled = false;
 }
 
 export function getFilterString(filter: VideoFilter): string {
@@ -2682,7 +2706,10 @@ async function _exportProjectInternal(
   try {
     return await performFFmpegExport(clips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips);
   } catch (error) {
-    await handleExportError(error);
+    // If cancelled by user, skip error handling (cancelExport already cleaned up)
+    if (!exportCancelled) {
+      await handleExportError(error);
+    }
     throw error;
   } finally {
     isOperationInProgress = false;
@@ -3025,6 +3052,9 @@ export async function exportProject(
   audioClips?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number }[],
   imageOverlays?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id?: string; crop?: any; transform?: any }[]
 ): Promise<Blob> {
+  // Reset cancellation flag at the start of every new export
+  resetExportCancelled();
+
   const MAX_RETRIES = 1;
   let attempt = 0;
 
@@ -3040,6 +3070,12 @@ export async function exportProject(
       return await _exportProjectInternal(normalizedClips, settings, onProgress, textOverlays, transitions, aspectRatio, hardwareProfile, safeMode, audioClips, imageOverlays);
     } catch (error) {
       console.error(`Export attempt ${attempt + 1} failed:`, error);
+
+      // If the user cancelled, do NOT retry — propagate immediately
+      if (exportCancelled) {
+        console.debug('Export was cancelled by user, not retrying.');
+        throw new Error('Export cancelled');
+      }
       
       const isRecoverable =
         error instanceof Error &&

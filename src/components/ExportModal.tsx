@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { X, Download } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { ExportResolution, ExportFormat, ExportQuality } from '../types';
-import { exportProject, cancelExport } from '../utils/ffmpeg';
+import { exportProject, cancelExport, wasExportCancelled } from '../utils/ffmpeg';
 import { downloadBlob } from '../utils/helpers';
 import { getHardwareProfile } from '../utils/previewOptimizer';
 import { getLastExportFormatInfo } from '../utils/mediaBunny';
@@ -257,8 +257,14 @@ export const ExportModal: React.FC = () => {
       console.error('Export error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
       
-      // Don't show alert if the error is due to user cancellation
-      if (errorMessage.includes('called FFmpeg.terminate()') || errorMessage === 'Export cancelled') {
+      // Don't show alert if the error is due to user cancellation.
+      // Use wasExportCancelled() as the primary check (set by cancelExport()),
+      // with message-based fallback for edge cases.
+      const isCancellation = wasExportCancelled() ||
+        errorMessage.includes('called FFmpeg.terminate()') ||
+        errorMessage === 'Export cancelled';
+
+      if (isCancellation) {
         console.debug('Export cancelled by user');
       } else {
         alert('Erreur lors de l\'export: ' + errorMessage);
