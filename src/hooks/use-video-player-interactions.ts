@@ -3,6 +3,41 @@ import { TransformSettings } from '../types';
 import { getCSSFilter } from '../utils/helpers';
 import { useEditorStore } from '../store/editorStore';
 
+// Module-level buffer-wait state shared between useVideoPlayerSync and useVideoPlayerAnimation.
+// When a significant seek happens during playback, this flag is set to true to temporarily
+// pause the animation loop until the video element signals it has enough data buffered.
+const bufferWaitState = {
+  waiting: false,
+  timeoutId: null as ReturnType<typeof setTimeout> | null,
+};
+
+const clearBufferWait = () => {
+  bufferWaitState.waiting = false;
+  if (bufferWaitState.timeoutId !== null) {
+    clearTimeout(bufferWaitState.timeoutId);
+    bufferWaitState.timeoutId = null;
+  }
+};
+
+const triggerBufferWait = (videoEl: HTMLVideoElement) => {
+  // Clear any previous wait
+  clearBufferWait();
+
+  bufferWaitState.waiting = true;
+
+  // Resume once the browser has buffered enough data for smooth playback
+  const onReady = () => {
+    clearBufferWait();
+  };
+  videoEl.addEventListener('canplaythrough', onReady, { once: true });
+
+  // Timeout fallback: never wait longer than 2 seconds
+  bufferWaitState.timeoutId = setTimeout(() => {
+    videoEl.removeEventListener('canplaythrough', onReady);
+    clearBufferWait();
+  }, 2000);
+};
+
 const handleAudioSeek = (audioEl: HTMLAudioElement, localTime: number, timeDiff: number, seekThreshold: number) => {
   if (timeDiff > seekThreshold && Number.isFinite(localTime)) {
     try {
@@ -133,10 +168,25 @@ const syncSingleVideoClip = (
     // Use fastSeek for drift correction during playback (faster than precise seek)
     const drift = Math.abs(videoEl.currentTime - localTime);
     if (drift > 0.3) {
-      if (typeof videoEl.fastSeek === 'function') {
-        videoEl.fastSeek(localTime);
+      // If the seek distance is significant (> 1s) and we're playing (not scrubbing),
+      // trigger a buffer wait so the animation loop pauses until the video has enough
+      // data buffered, preventing post-seek stutter.
+      if (drift > 1.0 && !isScrubbing && player.isPlaying) {
+        if (typeof videoEl.fastSeek === 'function') {
+          videoEl.fastSeek(localTime);
+        } else {
+          videoEl.currentTime = localTime;
+        }
+        // Only wait if the video doesn't already have enough data buffered
+        if (videoEl.readyState < 3) { // < HAVE_FUTURE_DATA
+          triggerBufferWait(videoEl);
+        }
       } else {
-        videoEl.currentTime = localTime;
+        if (typeof videoEl.fastSeek === 'function') {
+          videoEl.fastSeek(localTime);
+        } else {
+          videoEl.currentTime = localTime;
+        }
       }
     }
   }
@@ -484,6 +534,8 @@ export const useVideoPlayerAnimation = (
         cancelAnimationFrame(animationRef.current);
         animationRef.current = undefined;
       }
+      // Clear any pending buffer wait when playback stops
+      clearBufferWait();
       performanceMonitorRef.current?.reset();
       return;
     }
@@ -542,6 +594,15 @@ export const useVideoPlayerAnimation = (
 
     const animate = (currentTime: number) => {
       if (!isActive) return;
+
+      // Post-seek buffer wait: skip advancing time until the video element
+      // has buffered enough data after a significant seek, preventing stutter.
+      if (bufferWaitState.waiting) {
+        // Keep lastTime in sync so we don't get a huge deltaTime spike when resuming
+        lastTime = currentTime;
+        animationRef.current = requestAnimationFrame(animate);
+        return;
+      }
       
       updateDebugLogs(currentTime, debugLastFrameTimeRef, debugFrameTimesRef, debugLogCounterRef, debugLastLogTimeRef);
       
