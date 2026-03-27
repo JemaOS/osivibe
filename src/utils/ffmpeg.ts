@@ -519,7 +519,8 @@ export async function loadFFmpeg(
   let lastLogUpdateAt = 0;
 
   ffmpeg.on('log', ({ message }) => {
-    console.log('[FFmpeg]', message);
+    if (exportCancelled) return;
+    console.debug('[FFmpeg]', message);
 
     // Parse ffmpeg stats lines like: "time=00:00:01.23"
     if (!currentProgressCallback || currentTotalDuration <= 0) return;
@@ -562,7 +563,8 @@ export async function loadFFmpeg(
   });
 
   ffmpeg.on('progress', ({ progress, time }) => {
-    console.log('[FFmpeg Progress]', progress, time);
+    if (exportCancelled) return;
+    console.debug('[FFmpeg Progress]', progress, time);
     if (currentProgressCallback) {
       let percentage = progress * 100;
       
@@ -840,14 +842,25 @@ export function cancelExport() {
   cancelMediaBunnyExport();
 
   if (ffmpeg) {
+    // Remove event listeners BEFORE terminating to prevent stale callbacks
+    try {
+      ffmpeg.off('log');
+      ffmpeg.off('progress');
+    } catch (e) {
+      console.debug('Error removing FFmpeg event listeners:', e);
+    }
+
     try {
       ffmpeg.terminate();
     } catch (e) {
-      console.error('Error terminating FFmpeg:', e);
+      console.debug('Error terminating FFmpeg:', e);
     }
     ffmpeg = null;
     isLoaded = false;
   }
+
+  // Clear progress callback to prevent any lingering updates
+  currentProgressCallback = undefined;
 
   // Reset operation tracking so a new export can start after cancellation
   isFontLoaded = false;
