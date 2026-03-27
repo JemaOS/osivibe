@@ -19,6 +19,8 @@ let currentTotalDuration = 0;
 let isOperationInProgress = false; // Prevent multiple simultaneous FFmpeg operations
 let currentOperationType: string | null = null; // Track what operation is running
 let exportCancelled = false; // Flag to signal user-initiated cancellation
+let currentLogHandler: (({ message }: { message: string }) => void) | null = null;
+let currentProgressHandler: (({ progress, time }: { progress: number; time: number }) => void) | null = null;
 
 // Used to detect stalls (no progress callbacks coming from ffmpeg.wasm)
 let lastProgressUpdateAt = 0;
@@ -518,7 +520,8 @@ export async function loadFFmpeg(
   let lastPercentFromLog = 0;
   let lastLogUpdateAt = 0;
 
-  ffmpeg.on('log', ({ message }) => {
+  // Store named handlers so they can be removed with off() on cancel
+  currentLogHandler = ({ message }: { message: string }) => {
     if (exportCancelled) return;
     console.debug('[FFmpeg]', message);
 
@@ -560,9 +563,9 @@ export async function loadFFmpeg(
     lastProgressUpdateAt = now;
     lastProgressPercent = percent;
     currentProgressCallback(percent, 'Encodage...');
-  });
+  };
 
-  ffmpeg.on('progress', ({ progress, time }) => {
+  currentProgressHandler = ({ progress, time }: { progress: number; time: number }) => {
     if (exportCancelled) return;
     console.debug('[FFmpeg Progress]', progress, time);
     if (currentProgressCallback) {
@@ -589,7 +592,10 @@ export async function loadFFmpeg(
       // or if it's the final completion
       currentProgressCallback(Math.round(percentage), `Traitement en cours...`);
     }
-  });
+  };
+
+  ffmpeg.on('log', currentLogHandler);
+  ffmpeg.on('progress', currentProgressHandler);
 
   try {
     onProgress?.(0, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
@@ -844,11 +850,13 @@ export function cancelExport() {
   if (ffmpeg) {
     // Remove event listeners BEFORE terminating to prevent stale callbacks
     try {
-      ffmpeg.off('log');
-      ffmpeg.off('progress');
+      if (currentLogHandler) ffmpeg.off('log', currentLogHandler);
+      if (currentProgressHandler) ffmpeg.off('progress', currentProgressHandler);
     } catch (e) {
       console.debug('Error removing FFmpeg event listeners:', e);
     }
+    currentLogHandler = null;
+    currentProgressHandler = null;
 
     try {
       ffmpeg.terminate();
