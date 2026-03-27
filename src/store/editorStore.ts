@@ -765,8 +765,15 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   // Clip actions
   addMediaToTimeline: (mediaFile) => {
     const state = get();
-    // Determine the correct track type: video and image → 'video', audio → 'audio'
-    const trackType: TrackType = mediaFile.type === 'audio' ? 'audio' : 'video';
+    // Each media type gets its own track type
+    let trackType: TrackType;
+    if (mediaFile.type === 'audio') {
+      trackType = 'audio';
+    } else if (mediaFile.type === 'image') {
+      trackType = 'image';
+    } else {
+      trackType = 'video';
+    }
     
     // Helper: calculate the end time of the last clip on a track
     const getTrackEndTime = (track: TimelineTrack): number => {
