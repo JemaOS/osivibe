@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Download } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { ExportResolution, ExportFormat, ExportQuality } from '../types';
@@ -41,6 +41,7 @@ export const ExportModal: React.FC = () => {
   const [exportProgress, setExportProgress] = useState(ui.processingProgress);
   const [exportMessage, setExportMessage] = useState(ui.processingMessage);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
+  const cancelledRef = useRef(false);
 
   // Sync local state with global store
   useEffect(() => {
@@ -58,15 +59,16 @@ export const ExportModal: React.FC = () => {
 
   const handleCancel = useCallback(() => {
     if (isExporting) {
-      // 1. Reset le store global IMMEDIATEMENT (synchrone)
+      // Marquer comme annulé pour bloquer tout callback de progression restant
+      cancelledRef.current = true;
+      // 1. Cancel FFmpeg (stoppe le worker + clear le callback interne)
+      cancelExport();
+      // 2. Reset le store global et l'état local
       setProcessing(false, 0, '');
-      // 2. Reset l'état local
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
-      // 3. Cancel le process FFmpeg (peut être async)
-      cancelExport();
-      // 4. Fermer la modal
+      // 3. Fermer la modal
       closeExportModal();
     } else {
       closeExportModal();
@@ -93,6 +95,7 @@ export const ExportModal: React.FC = () => {
 
   const handleExport = async () => {
     try {
+      cancelledRef.current = false;
       setIsExporting(true);
       setExportProgress(0);
       setExportMessage('Préparation de l\'export...');
@@ -247,6 +250,8 @@ export const ExportModal: React.FC = () => {
           clipsToExport,
           exportSettings,
           (progress, message) => {
+            // Ne pas mettre à jour si l'export a été annulé
+            if (cancelledRef.current) return;
             console.debug('Export progress:', progress, message);
             const p = Math.round(Math.min(99, Math.max(0, progress)));
             const msg = message || 'Traitement en cours...';
@@ -281,6 +286,7 @@ export const ExportModal: React.FC = () => {
           setExportMessage('Export terminé !');
         }
         setTimeout(() => {
+          if (cancelledRef.current) return;
           closeExportModal();
           setIsExporting(false);
           setExportProgress(0);
@@ -309,11 +315,14 @@ export const ExportModal: React.FC = () => {
         alert('Erreur lors de l\'export: ' + errorMessage);
       }
       
-      setIsExporting(false);
-      setExportProgress(0);
-      setExportMessage('');
-      setProcessing(false, 0, '');
-      closeExportModal();
+      // Ne reset que si pas déjà fait par handleCancel
+      if (!cancelledRef.current) {
+        setIsExporting(false);
+        setExportProgress(0);
+        setExportMessage('');
+        setProcessing(false, 0, '');
+        closeExportModal();
+      }
     }
   };
 
