@@ -2769,6 +2769,30 @@ async function tryMediaBunnyExport(
       imageOverlays
     );
   } catch (error) {
+    // Si la 4K échoue (codec non supporté à cette résolution), retenter en 1080p avec MediaBunny
+    const errorMsg = error instanceof Error ? error.message : '';
+    if (settings.resolution === '4K' && (errorMsg.includes('not supported') || errorMsg.includes('unsupported'))) {
+      console.warn('⚠️ MediaBunny 4K failed, retrying at 1080p...');
+      onProgress?.(1, 'Codec 4K non supporté, export en 1080p via MediaBunny...');
+      try {
+        const downscaledSettings = { ...settings, resolution: '1080p' as const };
+        return await exportProjectWithMediaBunny(
+          clips,
+          downscaledSettings,
+          onProgress,
+          textOverlays,
+          transitions,
+          aspectRatio,
+          hardwareProfile,
+          safeMode,
+          audioClips,
+          imageOverlays
+        );
+      } catch (retryError) {
+        console.error('MediaBunny 1080p retry also failed:', retryError);
+        return null;
+      }
+    }
     console.error('MediaBunny export failed, falling back to FFmpeg:', error);
     return null;
   }
@@ -2882,10 +2906,13 @@ async function performFFmpegExport(
     return clipTransitions.length > 0;
   });
   
-  if (effectiveResolution === '4K' && (clips.length > 3 || (clips.length > 1 && hasTransitions))) {
-    console.warn('⚠️ 4K export with complex filter_complex downgraded to 1080p for FFmpeg.wasm compatibility');
-    effectiveResolution = '1080p';
-    onProgress?.(3, 'Résolution ajustée à 1080p (trop complexe pour 4K dans le navigateur)...');
+  if (effectiveResolution === '4K') {
+    if (clips.length > 6 || (clips.length > 2 && hasTransitions)) {
+      // Trop complexe pour 4K dans FFmpeg.wasm
+      console.warn('⚠️ 4K FFmpeg export downgraded to 1080p (complex filter_complex)');
+      effectiveResolution = '1080p';
+      onProgress?.(3, 'FFmpeg: résolution ajustée à 1080p (export complexe)...');
+    }
   }
   
   const resolution = getResolutionForAspectRatio(effectiveResolution, effectiveAspectRatio);
