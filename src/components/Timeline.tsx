@@ -482,14 +482,38 @@ const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>
   const [isTouchScrubbing, setIsTouchScrubbing] = useState(false);
 
   // Auto-sélection du clip sous le playhead lors du scrubbing
+  // Priorise la piste du clip déjà sélectionné pour ne pas "sauter" entre pistes
   const selectClipAtTime = useCallback((time: number) => {
-    // Cherche le premier clip (piste vidéo prioritaire) sous le playhead
+    // Si un clip est déjà sélectionné, vérifier s'il est toujours sous le playhead
+    if (ui.selectedClipId) {
+      for (const track of tracks) {
+        const selectedClip = track.clips.find(c => c.id === ui.selectedClipId);
+        if (selectedClip) {
+          const clipEnd = selectedClip.startTime + (selectedClip.duration - selectedClip.trimStart - selectedClip.trimEnd);
+          if (time >= selectedClip.startTime && time < clipEnd) {
+            // Le clip sélectionné est toujours sous le playhead, ne rien changer
+            return;
+          }
+          // Le clip sélectionné n'est plus sous le playhead
+          // Chercher d'abord dans la MÊME piste
+          for (const clip of track.clips) {
+            const end = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+            if (time >= clip.startTime && time < end) {
+              selectClip(clip.id);
+              return;
+            }
+          }
+          break;
+        }
+      }
+    }
+    
+    // Fallback : chercher dans toutes les pistes (de haut en bas)
     for (const track of tracks) {
       if (track.locked) continue;
       for (const clip of track.clips) {
-        const clipEnd = clip.startTime + clip.duration;
+        const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
         if (time >= clip.startTime && time < clipEnd) {
-          // Sélectionne ce clip seulement si ce n'est pas déjà le clip sélectionné
           if (ui.selectedClipId !== clip.id) {
             selectClip(clip.id);
           }
@@ -1040,19 +1064,40 @@ export const Timeline: React.FC = () => {
     seek(time);
     
     // Auto-sélectionner le clip sous la position cliquée
+    // Prioriser la piste du clip déjà sélectionné
     let clipFound = false;
-    for (const track of tracks) {
-      if (track.locked) continue;
-      for (const clip of track.clips) {
-        if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
-          if (ui.selectedClipId !== clip.id) {
-            selectClip(clip.id);
+    
+    // D'abord, chercher dans la piste du clip actuellement sélectionné
+    if (ui.selectedClipId) {
+      const selectedTrack = tracks.find(t => t.clips.some(c => c.id === ui.selectedClipId));
+      if (selectedTrack && !selectedTrack.locked) {
+        for (const clip of selectedTrack.clips) {
+          if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
+            if (ui.selectedClipId !== clip.id) {
+              selectClip(clip.id);
+            }
+            clipFound = true;
+            break;
           }
-          clipFound = true;
-          break;
         }
       }
-      if (clipFound) break;
+    }
+    
+    // Sinon, fallback sur toutes les pistes
+    if (!clipFound) {
+      for (const track of tracks) {
+        if (track.locked) continue;
+        for (const clip of track.clips) {
+          if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
+            if (ui.selectedClipId !== clip.id) {
+              selectClip(clip.id);
+            }
+            clipFound = true;
+            break;
+          }
+        }
+        if (clipFound) break;
+      }
     }
   };
 
