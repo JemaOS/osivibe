@@ -194,20 +194,14 @@ const TimelineClipComponent = ({
   handleClipDrop,
   handleTransitionMouseDown,
   handleResizeMouseDown,
-  handleCutAtPosition,
   onCtrlClick,
 }: any) => {
   const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
   const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
   const isSelected = ui.selectedClipId === clip.id || (ui.selectedClipIds && ui.selectedClipIds.includes(clip.id));
   const clipTransitions = transitions.filter((t: any) => t.clipId === clip.id);
-  const isCutMode = ui.timelineTool === 'cut';
 
   const handleMouseDownWrapper = (e: React.MouseEvent) => {
-    if (isCutMode) {
-      handleCutAtPosition(e, clip.id, track.id);
-      return;
-    }
     // Ctrl+click pour multi-sélection
     if (e.ctrlKey || e.metaKey) {
       e.stopPropagation();
@@ -223,7 +217,7 @@ const TimelineClipComponent = ({
         track.type === 'audio' ? 'timeline-clip-audio' : ''
       } ${isSelected ? 'selected' : ''} ${
         draggedClipId === clip.id ? 'dragging' : ''
-      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 ${isCutMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'} touch-target`}
+      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
       style={{
         left: `${clipX}px`,
         width: `${clipWidth}px`,
@@ -419,17 +413,42 @@ const useTimelineKeyboardShortcuts = () => {
     return false;
   }, []);
 
-  const handleToolShortcuts = useCallback((e: KeyboardEvent) => {
+  const handleCutShortcut = useCallback((e: KeyboardEvent) => {
     if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
-      const { setTimelineTool: setTool } = useEditorStore.getState();
-      setTool('cut');
-      return true;
-    }
-    if (e.key === 'v' && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      const { setTimelineTool: setTool } = useEditorStore.getState();
-      setTool('select');
+      // Coupe directe à la position du playhead
+      const state = useEditorStore.getState();
+      const cutTime = state.player.currentTime;
+      const { selectedClipId, selectedTrackId } = state.ui;
+      
+      const clipsToSplit: string[] = [];
+      
+      if (selectedClipId) {
+        const clip = state.tracks.flatMap(t => t.clips).find(c => c.id === selectedClipId);
+        if (clip) {
+          const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+          if (cutTime > clip.startTime && cutTime < clipEnd) {
+            clipsToSplit.push(selectedClipId);
+          }
+        }
+      } else {
+        const tracksToProcess = selectedTrackId 
+          ? state.tracks.filter(t => t.id === selectedTrackId)
+          : state.tracks;
+        tracksToProcess.forEach(track => {
+          track.clips.forEach(clip => {
+            const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+            if (cutTime > clip.startTime && cutTime < clipEnd) {
+              clipsToSplit.push(clip.id);
+            }
+          });
+        });
+      }
+      
+      clipsToSplit.forEach(clipId => {
+        state.splitClip(clipId, cutTime);
+      });
+      
       return true;
     }
     return false;
@@ -443,11 +462,11 @@ const useTimelineKeyboardShortcuts = () => {
     if (handleUndoRedo(e)) return;
     if (handleSelectAll(e)) return;
     if (handleDelete(e)) return;
-    if (handleToolShortcuts(e)) return;
+    if (handleCutShortcut(e)) return;
     if (handleCopy(e)) return;
     if (handlePaste(e)) return;
     if (handleSeekKeys(e)) return;
-  }, [handleUndoRedo, handleSelectAll, handleDelete, handleToolShortcuts, handleCopy, handlePaste, handleSeekKeys]);
+  }, [handleUndoRedo, handleSelectAll, handleDelete, handleCutShortcut, handleCopy, handlePaste, handleSeekKeys]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -912,7 +931,6 @@ export const Timeline: React.FC = () => {
     selectMultipleClips,
     toggleClipSelection,
     removeSelectedClips,
-    setTimelineTool,
     moveClip,
     updateClip,
     toggleTrackMute,
@@ -1021,45 +1039,25 @@ export const Timeline: React.FC = () => {
     
     seek(time);
     
-    // En mode select, auto-sélectionner le clip sous la position cliquée
-    if (ui.timelineTool === 'select') {
-      let clipFound = false;
-      for (const track of tracks) {
-        if (track.locked) continue;
-        for (const clip of track.clips) {
-          const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
-          if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
-            if (ui.selectedClipId !== clip.id) {
-              selectClip(clip.id);
-            }
-            clipFound = true;
-            break;
+    // Auto-sélectionner le clip sous la position cliquée
+    let clipFound = false;
+    for (const track of tracks) {
+      if (track.locked) continue;
+      for (const clip of track.clips) {
+        if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
+          if (ui.selectedClipId !== clip.id) {
+            selectClip(clip.id);
           }
+          clipFound = true;
+          break;
         }
-        if (clipFound) break;
       }
+      if (clipFound) break;
     }
-  };
-
-  // Handle cut at click position (mode ciseaux)
-  const handleCutAtPosition = (e: React.MouseEvent, clipId: string, trackId: string) => {
-    if (ui.timelineTool !== 'cut') return;
-    
-    e.stopPropagation();
-    const rect = tracksContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-    const cutTime = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-    
-    const { splitClip: split } = useEditorStore.getState();
-    split(clipId, cutTime);
   };
 
   // Handle marquee selection (rectangle de sélection)
   const handleMarqueeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Ne démarre le marquee que si on clique sur un espace vide en mode select
-    if (ui.timelineTool !== 'select') return;
     if (isDraggingClip || resizingClip || isDraggingPlayhead) return;
     
     // Vérifier qu'on n'a pas cliqué sur un clip (le clip a son propre handler avec stopPropagation)
@@ -1189,11 +1187,11 @@ export const Timeline: React.FC = () => {
       <div className={`px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
         <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
         <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
-          {/* Cut Tool Toggle */}
+          {/* Cut Tool - coupe à la position du playhead */}
           <button
-            onClick={() => setTimelineTool(ui.timelineTool === 'cut' ? 'select' : 'cut')}
-            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} ${ui.timelineTool === 'cut' ? 'bg-primary-500 text-white' : ''} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
-            title={ui.timelineTool === 'cut' ? 'Mode sélection (V)' : 'Mode ciseaux (C) - Cliquer sur un clip pour couper'}
+            onClick={handleCutClick}
+            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
+            title="Couper à la position du curseur (C)"
           >
             <Scissors className={getToolbarIconClass(isMinimal, isCompact)} />
           </button>
@@ -1402,7 +1400,7 @@ export const Timeline: React.FC = () => {
         {/* Timeline Tracks */}
         <div
           ref={tracksContainerRef}
-          className={`flex-1 overflow-auto custom-scrollbar relative ${ui.timelineTool === 'cut' ? 'cursor-crosshair' : ''}`}
+          className="flex-1 overflow-auto custom-scrollbar relative"
           onClick={handleTimelineClick}
           onMouseDown={handleMarqueeMouseDown}
           onScroll={handleScroll}
@@ -1466,7 +1464,6 @@ export const Timeline: React.FC = () => {
                     handleClipDrop={handleClipDrop}
                     handleTransitionMouseDown={handleTransitionMouseDown}
                     handleResizeMouseDown={handleResizeMouseDown}
-                    handleCutAtPosition={handleCutAtPosition}
                     onCtrlClick={toggleClipSelection}
                   />
                 ))}
