@@ -48,17 +48,25 @@ export const ExportModal: React.FC = () => {
       setIsExporting(true);
       setExportProgress(ui.processingProgress);
       setExportMessage(ui.processingMessage);
+    } else {
+      // Reset local state when global store says not processing
+      setIsExporting(false);
+      setExportProgress(0);
+      setExportMessage('');
     }
   }, [ui.isProcessing, ui.processingProgress, ui.processingMessage]);
 
   const handleCancel = useCallback(() => {
     if (isExporting) {
-      // Annuler l'export en cours
-      cancelExport();
+      // 1. Reset le store global IMMEDIATEMENT (synchrone)
+      setProcessing(false, 0, '');
+      // 2. Reset l'état local
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
-      setProcessing(false, 0, '');
+      // 3. Cancel le process FFmpeg (peut être async)
+      cancelExport();
+      // 4. Fermer la modal
       closeExportModal();
     } else {
       closeExportModal();
