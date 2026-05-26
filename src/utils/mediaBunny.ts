@@ -720,10 +720,26 @@ const getAudioConfig = async (clips: any[], isWebM: boolean, audioClips?: {file:
 async function isCodecSupported(codec: string, width: number, height: number, bitrate: number): Promise<boolean> {
     if (typeof VideoEncoder === 'undefined') return false;
     try {
-        const codecString = codec === 'vp9' ? 'vp09.00.40.08' :
+        // Adapter le profil/level H.264 à la résolution
+        // Level 4.0 (640028) = max 2048x1024
+        // Level 5.1 (640033) = max 4096x2160
+        // Level 5.2 (640034) = max 4096x2304
+        const getAvcProfile = (w: number, h: number) => {
+            if (w > 2048 || h > 1024) return 'avc1.640033'; // High Level 5.1 pour 4K
+            if (w > 1280 || h > 720) return 'avc1.640028';  // High Level 4.0 pour 1080p
+            return 'avc1.64001f'; // High Level 3.1 pour 720p
+        };
+        
+        // VP9 Level 5.1 pour 4K
+        const getVp9Profile = (w: number, h: number) => {
+            if (w > 2048 || h > 2048) return 'vp09.00.51.08'; // Level 5.1
+            return 'vp09.00.40.08'; // Level 4.0
+        };
+
+        const codecString = codec === 'vp9' ? getVp9Profile(width, height) :
                            codec === 'vp8' ? 'vp8' :
-                           codec === 'avc' ? 'avc1.640028' :
-                           codec === 'av1' ? 'av01.0.08M.08' : codec;
+                           codec === 'avc' ? getAvcProfile(width, height) :
+                           codec === 'av1' ? 'av01.0.12M.08' : codec;
         const config = {
             codec: codecString,
             width,
@@ -950,8 +966,33 @@ export async function exportProjectWithMediaBunny(
                 }
             }
         } else {
-            // H.264 not supported (very rare)
-            throw new Error('H.264 encoding not supported by this browser. Cannot export with MediaBunny.');
+            // H.264 not supported — try VP9 in MP4 container (valid combination)
+            const vp9InMp4 = await isCodecSupported('vp9', resolution.width, resolution.height, initialVideoConfig.bitrate);
+            if (vp9InMp4) {
+                codecOverride = 'vp9';
+                console.warn('⚠️ H.264 encoding not supported, using VP9 in MP4 container');
+                onProgress?.(1, 'H.264 non supporté, utilisation de VP9...');
+            } else {
+                // Try VP8 in MP4
+                const vp8InMp4 = await isCodecSupported('vp8', resolution.width, resolution.height, initialVideoConfig.bitrate);
+                if (vp8InMp4) {
+                    codecOverride = 'vp8';
+                    console.warn('⚠️ H.264/VP9 not supported, using VP8 in MP4 container');
+                    onProgress?.(1, 'H.264/VP9 non supportés, utilisation de VP8...');
+                } else {
+                    // Last resort: try WebM format with VP9
+                    isWebM = true;
+                    formatOverridden = true;
+                    const vp9WebM = await isCodecSupported('vp9', resolution.width, resolution.height, initialVideoConfig.bitrate);
+                    if (vp9WebM) {
+                        codecOverride = 'vp9';
+                        console.warn('⚠️ No MP4 codec supported, switching to WebM/VP9');
+                        onProgress?.(1, 'Aucun codec MP4 supporté, export en WebM/VP9...');
+                    } else {
+                        throw new Error('No supported video encoder found (H.264, VP9, VP8 all unsupported). Cannot export with MediaBunny.');
+                    }
+                }
+            }
         }
     }
     
