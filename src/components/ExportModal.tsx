@@ -42,6 +42,10 @@ export const ExportModal: React.FC = () => {
   const [exportMessage, setExportMessage] = useState(ui.processingMessage);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
   const cancelledRef = useRef(false);
+  const lastStoreUpdateRef = useRef<number>(0);
+  const realProgressRef = useRef<number>(0);
+  const displayProgressRef = useRef<number>(0);
+  const smoothTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Sync local state with global store
   useEffect(() => {
@@ -61,6 +65,11 @@ export const ExportModal: React.FC = () => {
     if (isExporting) {
       // Marquer comme annulé pour bloquer tout callback de progression restant
       cancelledRef.current = true;
+      // Stopper le timer de progression fluide
+      if (smoothTimerRef.current) {
+        clearInterval(smoothTimerRef.current);
+        smoothTimerRef.current = null;
+      }
       // 1. Cancel FFmpeg (stoppe le worker + clear le callback interne)
       cancelExport();
       // 2. Reset le store global et l'état local
@@ -96,10 +105,30 @@ export const ExportModal: React.FC = () => {
   const handleExport = async () => {
     try {
       cancelledRef.current = false;
+      realProgressRef.current = 0;
+      displayProgressRef.current = 0;
       setIsExporting(true);
       setExportProgress(0);
       setExportMessage('Préparation de l\'export...');
       setProcessing(true, 0, 'Préparation de l\'export...');
+      
+      // Timer pour animer la progression de manière fluide vers la valeur réelle
+      if (smoothTimerRef.current) clearInterval(smoothTimerRef.current);
+      smoothTimerRef.current = setInterval(() => {
+        if (cancelledRef.current) return;
+        const real = realProgressRef.current;
+        const display = displayProgressRef.current;
+        if (display < real) {
+          // Avancer rapidement vers la vraie progression (lissage)
+          const step = Math.max(1, Math.ceil((real - display) * 0.4));
+          displayProgressRef.current = Math.min(real, display + step);
+          setExportProgress(displayProgressRef.current);
+        } else if (display < 95 && real > 5) {
+          // Progresser très lentement même sans nouveau réel (feedback continu)
+          displayProgressRef.current = Math.min(real + 1, display + 0.3);
+          setExportProgress(Math.round(displayProgressRef.current));
+        }
+      }, 100);
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
       const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
@@ -252,12 +281,16 @@ export const ExportModal: React.FC = () => {
           (progress, message) => {
             // Ne pas mettre à jour si l'export a été annulé
             if (cancelledRef.current) return;
-            console.debug('Export progress:', progress, message);
             const p = Math.round(Math.min(99, Math.max(0, progress)));
             const msg = message || 'Traitement en cours...';
-            setExportProgress(p);
+            // Mettre à jour la cible réelle (le timer animera la progression vers cette valeur)
+            realProgressRef.current = p;
             setExportMessage(msg);
-            setProcessing(true, p, msg);
+            // Throttle le store global (qui déclenche IndexedDB saves) à 2x/seconde
+            if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 500) {
+              setProcessing(true, displayProgressRef.current, msg);
+              lastStoreUpdateRef.current = Date.now();
+            }
           },
           textOverlays,
           transitions,
@@ -268,6 +301,12 @@ export const ExportModal: React.FC = () => {
         );
 
         clearTimeout(exportTimeout);
+        if (smoothTimerRef.current) {
+          clearInterval(smoothTimerRef.current);
+          smoothTimerRef.current = null;
+        }
+        realProgressRef.current = 100;
+        displayProgressRef.current = 100;
         setExportProgress(100);
         setExportMessage('Finalisation...');
         setProcessing(true, 100, 'Finalisation...');
@@ -315,6 +354,11 @@ export const ExportModal: React.FC = () => {
         alert('Erreur lors de l\'export: ' + errorMessage);
       }
       
+      // Stopper le timer de progression
+      if (smoothTimerRef.current) {
+        clearInterval(smoothTimerRef.current);
+        smoothTimerRef.current = null;
+      }
       // Ne reset que si pas déjà fait par handleCancel
       if (!cancelledRef.current) {
         setIsExporting(false);

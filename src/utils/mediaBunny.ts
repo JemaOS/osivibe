@@ -872,9 +872,21 @@ async function premixAllAudio(
         onProgress?.(4, 'Mixage audio...');
         
         if (isExportCancelled) throw new Error('Export cancelled');
-        const mixedBuffer = await offlineCtx.startRendering();
-        console.log(`🔊 Audio pre-mixed: ${mixedBuffer.duration.toFixed(2)}s, ${mixedBuffer.sampleRate}Hz, ${mixedBuffer.numberOfChannels}ch`);
-        return mixedBuffer;
+        // Animation de progression pendant le rendu offline (qui bloque sans rapporter)
+        let fakeProgress = 3;
+        const fakeProgressTimer = setInterval(() => {
+            if (fakeProgress < 4) {
+                fakeProgress += 0.1;
+                onProgress?.(Math.min(4, Math.round(fakeProgress * 10) / 10), 'Pré-mixage audio...');
+            }
+        }, 200);
+        try {
+            const mixedBuffer = await offlineCtx.startRendering();
+            console.log(`🔊 Audio pre-mixed: ${mixedBuffer.duration.toFixed(2)}s, ${mixedBuffer.sampleRate}Hz, ${mixedBuffer.numberOfChannels}ch`);
+            return mixedBuffer;
+        } finally {
+            clearInterval(fakeProgressTimer);
+        }
     } catch (e) {
         if (e instanceof Error && e.message === 'Export cancelled') throw e;
         console.error('Audio pre-mixing failed:', e);
