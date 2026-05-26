@@ -193,12 +193,29 @@ const TimelineClipComponent = ({
   handleClipContextMenu,
   handleClipDrop,
   handleTransitionMouseDown,
-  handleResizeMouseDown
+  handleResizeMouseDown,
+  handleCutAtPosition,
+  onCtrlClick,
 }: any) => {
   const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
   const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
-  const isSelected = ui.selectedClipId === clip.id;
+  const isSelected = ui.selectedClipId === clip.id || (ui.selectedClipIds && ui.selectedClipIds.includes(clip.id));
   const clipTransitions = transitions.filter((t: any) => t.clipId === clip.id);
+  const isCutMode = ui.timelineTool === 'cut';
+
+  const handleMouseDownWrapper = (e: React.MouseEvent) => {
+    if (isCutMode) {
+      handleCutAtPosition(e, clip.id, track.id);
+      return;
+    }
+    // Ctrl+click pour multi-sélection
+    if (e.ctrlKey || e.metaKey) {
+      e.stopPropagation();
+      onCtrlClick(clip.id);
+      return;
+    }
+    handleClipMouseDown(e, clip.id, track.id);
+  };
 
   return (
     <div
@@ -206,14 +223,14 @@ const TimelineClipComponent = ({
         track.type === 'audio' ? 'timeline-clip-audio' : ''
       } ${isSelected ? 'selected' : ''} ${
         draggedClipId === clip.id ? 'dragging' : ''
-      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
+      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 ${isCutMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'} touch-target`}
       style={{
         left: `${clipX}px`,
         width: `${clipWidth}px`,
         top: clipTop,
         height: clipHeight,
       }}
-      onMouseDown={(e) => handleClipMouseDown(e, clip.id, track.id)}
+      onMouseDown={handleMouseDownWrapper}
       onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
       onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
       onDrop={(e) => handleClipDrop(e, clip.id, track.type)}
@@ -304,6 +321,13 @@ const useTimelineKeyboardShortcuts = () => {
 
   const handleDelete = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Suppression multiple si plusieurs clips sélectionnés
+      if (ui.selectedClipIds && ui.selectedClipIds.length > 1) {
+        e.preventDefault();
+        const { removeSelectedClips: removeAll } = useEditorStore.getState();
+        removeAll();
+        return true;
+      }
       if (ui.selectedClipId) {
         e.preventDefault();
         removeClip(ui.selectedClipId);
@@ -316,7 +340,7 @@ const useTimelineKeyboardShortcuts = () => {
       }
     }
     return false;
-  }, [ui.selectedClipId, ui.selectedTextId, removeClip, removeTextOverlay]);
+  }, [ui.selectedClipId, ui.selectedClipIds, ui.selectedTextId, removeClip, removeTextOverlay]);
 
   const handleCopy = useCallback((e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
@@ -382,6 +406,22 @@ const useTimelineKeyboardShortcuts = () => {
     return false;
   }, [player.currentTime, projectDuration, seek]);
 
+  const handleToolShortcuts = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const { setTimelineTool: setTool } = useEditorStore.getState();
+      setTool('cut');
+      return true;
+    }
+    if (e.key === 'v' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      const { setTimelineTool: setTool } = useEditorStore.getState();
+      setTool('select');
+      return true;
+    }
+    return false;
+  }, []);
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
       return;
@@ -389,10 +429,11 @@ const useTimelineKeyboardShortcuts = () => {
 
     if (handleUndoRedo(e)) return;
     if (handleDelete(e)) return;
+    if (handleToolShortcuts(e)) return;
     if (handleCopy(e)) return;
     if (handlePaste(e)) return;
     if (handleSeekKeys(e)) return;
-  }, [handleUndoRedo, handleDelete, handleCopy, handlePaste, handleSeekKeys]);
+  }, [handleUndoRedo, handleDelete, handleToolShortcuts, handleCopy, handlePaste, handleSeekKeys]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -854,6 +895,10 @@ export const Timeline: React.FC = () => {
     player,
     projectDuration,
     selectClip,
+    selectMultipleClips,
+    toggleClipSelection,
+    removeSelectedClips,
+    setTimelineTool,
     moveClip,
     updateClip,
     toggleTrackMute,
@@ -902,6 +947,11 @@ export const Timeline: React.FC = () => {
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchStartTime, setTouchStartTime] = useState(0);
 
+  // Rectangle selection state
+  const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false);
+  const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null);
+  const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null);
+
   // Add Track dropdown state
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
 
@@ -945,7 +995,7 @@ export const Timeline: React.FC = () => {
 
   // Handle timeline click to seek + auto-select clip at position
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDraggingClip || resizingClip || isDraggingPlayhead) return;
+    if (isDraggingClip || resizingClip || isDraggingPlayhead || isMarqueeSelecting) return;
     
     const rect = tracksContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -955,23 +1005,133 @@ export const Timeline: React.FC = () => {
     
     seek(time);
     
-    // Auto-sélectionner le clip sous la position cliquée
-    let clipFound = false;
-    for (const track of tracks) {
-      if (track.locked) continue;
-      for (const clip of track.clips) {
-        const clipEnd = clip.startTime + clip.duration;
-        if (time >= clip.startTime && time < clipEnd) {
-          if (ui.selectedClipId !== clip.id) {
-            selectClip(clip.id);
+    // En mode select, auto-sélectionner le clip sous la position cliquée
+    if (ui.timelineTool === 'select') {
+      let clipFound = false;
+      for (const track of tracks) {
+        if (track.locked) continue;
+        for (const clip of track.clips) {
+          const clipEnd = clip.startTime + clip.duration - clip.trimStart - clip.trimEnd;
+          if (time >= clip.startTime && time < clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd)) {
+            if (ui.selectedClipId !== clip.id) {
+              selectClip(clip.id);
+            }
+            clipFound = true;
+            break;
           }
-          clipFound = true;
-          break;
         }
+        if (clipFound) break;
       }
-      if (clipFound) break;
     }
   };
+
+  // Handle cut at click position (mode ciseaux)
+  const handleCutAtPosition = (e: React.MouseEvent, clipId: string, trackId: string) => {
+    if (ui.timelineTool !== 'cut') return;
+    
+    e.stopPropagation();
+    const rect = tracksContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+    const cutTime = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+    
+    const { splitClip: split } = useEditorStore.getState();
+    split(clipId, cutTime);
+  };
+
+  // Handle marquee selection (rectangle de sélection)
+  const handleMarqueeMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Ne démarre le marquee que si on clique sur un espace vide en mode select
+    if (ui.timelineTool !== 'select') return;
+    if (isDraggingClip || resizingClip || isDraggingPlayhead) return;
+    
+    // Vérifier qu'on n'a pas cliqué sur un clip (le clip a son propre handler avec stopPropagation)
+    const target = e.target as HTMLElement;
+    if (target.closest('.timeline-clip')) return;
+    
+    const rect = tracksContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+    const y = e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0);
+    
+    setMarqueeStart({ x, y });
+    setMarqueeEnd({ x, y });
+    setIsMarqueeSelecting(true);
+  };
+
+  // Effect pour gérer le drag et fin du marquee selection
+  useEffect(() => {
+    if (!isMarqueeSelecting) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = tracksContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
+      const y = e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0);
+      setMarqueeEnd({ x, y });
+    };
+
+    const handleMouseUp = () => {
+      if (marqueeStart && marqueeEnd) {
+        // Calculer le rectangle de sélection
+        const left = Math.min(marqueeStart.x, marqueeEnd.x);
+        const right = Math.max(marqueeStart.x, marqueeEnd.x);
+        const top = Math.min(marqueeStart.y, marqueeEnd.y);
+        const bottom = Math.max(marqueeStart.y, marqueeEnd.y);
+        
+        // Ne sélectionner que si le rectangle est assez grand (pas juste un clic)
+        if (right - left > 5 || bottom - top > 5) {
+          // Trouver tous les clips qui intersectent le rectangle
+          const selectedIds: string[] = [];
+          let trackYOffset = RULER_HEIGHT;
+          
+          for (const track of tracks) {
+            if (track.locked) {
+              trackYOffset += TRACK_HEIGHT;
+              continue;
+            }
+            
+            const trackTop = trackYOffset;
+            const trackBottom = trackYOffset + TRACK_HEIGHT;
+            
+            // Vérifier si le rectangle intersecte cette piste
+            if (top < trackBottom && bottom > trackTop) {
+              for (const clip of track.clips) {
+                const clipLeft = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
+                const clipRight = clipLeft + (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
+                
+                // Vérifier l'intersection horizontale
+                if (left < clipRight && right > clipLeft) {
+                  selectedIds.push(clip.id);
+                }
+              }
+            }
+            
+            trackYOffset += TRACK_HEIGHT;
+          }
+          
+          if (selectedIds.length > 0) {
+            selectMultipleClips(selectedIds);
+          }
+        }
+      }
+      
+      setIsMarqueeSelecting(false);
+      setMarqueeStart(null);
+      setMarqueeEnd(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isMarqueeSelecting, marqueeStart, marqueeEnd, tracks, ui.timelineZoom, PIXELS_PER_SECOND, TRACK_HEIGHT, RULER_HEIGHT, selectMultipleClips]);
 
   const handleZoom = (delta: number) => {
     setTimelineZoom(ui.timelineZoom + delta);
@@ -998,11 +1158,11 @@ export const Timeline: React.FC = () => {
       <div className={`px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
         <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
         <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
-          {/* Cut Tool */}
+          {/* Cut Tool Toggle */}
           <button
-            onClick={handleCutClick}
-            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
-            title="Couper"
+            onClick={() => setTimelineTool(ui.timelineTool === 'cut' ? 'select' : 'cut')}
+            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} ${ui.timelineTool === 'cut' ? 'bg-primary-500 text-white' : ''} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
+            title={ui.timelineTool === 'cut' ? 'Mode sélection (V)' : 'Mode ciseaux (C) - Cliquer sur un clip pour couper'}
           >
             <Scissors className={getToolbarIconClass(isMinimal, isCompact)} />
           </button>
@@ -1211,8 +1371,9 @@ export const Timeline: React.FC = () => {
         {/* Timeline Tracks */}
         <div
           ref={tracksContainerRef}
-          className="flex-1 overflow-auto custom-scrollbar relative"
+          className={`flex-1 overflow-auto custom-scrollbar relative ${ui.timelineTool === 'cut' ? 'cursor-crosshair' : ''}`}
           onClick={handleTimelineClick}
+          onMouseDown={handleMarqueeMouseDown}
           onScroll={handleScroll}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -1274,6 +1435,8 @@ export const Timeline: React.FC = () => {
                     handleClipDrop={handleClipDrop}
                     handleTransitionMouseDown={handleTransitionMouseDown}
                     handleResizeMouseDown={handleResizeMouseDown}
+                    handleCutAtPosition={handleCutAtPosition}
+                    onCtrlClick={toggleClipSelection}
                   />
                 ))}
                 {/* Text overlays for text-type tracks */}
@@ -1336,6 +1499,19 @@ export const Timeline: React.FC = () => {
                 onTouchStart={handlePlayheadTouchStart}
               />
             </div>
+
+            {/* Marquee Selection Rectangle */}
+            {isMarqueeSelecting && marqueeStart && marqueeEnd && (
+              <div
+                className="absolute border border-blue-400 bg-blue-400/10 pointer-events-none z-30"
+                style={{
+                  left: Math.min(marqueeStart.x, marqueeEnd.x),
+                  top: Math.min(marqueeStart.y, marqueeEnd.y),
+                  width: Math.abs(marqueeEnd.x - marqueeStart.x),
+                  height: Math.abs(marqueeEnd.y - marqueeStart.y),
+                }}
+              />
+            )}
           </div>
         </div>
       </div>

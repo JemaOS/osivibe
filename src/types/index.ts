@@ -173,6 +173,7 @@ export interface PlayerState {
 // UI State
 export interface UIState {
   selectedClipId: string | null;
+  selectedClipIds: string[]; // Multi-selection support
   selectedTrackId: string | null;
   selectedTextId: string | null;
   timelineZoom: number; // 1 = 100%
@@ -183,6 +184,7 @@ export interface UIState {
   processingProgress: number;
   processingMessage: string;
   isMobileSidebarOpen: boolean; // Mobile sidebar overlay state
+  timelineTool: 'select' | 'cut'; // Active timeline tool
 }
 
 // Resolution presets (base 16:9 dimensions)

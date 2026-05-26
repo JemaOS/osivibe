@@ -254,6 +254,10 @@ interface EditorState {
   splitClip: (clipId: string, splitTime: number) => void;
   trimClip: (clipId: string, trimStart: number, trimEnd: number) => void;
   selectClip: (clipId: string | null) => void;
+  selectMultipleClips: (clipIds: string[]) => void;
+  toggleClipSelection: (clipId: string) => void;
+  removeSelectedClips: () => void;
+  setTimelineTool: (tool: 'select' | 'cut') => void;
   
   // Text overlay actions
   addTextOverlay: (text: Partial<TextOverlay>) => void;
@@ -326,6 +330,7 @@ const defaultPlayerState: PlayerState = {
 
 const defaultUIState: UIState = {
   selectedClipId: null,
+  selectedClipIds: [],
   selectedTrackId: null,
   selectedTextId: null,
   timelineZoom: 1,
@@ -336,6 +341,7 @@ const defaultUIState: UIState = {
   processingProgress: 0,
   processingMessage: '',
   isMobileSidebarOpen: false,
+  timelineTool: 'select',
 };
 
 const defaultExportSettings: ExportSettings = {
@@ -1026,7 +1032,49 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   
   selectClip: (clipId) => {
     set((state) => ({
-      ui: { ...state.ui, selectedClipId: clipId, selectedTextId: null },
+      ui: { ...state.ui, selectedClipId: clipId, selectedClipIds: clipId ? [clipId] : [], selectedTextId: null },
+    }));
+  },
+
+  selectMultipleClips: (clipIds) => {
+    set((state) => ({
+      ui: { ...state.ui, selectedClipIds: clipIds, selectedClipId: clipIds.length > 0 ? clipIds[clipIds.length - 1] : null, selectedTextId: null },
+    }));
+  },
+
+  toggleClipSelection: (clipId) => {
+    set((state) => {
+      const current = state.ui.selectedClipIds;
+      const isSelected = current.includes(clipId);
+      const newSelection = isSelected
+        ? current.filter(id => id !== clipId)
+        : [...current, clipId];
+      return {
+        ui: { ...state.ui, selectedClipIds: newSelection, selectedClipId: newSelection.length > 0 ? newSelection[newSelection.length - 1] : null, selectedTextId: null },
+      };
+    });
+  },
+
+  removeSelectedClips: () => {
+    const state = get();
+    const clipIds = state.ui.selectedClipIds;
+    if (clipIds.length === 0) return;
+    
+    get().saveState();
+    
+    set((state) => ({
+      tracks: state.tracks.map(track => ({
+        ...track,
+        clips: track.clips.filter(c => !clipIds.includes(c.id)),
+      })),
+      ui: { ...state.ui, selectedClipId: null, selectedClipIds: [], selectedTextId: null },
+    }));
+    get().calculateProjectDuration();
+  },
+
+  setTimelineTool: (tool) => {
+    set((state) => ({
+      ui: { ...state.ui, timelineTool: tool },
     }));
   },
   
