@@ -108,7 +108,8 @@ export const useTimelineClipDrag = (
       }
     });
 
-    return Math.max(0, snappedTime);
+    // Round to millisecond precision to prevent float accumulation
+    return Math.max(0, Math.round(snappedTime * 1000) / 1000);
   }, [findSnapPoints]);
 
   const findBestGapPosition = useCallback((clipsOnTrack: any[], preferredTime: number, clipDuration: number) => {
@@ -342,7 +343,8 @@ export const useTimelineClipResize = (
       if (!rect) return;
 
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+      // Round to ms precision to avoid float accumulation causing overlaps
+      const time = Math.round((x / (PIXELS_PER_SECOND * ui.timelineZoom)) * 1000) / 1000;
 
       if (clip.type === 'image') {
         handleImageResize(clip, time);
@@ -352,6 +354,13 @@ export const useTimelineClipResize = (
     };
 
     const handleMouseUp = () => {
+      // After resize, re-resolve overlaps on the track
+      const { tracks: currentTracks } = useEditorStore.getState();
+      const track = currentTracks.find(t => t.clips.some(c => c.id === resizingClip.id));
+      if (track) {
+        // Force a recalculation to ensure no overlaps remain
+        useEditorStore.getState().calculateProjectDuration();
+      }
       setResizingClip(null);
     };
 

@@ -21,7 +21,11 @@ import type {
 } from '../types';
 import { DEFAULT_FILTER } from '../types';
 
+// Round time to millisecond precision to avoid float issues
+const roundTime = (time: number): number => Math.round(time * 1000) / 1000;
+
 // Helper to resolve overlaps by shifting clips to the right
+// Ensures clips never overlap and are perfectly adjacent when contiguous
 const resolveOverlaps = (clips: TimelineClip[]): TimelineClip[] => {
   if (clips.length <= 1) return clips;
   
@@ -32,16 +36,20 @@ const resolveOverlaps = (clips: TimelineClip[]): TimelineClip[] => {
   let previousEnd = 0;
   
   for (const clip of sortedClips) {
-    const duration = clip.duration - clip.trimStart - clip.trimEnd;
-    let startTime = clip.startTime;
+    const duration = roundTime(clip.duration - clip.trimStart - clip.trimEnd);
+    let startTime = roundTime(clip.startTime);
     
-    // If this clip starts before the previous one ended, shift it
-    if (startTime < previousEnd - 0.001) { // Use small epsilon for float comparison
+    // If this clip starts before the previous one ended, snap it to the end
+    if (startTime < previousEnd) {
+      startTime = previousEnd;
+    }
+    // If there's a micro-gap (less than 2ms) between clips, snap them together
+    else if (startTime > previousEnd && startTime - previousEnd < 0.002) {
       startTime = previousEnd;
     }
     
-    resolvedClips.push({ ...clip, startTime });
-    previousEnd = startTime + duration;
+    resolvedClips.push({ ...clip, startTime: roundTime(startTime) });
+    previousEnd = roundTime(startTime + duration);
   }
   
   return resolvedClips;
@@ -51,7 +59,7 @@ const resolveOverlaps = (clips: TimelineClip[]): TimelineClip[] => {
 const findAndRemoveClip = (track: TimelineTrack, clipId: string, newTrackId: string, newStartTime: number): { track: TimelineTrack; clipToMove: TimelineClip | null } => {
   const clip = track.clips.find((c) => c.id === clipId);
   if (clip) {
-    const clipToMove = { ...clip, trackId: newTrackId, startTime: Math.max(0, newStartTime) };
+    const clipToMove = { ...clip, trackId: newTrackId, startTime: roundTime(Math.max(0, newStartTime)) };
     const updatedTrack = {
       ...track,
       clips: track.clips.filter((c) => c.id !== clipId),
@@ -84,13 +92,16 @@ const performSplitClip = (
   if (clipIndex === -1) return state;
 
   const clip = track.clips[clipIndex];
-  const clipStart = clip.startTime;
-  const clipEnd = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd);
+  const clipStart = roundTime(clip.startTime);
+  const clipEnd = roundTime(clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd));
+
+  // Round splitTime to avoid float precision issues
+  const roundedSplitTime = roundTime(splitTime);
 
   // Check if split time is within the clip
-  if (splitTime <= clipStart || splitTime >= clipEnd) return state;
+  if (roundedSplitTime <= clipStart || roundedSplitTime >= clipEnd) return state;
 
-  const splitPoint = splitTime - clipStart + clip.trimStart;
+  const splitPoint = roundTime(roundedSplitTime - clipStart + clip.trimStart);
 
   // Create two new clips - IMPORTANT: Each clip is INDEPENDENT
   // We do NOT copy audioMuted, detachedAudioClipId, or linkedVideoClipId
@@ -99,10 +110,10 @@ const performSplitClip = (
     id: clip.id, // Keep original ID for first part
     mediaId: clip.mediaId,
     trackId: clip.trackId,
-    startTime: clip.startTime,
+    startTime: clipStart,
     duration: clip.duration,
     trimStart: clip.trimStart,
-    trimEnd: clip.duration - splitPoint,
+    trimEnd: roundTime(clip.duration - splitPoint),
     name: clip.name,
     type: clip.type,
     thumbnail: clip.thumbnail,
@@ -118,7 +129,7 @@ const performSplitClip = (
     id: uuidv4(), // New ID for second part
     mediaId: clip.mediaId,
     trackId: clip.trackId,
-    startTime: splitTime,
+    startTime: roundedSplitTime,
     duration: clip.duration,
     trimStart: splitPoint,
     trimEnd: clip.trimEnd,
@@ -821,7 +832,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       id: uuidv4(),
       mediaId: mediaFile.id,
       trackId,
-      startTime,
+      startTime: roundTime(startTime),
       duration: mediaFile.duration,
       trimStart: 0,
       trimEnd: 0,
@@ -981,7 +992,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       });
       
       // Only resolve overlaps if position or duration changed
-      if (updates.startTime !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
+      if (updates.startTime !== undefined || updates.duration !== undefined || updates.trimStart !== undefined || updates.trimEnd !== undefined) {
            return { ...track, clips: resolveOverlaps(updatedClips) };
       }
       
@@ -1515,9 +1526,15 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     // The onRehydrateStorage callback runs AFTER set(state, true) in the persist
     // middleware, so in-place mutations to media.url/thumbnail won't trigger
     // re-renders unless we explicitly call setState with new object references.
+    // Resolve any existing overlap issues in all tracks
+    const fixedTracks = state.tracks.map(track => ({
+      ...track,
+      clips: resolveOverlaps(track.clips),
+    }));
+
     useEditorStore.setState({
       mediaFiles: [...state.mediaFiles],
-      tracks: [...state.tracks],
+      tracks: fixedTracks,
       textOverlays: [...state.textOverlays],
       projects: [...state.projects],
     });
