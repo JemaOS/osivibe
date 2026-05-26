@@ -288,15 +288,22 @@ const processExternalAudioClips = async (audioClips: {file:File;startTime:number
 };
 
 const calculateSampleProgress = (sample: any, clip: any, clipDuration: number, processedDuration: number, totalDuration: number) => {
-    const ts=sample.timestamp, rel=ts-clip.trimStart+clip.startTime;
-    const cp=(ts-clip.trimStart)/clipDuration;
-    const tp=5+((processedDuration+(clipDuration*cp))/totalDuration)*90;
+    // sample.timestamp is in seconds (from VideoSampleSink demuxer, not raw WebCodecs microseconds)
+    const ts = sample.timestamp;
+    const rel = ts - clip.trimStart + clip.startTime;
+    const cp = Math.max(0, Math.min(1, (ts - clip.trimStart) / clipDuration));
+    const tp = 5 + ((processedDuration + (clipDuration * cp)) / totalDuration) * 90;
     return { relativeTimestamp: rel, totalProgress: tp };
 };
 
+let lastReportedProgress = 0;
 const updateProgressIfNeeded = (tp: number, pd: number, td: number, ci: number, sl: number, op: any) => {
-    const pp=5+(pd/td)*90;
-    if (Math.floor(tp)>Math.floor(pp)) op?.(Math.round(tp),`Traitement du clip ${ci+1}/${sl}...`);
+    const rounded = Math.round(Math.min(95, tp));
+    // Rapporter seulement quand le pourcentage entier change (évite le spam)
+    if (rounded > lastReportedProgress) {
+        lastReportedProgress = rounded;
+        op?.(rounded, `Traitement du clip ${ci+1}/${sl}...`);
+    }
 };
 
 const filterActiveTextOverlays = (textOverlays: any, relativeTimestamp: number): TextOverlay[] => {
@@ -932,6 +939,7 @@ export async function exportProjectWithMediaBunny(
 ): Promise<Blob> {
     isExportCancelled = false;
     cancelRejectFn = null;
+    lastReportedProgress = 0;
     onProgress?.(0, 'Initialisation de MediaBunny...');
     const effectiveAspectRatio = aspectRatio||settings.aspectRatio||'16:9';
     const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
