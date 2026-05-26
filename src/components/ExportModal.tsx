@@ -43,41 +43,79 @@ export const ExportModal: React.FC = () => {
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
   const cancelledRef = useRef(false);
   const lastStoreUpdateRef = useRef<number>(0);
-  const realProgressRef = useRef<number>(0);
-  const displayProgressRef = useRef<number>(0);
-  const smoothTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const exportDoneRef = useRef(false);
+  const exportStartTimeRef = useRef<number>(0);
 
-  // Sync local state with global store
+  // Sync isExporting with global store (sans toucher au progress)
   useEffect(() => {
     if (ui.isProcessing) {
       setIsExporting(true);
-      setExportProgress(ui.processingProgress);
-      setExportMessage(ui.processingMessage);
-    } else {
-      // Reset local state when global store says not processing
+    } else if (!exportDoneRef.current) {
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
     }
-  }, [ui.isProcessing, ui.processingProgress, ui.processingMessage]);
+  }, [ui.isProcessing]);
+
+  // Animation de progression : 0% → 99% basée sur le temps écoulé
+  // Utilise requestAnimationFrame pour ne jamais bloquer même si le thread est occupé
+  // Quand le thread se libère, rattrape d'un coup le temps écoulé
+  useEffect(() => {
+    if (!isExporting || cancelledRef.current) return;
+    
+    const startTime = exportStartTimeRef.current || Date.now();
+    let rafId: number;
+    let lastDisplayed = 0;
+    
+    const animate = () => {
+      if (cancelledRef.current || exportDoneRef.current) return;
+      
+      const elapsed = Date.now() - startTime;
+      // Progression basée sur le temps : 
+      // 0-5s = 0-15%, 5-15s = 15-50%, 15-30s = 50-80%, 30-60s = 80-95%, 60s+ = 95-99%
+      // Formule logarithmique qui ralentit naturellement
+      let timeProgress: number;
+      if (elapsed < 5000) {
+        timeProgress = (elapsed / 5000) * 15;
+      } else if (elapsed < 15000) {
+        timeProgress = 15 + ((elapsed - 5000) / 10000) * 35;
+      } else if (elapsed < 30000) {
+        timeProgress = 50 + ((elapsed - 15000) / 15000) * 30;
+      } else if (elapsed < 60000) {
+        timeProgress = 80 + ((elapsed - 30000) / 30000) * 15;
+      } else {
+        timeProgress = 95 + Math.min(4, ((elapsed - 60000) / 30000) * 4);
+      }
+      
+      const rounded = Math.min(99, Math.round(timeProgress));
+      
+      if (rounded > lastDisplayed) {
+        lastDisplayed = rounded;
+        setExportProgress(rounded);
+        setExportMessage('Export en cours...');
+        // Store global throttlé
+        if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 1000) {
+          setProcessing(true, rounded, 'Export en cours...');
+          lastStoreUpdateRef.current = Date.now();
+        }
+      }
+      
+      rafId = requestAnimationFrame(animate);
+    };
+    
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
+  }, [isExporting, setProcessing]);
 
   const handleCancel = useCallback(() => {
     if (isExporting) {
-      // Marquer comme annulé pour bloquer tout callback de progression restant
       cancelledRef.current = true;
-      // Stopper le timer de progression fluide
-      if (smoothTimerRef.current) {
-        clearInterval(smoothTimerRef.current);
-        smoothTimerRef.current = null;
-      }
-      // 1. Cancel FFmpeg (stoppe le worker + clear le callback interne)
+      exportDoneRef.current = true;
       cancelExport();
-      // 2. Reset le store global et l'état local
       setProcessing(false, 0, '');
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
-      // 3. Fermer la modal
       closeExportModal();
     } else {
       closeExportModal();
@@ -105,36 +143,12 @@ export const ExportModal: React.FC = () => {
   const handleExport = async () => {
     try {
       cancelledRef.current = false;
-      realProgressRef.current = 0;
-      displayProgressRef.current = 0;
+      exportDoneRef.current = false;
+      exportStartTimeRef.current = Date.now();
       setIsExporting(true);
       setExportProgress(0);
       setExportMessage('Export en cours...');
       setProcessing(true, 0, 'Export en cours...');
-      
-      // Animation fluide 0% → 99% indépendante du backend
-      // Avance de 1% à un rythme adapté pour que l'utilisateur voie défiler les %
-      // Ralentit en s'approchant de la valeur réelle pour ne jamais la dépasser
-      if (smoothTimerRef.current) clearInterval(smoothTimerRef.current);
-      smoothTimerRef.current = setInterval(() => {
-        if (cancelledRef.current) return;
-        const real = realProgressRef.current;
-        const display = displayProgressRef.current;
-        
-        // Si on a atteint 99%, on attend la vraie fin
-        if (display >= 99) return;
-        
-        // Avancer de 1% à chaque tick, mais ne jamais dépasser real
-        if (display < real) {
-          displayProgressRef.current = display + 1;
-          setExportProgress(displayProgressRef.current);
-          // Mettre à jour le store global (pour le header) max 2x/sec
-          if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 500) {
-            setProcessing(true, displayProgressRef.current, 'Export en cours...');
-            lastStoreUpdateRef.current = Date.now();
-          }
-        }
-      }, 150); // 1% toutes les 150ms
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
       const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
@@ -284,10 +298,8 @@ export const ExportModal: React.FC = () => {
         const blob = await exportProject(
           clipsToExport,
           exportSettings,
-          (progress, _message) => {
-            if (cancelledRef.current) return;
-            // On stocke la progression réelle du backend, l'animation côté client s'en charge
-            realProgressRef.current = Math.round(Math.min(100, Math.max(0, progress)));
+          () => {
+            // L'animation côté client gère l'affichage, le backend est ignoré visuellement
           },
           textOverlays,
           transitions,
@@ -298,32 +310,11 @@ export const ExportModal: React.FC = () => {
         );
 
         clearTimeout(exportTimeout);
-        if (smoothTimerRef.current) {
-          clearInterval(smoothTimerRef.current);
-          smoothTimerRef.current = null;
-        }
-        // Animer les derniers % jusqu'à 100
-        realProgressRef.current = 100;
-        const finishFrom = displayProgressRef.current;
-        const stepsLeft = 100 - finishFrom;
-        if (stepsLeft > 0) {
-          let step = 0;
-          const finishTimer = setInterval(() => {
-            step++;
-            const current = finishFrom + step;
-            setExportProgress(current);
-            setProcessing(true, current, 'Finalisation...');
-            if (current >= 100) {
-              clearInterval(finishTimer);
-              displayProgressRef.current = 100;
-            }
-          }, 30); // Rapide pour la fin : 30ms par %
-        } else {
-          displayProgressRef.current = 100;
-          setExportProgress(100);
-          setProcessing(true, 100, 'Finalisation...');
-        }
+        // Marquer comme terminé — l'animation s'arrête
+        exportDoneRef.current = true;
+        setExportProgress(100);
         setExportMessage('Finalisation...');
+        setProcessing(true, 100, 'Finalisation...');
 
         // Check if the format was auto-changed during export (e.g., VP9 unsupported → H.264)
         const formatInfo = getLastExportFormatInfo();
@@ -368,12 +359,7 @@ export const ExportModal: React.FC = () => {
         alert('Erreur lors de l\'export: ' + errorMessage);
       }
       
-      // Stopper le timer de progression
-      if (smoothTimerRef.current) {
-        clearInterval(smoothTimerRef.current);
-        smoothTimerRef.current = null;
-      }
-      // Ne reset que si pas déjà fait par handleCancel
+      exportDoneRef.current = true;
       if (!cancelledRef.current) {
         setIsExporting(false);
         setExportProgress(0);
