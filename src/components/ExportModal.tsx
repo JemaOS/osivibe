@@ -37,34 +37,49 @@ export const ExportModal: React.FC = () => {
     setAspectRatio,
   } = useEditorStore();
 
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportMessage, setExportMessage] = useState('');
+  const [isExporting, setIsExporting] = useState(ui.isProcessing);
+  const [exportProgress, setExportProgress] = useState(ui.processingProgress);
+  const [exportMessage, setExportMessage] = useState(ui.processingMessage);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
+
+  // Sync local state with global store
+  useEffect(() => {
+    if (ui.isProcessing) {
+      setIsExporting(true);
+      setExportProgress(ui.processingProgress);
+      setExportMessage(ui.processingMessage);
+    }
+  }, [ui.isProcessing, ui.processingProgress, ui.processingMessage]);
 
   const handleCancel = useCallback(() => {
     if (isExporting) {
-      // Immediately cancel — no confirmation dialog, no intermediate state
+      // Annuler l'export en cours
       cancelExport();
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
+      setProcessing(false, 0, '');
       closeExportModal();
     } else {
       closeExportModal();
     }
-  }, [isExporting, closeExportModal]);
+  }, [isExporting, closeExportModal, setProcessing]);
 
-  // Close on ESC key — also cancels export if in progress
+  // Fermer la modal sans annuler l'export (juste cacher la fenêtre)
+  const handleClose = useCallback(() => {
+    closeExportModal();
+  }, [closeExportModal]);
+
+  // Close on ESC key — ferme la modal (sans annuler l'export si en cours)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        handleCancel();
+        handleClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCancel]);
+  }, [handleClose]);
 
   if (!ui.isExportModalOpen) return null;
 
@@ -73,6 +88,7 @@ export const ExportModal: React.FC = () => {
       setIsExporting(true);
       setExportProgress(0);
       setExportMessage('Préparation de l\'export...');
+      setProcessing(true, 0, 'Préparation de l\'export...');
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
       const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
@@ -224,8 +240,11 @@ export const ExportModal: React.FC = () => {
           exportSettings,
           (progress, message) => {
             console.debug('Export progress:', progress, message);
-            setExportProgress(Math.round(Math.min(99, Math.max(0, progress))));
-            setExportMessage(message || 'Traitement en cours...');
+            const p = Math.round(Math.min(99, Math.max(0, progress)));
+            const msg = message || 'Traitement en cours...';
+            setExportProgress(p);
+            setExportMessage(msg);
+            setProcessing(true, p, msg);
           },
           textOverlays,
           transitions,
@@ -238,6 +257,7 @@ export const ExportModal: React.FC = () => {
         clearTimeout(exportTimeout);
         setExportProgress(100);
         setExportMessage('Finalisation...');
+        setProcessing(true, 100, 'Finalisation...');
 
         // Check if the format was auto-changed during export (e.g., VP9 unsupported → H.264)
         const formatInfo = getLastExportFormatInfo();
@@ -257,6 +277,7 @@ export const ExportModal: React.FC = () => {
           setIsExporting(false);
           setExportProgress(0);
           setExportMessage('');
+          setProcessing(false, 0, '');
         }, 2000);
       } catch (exportError) {
         clearTimeout(exportTimeout);
@@ -283,19 +304,21 @@ export const ExportModal: React.FC = () => {
       setIsExporting(false);
       setExportProgress(0);
       setExportMessage('');
+      setProcessing(false, 0, '');
       closeExportModal();
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6" onClick={handleCancel}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 sm:p-6" onClick={handleClose}>
       <div className="glass-panel w-full max-w-md p-0 overflow-hidden relative z-[101] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/20 flex items-center justify-between flex-shrink-0">
           <h2 className="text-lg sm:text-h2 font-semibold text-neutral-800">Exporter la video</h2>
           <button
-            onClick={handleCancel}
+            onClick={handleClose}
             className="btn-icon w-8 h-8 sm:w-9 sm:h-9"
+            title={isExporting ? 'Fermer (l\'export continue en arrière-plan)' : 'Fermer'}
           >
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>

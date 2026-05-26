@@ -123,6 +123,7 @@ const getExportButtonClasses = (layoutMode: string): string => {
 
 export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
   const { 
+    ui,
     projectName, 
     setProjectName, 
     openExportModal,
@@ -282,18 +283,42 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         {/* Divider - Hidden on small screens */}
         <div className="hidden fold-open:block lg:block w-px h-6 bg-white/20 mx-1" />
 
-        {/* Export button - Always visible with adaptive sizing */}
-        <button
-          onClick={openExportModal}
-          className={getExportButtonClasses(layoutMode)}
-        >
-          <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
-          {/* Hide text on minimal screens */}
-          <span className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
-            Exporter
-          </span>
-        </button>
+        {/* Export progress indicator when modal is closed */}
+        {ui.isProcessing && !ui.isExportModalOpen && (
+          <button
+            onClick={openExportModal}
+            className="flex items-center gap-2 h-9 px-3 rounded-lg bg-primary-500/20 border border-primary-500/40 text-primary-400 text-xs font-medium hover:bg-primary-500/30 transition-colors flex-shrink-0"
+            title="Cliquer pour voir l'export en cours"
+          >
+            <div className="w-3.5 h-3.5 rounded-full border-2 border-primary-400 border-t-transparent animate-spin" />
+            <span>{ui.processingProgress}%</span>
+          </button>
+        )}
+
+        {/* Export button - Hidden when export is in progress */}
+        {!ui.isProcessing && (
+          <button
+            onClick={openExportModal}
+            className={getExportButtonClasses(layoutMode)}
+          >
+            <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
+            {/* Hide text on minimal screens */}
+            <span className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
+              Exporter
+            </span>
+          </button>
+        )}
       </div>
+
+      {/* Export progress bar - visible in header when modal is closed */}
+      {ui.isProcessing && !ui.isExportModalOpen && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10">
+          <div
+            className="h-full bg-primary-500 transition-all duration-300 ease-out"
+            style={{ width: `${ui.processingProgress}%` }}
+          />
+        </div>
+      )}
     </header>
   );
 };
