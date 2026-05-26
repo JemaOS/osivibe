@@ -1967,9 +1967,10 @@ async function exportSingleClip(
     );
   }
 
-  onProgress?.(98, 'Finalisation...');
+  onProgress?.(96, 'Lecture du fichier exporté...');
   const data = await ffmpegInstance.readFile(outputFileName);
   
+  onProgress?.(97, 'Nettoyage...');
   await ffmpegInstance.deleteFile(inputFileName);
   await ffmpegInstance.deleteFile(outputFileName);
 
@@ -1978,8 +1979,11 @@ async function exportSingleClip(
   console.log(`⏱️ Actual encoding time: ${formatEncodingTime(Math.ceil(actualEncodingTime))}`);
   console.log(`📈 Speed ratio: ${(currentTotalDuration / actualEncodingTime).toFixed(2)}x realtime`);
 
+  onProgress?.(98, 'Préparation du téléchargement...');
+  const blob = new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
+  onProgress?.(99, 'Prêt !');
   onProgress?.(100, 'Terminé !');
-  return new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
+  return blob;
 }
 
 interface GapInfo {
@@ -2806,10 +2810,58 @@ async function performFFmpegExport(
   
   onProgress?.(1, safeMode ? 'Chargement de FFmpeg (Mode sans échec)...' : 'Chargement de FFmpeg...');
   
+  // Interpolation fluide de la progression
+  // FFmpeg ne rapporte la progression que périodiquement, ce qui crée des sauts.
+  // On interpole entre les valeurs réelles pour une barre de progression fluide.
+  let realProgress = 0;
+  let displayedProgress = 0;
+  let interpolationTimer: ReturnType<typeof setInterval> | null = null;
+
+  const startProgressInterpolation = () => {
+    if (interpolationTimer) return;
+    interpolationTimer = setInterval(() => {
+      if (exportCancelled) {
+        if (interpolationTimer) clearInterval(interpolationTimer);
+        interpolationTimer = null;
+        return;
+      }
+      // Interpoler vers la vraie progression (avancer lentement vers le target)
+      if (displayedProgress < realProgress) {
+        // Avancer de 1% à la fois max, ou directement si l'écart est petit
+        const step = Math.max(1, Math.floor((realProgress - displayedProgress) * 0.3));
+        displayedProgress = Math.min(realProgress, displayedProgress + step);
+        onProgress?.(displayedProgress, 'Encodage en cours...');
+      } else if (displayedProgress < 95 && realProgress > 5) {
+        // Même si pas de nouveau progrès FFmpeg, avancer très lentement pour donner du feedback
+        // (max 1% toutes les 2 secondes, ne dépasse jamais realProgress + 5)
+        const maxAhead = Math.min(realProgress + 3, 95);
+        if (displayedProgress < maxAhead) {
+          displayedProgress += 0.5;
+          onProgress?.(Math.round(displayedProgress), 'Encodage en cours...');
+        }
+      }
+    }, 500);
+  };
+
+  const stopProgressInterpolation = () => {
+    if (interpolationTimer) {
+      clearInterval(interpolationTimer);
+      interpolationTimer = null;
+    }
+  };
+
   const exportProgressHandler = (percent: number, msg: string) => {
-    const scaledPercent = Math.round(percent * 0.95);
-    const safePercent = Math.min(95, Math.max(0, scaledPercent));
-    onProgress?.(safePercent, `Traitement en cours...`);
+    const scaledPercent = Math.min(95, Math.max(0, Math.round(percent * 0.95)));
+    realProgress = scaledPercent;
+    // Démarrer l'interpolation dès qu'on reçoit un vrai progrès
+    if (scaledPercent > 3 && !interpolationTimer) {
+      startProgressInterpolation();
+    }
+    // Si le progrès réel dépasse ce qu'on affiche, mettre à jour immédiatement
+    if (scaledPercent > displayedProgress + 5) {
+      displayedProgress = scaledPercent - 2;
+      onProgress?.(Math.round(displayedProgress), 'Encodage en cours...');
+    }
   };
 
   const ffmpegInstance = await loadFFmpeg(exportProgressHandler, { safeMode });
@@ -2847,20 +2899,29 @@ async function performFFmpegExport(
   const quality = encodingSettings.crf;
 
   if (clips.length === 0) {
+    stopProgressInterpolation();
     throw new Error('Aucun clip à exporter');
   }
 
-  if (clips.length === 1) {
-    return await exportSingleClip(
-      ffmpegInstance, clips[0], settings, encodingSettings, resolution, outputFormat, quality,
-      execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
-    );
+  try {
+    let result: Blob;
+    if (clips.length === 1) {
+      result = await exportSingleClip(
+        ffmpegInstance, clips[0], settings, encodingSettings, resolution, outputFormat, quality,
+        execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
+      );
+    } else {
+      result = await exportMultiClip(
+        ffmpegInstance, clips, settings, encodingSettings, resolution, outputFormat, quality,
+        execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
+      );
+    }
+    stopProgressInterpolation();
+    return result;
+  } catch (e) {
+    stopProgressInterpolation();
+    throw e;
   }
-
-  return await exportMultiClip(
-    ffmpegInstance, clips, settings, encodingSettings, resolution, outputFormat, quality,
-    execTimeoutMs, encodingStartTime, onProgress, textOverlays, transitions, audioClips, safeMode
-  );
 }
 
 async function handleExportError(error: unknown): Promise<void> {
