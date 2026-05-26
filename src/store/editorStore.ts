@@ -1460,9 +1460,17 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       currentTime: 0, // Reset time on reload
     },
     
-    // Persist specific parts of UI state
+    // Persist specific parts of UI state (exclure les champs transients)
     ui: {
-      ...state.ui,
+      selectedClipId: state.ui.selectedClipId,
+      selectedClipIds: state.ui.selectedClipIds,
+      selectedTrackId: state.ui.selectedTrackId,
+      selectedTextId: state.ui.selectedTextId,
+      timelineZoom: state.ui.timelineZoom,
+      timelineScrollX: state.ui.timelineScrollX,
+      activePanel: state.ui.activePanel,
+      timelineTool: state.ui.timelineTool,
+      // Champs transients: toujours false/0 au persist (ne déclenchent pas de save)
       isProcessing: false,
       processingProgress: 0,
       processingMessage: '',

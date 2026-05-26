@@ -2873,7 +2873,22 @@ async function performFFmpegExport(
   
   onProgress?.(3, 'Préparation des paramètres...');
   const effectiveAspectRatio = aspectRatio || settings.aspectRatio || '16:9';
-  const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
+  
+  // FFmpeg.wasm a des limites mémoire : réduire la résolution pour les exports complexes
+  // En 4K avec beaucoup de clips + transitions, le filter_complex est trop lourd
+  let effectiveResolution = settings.resolution;
+  const hasTransitions = clips.some(clip => {
+    const clipTransitions = (transitions || []).filter(t => t.clipId === clip.id && t.type !== 'none');
+    return clipTransitions.length > 0;
+  });
+  
+  if (effectiveResolution === '4K' && (clips.length > 3 || (clips.length > 1 && hasTransitions))) {
+    console.warn('⚠️ 4K export with complex filter_complex downgraded to 1080p for FFmpeg.wasm compatibility');
+    effectiveResolution = '1080p';
+    onProgress?.(3, 'Résolution ajustée à 1080p (trop complexe pour 4K dans le navigateur)...');
+  }
+  
+  const resolution = getResolutionForAspectRatio(effectiveResolution, effectiveAspectRatio);
   console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
   const outputFormat = settings.format;
   
