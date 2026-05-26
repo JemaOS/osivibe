@@ -217,7 +217,7 @@ const TimelineClipComponent = ({
         track.type === 'audio' ? 'timeline-clip-audio' : ''
       } ${isSelected ? 'selected' : ''} ${
         draggedClipId === clip.id ? 'dragging' : ''
-      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 cursor-grab active:cursor-grabbing touch-target`}
+      } overflow-hidden flex items-center px-0.5 fold-cover:px-0.5 fold-open:px-1 sm:px-2 ${isSelected ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} touch-target`}
       style={{
         left: `${clipX}px`,
         width: `${clipWidth}px`,
