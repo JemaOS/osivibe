@@ -403,9 +403,27 @@ const useTimelineKeyboardShortcuts = () => {
 };
 
 const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>, PIXELS_PER_SECOND: number) => {
-  const { ui, player, projectDuration, seek } = useEditorStore();
+  const { ui, player, tracks, projectDuration, seek, selectClip } = useEditorStore();
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
   const [isTouchScrubbing, setIsTouchScrubbing] = useState(false);
+
+  // Auto-sélection du clip sous le playhead lors du scrubbing
+  const selectClipAtTime = useCallback((time: number) => {
+    // Cherche le premier clip (piste vidéo prioritaire) sous le playhead
+    for (const track of tracks) {
+      if (track.locked) continue;
+      for (const clip of track.clips) {
+        const clipEnd = clip.startTime + clip.duration;
+        if (time >= clip.startTime && time < clipEnd) {
+          // Sélectionne ce clip seulement si ce n'est pas déjà le clip sélectionné
+          if (ui.selectedClipId !== clip.id) {
+            selectClip(clip.id);
+          }
+          return;
+        }
+      }
+    }
+  }, [tracks, ui.selectedClipId, selectClip]);
 
   const handlePlayheadMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -426,8 +444,9 @@ const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>
       if (!rect) return;
 
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-      seek(Math.max(0, Math.min(projectDuration, time)));
+      const time = Math.max(0, Math.min(projectDuration, x / (PIXELS_PER_SECOND * ui.timelineZoom)));
+      seek(time);
+      selectClipAtTime(time);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
@@ -438,8 +457,9 @@ const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>
 
       const touch = e.touches[0];
       const x = touch.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-      const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
-      seek(Math.max(0, Math.min(projectDuration, time)));
+      const time = Math.max(0, Math.min(projectDuration, x / (PIXELS_PER_SECOND * ui.timelineZoom)));
+      seek(time);
+      selectClipAtTime(time);
     };
 
     const handleMouseUp = () => {
@@ -463,7 +483,7 @@ const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDraggingPlayhead, ui.timelineZoom, projectDuration, seek, tracksContainerRef, PIXELS_PER_SECOND]);
+  }, [isDraggingPlayhead, ui.timelineZoom, projectDuration, seek, selectClipAtTime, tracksContainerRef, PIXELS_PER_SECOND]);
 
   return {
     isDraggingPlayhead,
@@ -923,7 +943,7 @@ export const Timeline: React.FC = () => {
     return markers;
   };
 
-  // Handle timeline click to seek
+  // Handle timeline click to seek + auto-select clip at position
   const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingClip || resizingClip || isDraggingPlayhead) return;
     
@@ -931,9 +951,26 @@ export const Timeline: React.FC = () => {
     if (!rect) return;
     
     const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
-    const time = x / (PIXELS_PER_SECOND * ui.timelineZoom);
+    const time = Math.max(0, Math.min(projectDuration, x / (PIXELS_PER_SECOND * ui.timelineZoom)));
     
-    seek(Math.max(0, Math.min(projectDuration, time)));
+    seek(time);
+    
+    // Auto-sélectionner le clip sous la position cliquée
+    let clipFound = false;
+    for (const track of tracks) {
+      if (track.locked) continue;
+      for (const clip of track.clips) {
+        const clipEnd = clip.startTime + clip.duration;
+        if (time >= clip.startTime && time < clipEnd) {
+          if (ui.selectedClipId !== clip.id) {
+            selectClip(clip.id);
+          }
+          clipFound = true;
+          break;
+        }
+      }
+      if (clipFound) break;
+    }
   };
 
   const handleZoom = (delta: number) => {

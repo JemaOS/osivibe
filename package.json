@@ -100,7 +100,9 @@
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.15.0",
     "vite": "^6.0.1",
+    "vite-plugin-pwa": "^1.3.0",
     "vite-plugin-source-identifier": "1.1.2",
-    "vitest": "^4.0.15"
+    "vitest": "^4.0.15",
+    "workbox-window": "^7.4.1"
   }
 }

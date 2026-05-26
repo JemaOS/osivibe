@@ -2,3 +2,4 @@
 // Distributed under the license specified in the root directory of this project.
 
 /// <reference types="vite/client" />
+/// <reference types="vite-plugin-pwa/react" />

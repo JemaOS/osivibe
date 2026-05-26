@@ -15,8 +15,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="format-detection" content="telephone=no" />
   
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="/manifest.json" />
+  <!-- PWA Manifest (injecté automatiquement par vite-plugin-pwa) -->
   
   <!-- Favicon and Icons -->
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
@@ -33,14 +32,7 @@
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
   
-  <!-- Register Service Worker for PWA -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
-      });
-    }
-  </script>
+  <!-- Service Worker géré par vite-plugin-pwa -->
 </body>
 
 </html>

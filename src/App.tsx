@@ -8,6 +8,7 @@ import VideoPlayer from './components/VideoPlayer';
 import PropertiesPanel from './components/PropertiesPanel';
 import Timeline from './components/Timeline';
 import Toolbar from './components/Toolbar';
+import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 // ExportModal is lazy loaded to reduce initial bundle size
 const ExportModal = lazy(() => import('./components/ExportModal').then(module => ({ default: module.ExportModal })));
 import { useEditorStore } from './store/editorStore';
@@ -688,7 +689,12 @@ function App() {
     );
   };
 
-  return renderLayout();
+  return (
+    <>
+      {renderLayout()}
+      <PWAUpdatePrompt />
+    </>
+  );
 }
 
 export default App;
