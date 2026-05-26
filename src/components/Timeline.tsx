@@ -406,6 +406,19 @@ const useTimelineKeyboardShortcuts = () => {
     return false;
   }, [player.currentTime, projectDuration, seek]);
 
+  const handleSelectAll = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+      e.preventDefault();
+      const { tracks: allTracks, selectMultipleClips: selectAll } = useEditorStore.getState();
+      const allClipIds = allTracks.flatMap(t => t.clips.map(c => c.id));
+      if (allClipIds.length > 0) {
+        selectAll(allClipIds);
+      }
+      return true;
+    }
+    return false;
+  }, []);
+
   const handleToolShortcuts = useCallback((e: KeyboardEvent) => {
     if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
@@ -428,12 +441,13 @@ const useTimelineKeyboardShortcuts = () => {
     }
 
     if (handleUndoRedo(e)) return;
+    if (handleSelectAll(e)) return;
     if (handleDelete(e)) return;
     if (handleToolShortcuts(e)) return;
     if (handleCopy(e)) return;
     if (handlePaste(e)) return;
     if (handleSeekKeys(e)) return;
-  }, [handleUndoRedo, handleDelete, handleToolShortcuts, handleCopy, handlePaste, handleSeekKeys]);
+  }, [handleUndoRedo, handleSelectAll, handleDelete, handleToolShortcuts, handleCopy, handlePaste, handleSeekKeys]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -951,6 +965,8 @@ export const Timeline: React.FC = () => {
   const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false);
   const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null);
   const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const marqueeEndRef = useRef<{ x: number; y: number } | null>(null);
 
   // Add Track dropdown state
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
@@ -1056,8 +1072,11 @@ export const Timeline: React.FC = () => {
     const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
     const y = e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0);
     
-    setMarqueeStart({ x, y });
-    setMarqueeEnd({ x, y });
+    const point = { x, y };
+    setMarqueeStart(point);
+    setMarqueeEnd(point);
+    marqueeStartRef.current = point;
+    marqueeEndRef.current = point;
     setIsMarqueeSelecting(true);
   };
 
@@ -1071,16 +1090,22 @@ export const Timeline: React.FC = () => {
       
       const x = e.clientX - rect.left + (tracksContainerRef.current?.scrollLeft || 0);
       const y = e.clientY - rect.top + (tracksContainerRef.current?.scrollTop || 0);
-      setMarqueeEnd({ x, y });
+      const point = { x, y };
+      setMarqueeEnd(point);
+      marqueeEndRef.current = point;
     };
 
     const handleMouseUp = () => {
-      if (marqueeStart && marqueeEnd) {
+      // Utiliser les refs pour avoir les valeurs les plus récentes
+      const start = marqueeStartRef.current;
+      const end = marqueeEndRef.current;
+      
+      if (start && end) {
         // Calculer le rectangle de sélection
-        const left = Math.min(marqueeStart.x, marqueeEnd.x);
-        const right = Math.max(marqueeStart.x, marqueeEnd.x);
-        const top = Math.min(marqueeStart.y, marqueeEnd.y);
-        const bottom = Math.max(marqueeStart.y, marqueeEnd.y);
+        const left = Math.min(start.x, end.x);
+        const right = Math.max(start.x, end.x);
+        const top = Math.min(start.y, end.y);
+        const bottom = Math.max(start.y, end.y);
         
         // Ne sélectionner que si le rectangle est assez grand (pas juste un clic)
         if (right - left > 5 || bottom - top > 5) {
@@ -1088,7 +1113,11 @@ export const Timeline: React.FC = () => {
           const selectedIds: string[] = [];
           let trackYOffset = RULER_HEIGHT;
           
-          for (const track of tracks) {
+          // Récupérer les tracks les plus récentes depuis le store
+          const currentTracks = useEditorStore.getState().tracks;
+          const currentZoom = useEditorStore.getState().ui.timelineZoom;
+          
+          for (const track of currentTracks) {
             if (track.locked) {
               trackYOffset += TRACK_HEIGHT;
               continue;
@@ -1097,11 +1126,11 @@ export const Timeline: React.FC = () => {
             const trackTop = trackYOffset;
             const trackBottom = trackYOffset + TRACK_HEIGHT;
             
-            // Vérifier si le rectangle intersecte cette piste
+            // Vérifier si le rectangle intersecte cette piste verticalement
             if (top < trackBottom && bottom > trackTop) {
               for (const clip of track.clips) {
-                const clipLeft = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
-                const clipRight = clipLeft + (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
+                const clipLeft = clip.startTime * PIXELS_PER_SECOND * currentZoom;
+                const clipRight = clipLeft + (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * currentZoom;
                 
                 // Vérifier l'intersection horizontale
                 if (left < clipRight && right > clipLeft) {
@@ -1122,6 +1151,8 @@ export const Timeline: React.FC = () => {
       setIsMarqueeSelecting(false);
       setMarqueeStart(null);
       setMarqueeEnd(null);
+      marqueeStartRef.current = null;
+      marqueeEndRef.current = null;
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -1131,7 +1162,7 @@ export const Timeline: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isMarqueeSelecting, marqueeStart, marqueeEnd, tracks, ui.timelineZoom, PIXELS_PER_SECOND, TRACK_HEIGHT, RULER_HEIGHT, selectMultipleClips]);
+  }, [isMarqueeSelecting, PIXELS_PER_SECOND, TRACK_HEIGHT, RULER_HEIGHT, selectMultipleClips]);
 
   const handleZoom = (delta: number) => {
     setTimelineZoom(ui.timelineZoom + delta);
