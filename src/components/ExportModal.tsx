@@ -109,26 +109,32 @@ export const ExportModal: React.FC = () => {
       displayProgressRef.current = 0;
       setIsExporting(true);
       setExportProgress(0);
-      setExportMessage('Préparation de l\'export...');
-      setProcessing(true, 0, 'Préparation de l\'export...');
+      setExportMessage('Export en cours...');
+      setProcessing(true, 0, 'Export en cours...');
       
-      // Timer pour animer la progression de manière fluide vers la valeur réelle
+      // Animation fluide 0% → 99% indépendante du backend
+      // Avance de 1% à un rythme adapté pour que l'utilisateur voie défiler les %
+      // Ralentit en s'approchant de la valeur réelle pour ne jamais la dépasser
       if (smoothTimerRef.current) clearInterval(smoothTimerRef.current);
       smoothTimerRef.current = setInterval(() => {
         if (cancelledRef.current) return;
         const real = realProgressRef.current;
         const display = displayProgressRef.current;
+        
+        // Si on a atteint 99%, on attend la vraie fin
+        if (display >= 99) return;
+        
+        // Avancer de 1% à chaque tick, mais ne jamais dépasser real
         if (display < real) {
-          // Avancer rapidement vers la vraie progression (lissage)
-          const step = Math.max(1, Math.ceil((real - display) * 0.4));
-          displayProgressRef.current = Math.min(real, display + step);
+          displayProgressRef.current = display + 1;
           setExportProgress(displayProgressRef.current);
-        } else if (display < 95 && real > 5) {
-          // Progresser très lentement même sans nouveau réel (feedback continu)
-          displayProgressRef.current = Math.min(real + 1, display + 0.3);
-          setExportProgress(Math.round(displayProgressRef.current));
+          // Mettre à jour le store global (pour le header) max 2x/sec
+          if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 500) {
+            setProcessing(true, displayProgressRef.current, 'Export en cours...');
+            lastStoreUpdateRef.current = Date.now();
+          }
         }
-      }, 100);
+      }, 150); // 1% toutes les 150ms
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
       const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
@@ -278,19 +284,10 @@ export const ExportModal: React.FC = () => {
         const blob = await exportProject(
           clipsToExport,
           exportSettings,
-          (progress, message) => {
-            // Ne pas mettre à jour si l'export a été annulé
+          (progress, _message) => {
             if (cancelledRef.current) return;
-            const p = Math.round(Math.min(99, Math.max(0, progress)));
-            const msg = message || 'Traitement en cours...';
-            // Mettre à jour la cible réelle (le timer animera la progression vers cette valeur)
-            realProgressRef.current = p;
-            setExportMessage(msg);
-            // Throttle le store global (qui déclenche IndexedDB saves) à 2x/seconde
-            if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 500) {
-              setProcessing(true, displayProgressRef.current, msg);
-              lastStoreUpdateRef.current = Date.now();
-            }
+            // On stocke la progression réelle du backend, l'animation côté client s'en charge
+            realProgressRef.current = Math.round(Math.min(100, Math.max(0, progress)));
           },
           textOverlays,
           transitions,
@@ -305,11 +302,28 @@ export const ExportModal: React.FC = () => {
           clearInterval(smoothTimerRef.current);
           smoothTimerRef.current = null;
         }
+        // Animer les derniers % jusqu'à 100
         realProgressRef.current = 100;
-        displayProgressRef.current = 100;
-        setExportProgress(100);
+        const finishFrom = displayProgressRef.current;
+        const stepsLeft = 100 - finishFrom;
+        if (stepsLeft > 0) {
+          let step = 0;
+          const finishTimer = setInterval(() => {
+            step++;
+            const current = finishFrom + step;
+            setExportProgress(current);
+            setProcessing(true, current, 'Finalisation...');
+            if (current >= 100) {
+              clearInterval(finishTimer);
+              displayProgressRef.current = 100;
+            }
+          }, 30); // Rapide pour la fin : 30ms par %
+        } else {
+          displayProgressRef.current = 100;
+          setExportProgress(100);
+          setProcessing(true, 100, 'Finalisation...');
+        }
         setExportMessage('Finalisation...');
-        setProcessing(true, 100, 'Finalisation...');
 
         // Check if the format was auto-changed during export (e.g., VP9 unsupported → H.264)
         const formatInfo = getLastExportFormatInfo();
