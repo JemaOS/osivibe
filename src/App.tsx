@@ -14,6 +14,7 @@ const ExportModal = lazy(() => import('./components/ExportModal').then(module =>
 import { useEditorStore } from './store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
 import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
+import { SubscriptionGuard } from './SubscriptionGuard';
 import './index.css';
 
 // Footer credit component
@@ -690,10 +691,12 @@ function App() {
   };
 
   return (
+    <SubscriptionGuard appName="OsiVibe">
     <>
       {renderLayout()}
       <PWAUpdatePrompt />
     </>
+    </SubscriptionGuard>
   );
 }
 
