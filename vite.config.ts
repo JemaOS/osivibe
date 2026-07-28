@@ -15,7 +15,7 @@ export default defineConfig({
     }),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/icon.svg', 'fonts/Roboto.ttf'],
+      includeAssets: ['icons/icon.svg', 'icons/icon-192x192.png', 'icons/icon-512x512.png', 'fonts/Roboto.ttf'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,ttf,woff,woff2}'],
         // Ne pas cacher les gros fichiers media (vidéo/audio)
@@ -57,9 +57,27 @@ export default defineConfig({
             purpose: 'any',
           },
           {
-            src: '/icons/icon.svg',
+            src: '/icons/icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: '/icons/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icons/icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
             purpose: 'maskable',
           },
         ],
