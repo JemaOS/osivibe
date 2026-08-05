@@ -134,7 +134,7 @@ export type ExportResolution = '720p' | '1080p' | '4K';
 export type ExportFormat = 'mp4' | 'webm';
 export type ExportQuality = 'low' | 'medium' | 'high';
 export type ExportFPS = '30' | '60' | '120';
-export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+export type AspectRatio = 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 
 export interface ExportSettings {
   resolution: ExportResolution;
@@ -143,6 +143,7 @@ export interface ExportSettings {
   fps: ExportFPS;
   filename: string;
   aspectRatio?: AspectRatio; // Optional, defaults to project aspect ratio
+  sourceDimensions?: { width: number; height: number }; // For 'original' aspect ratio: native dimensions of the source video
 }
 
 // Project Types
@@ -157,7 +158,7 @@ export interface Project {
   transitions: Transition[];
   filters: { [clipId: string]: VideoFilter };
   duration: number; // total project duration
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+  aspectRatio: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 }
 
 // Player State
@@ -196,6 +197,7 @@ export const RESOLUTION_PRESETS = {
 
 // Aspect ratio multipliers for calculating dimensions
 export const ASPECT_RATIO_VALUES: Record<AspectRatio, { width: number; height: number }> = {
+  'original': { width: 0, height: 0 }, // Sentinel: computed from the source video dimensions
   '16:9': { width: 16, height: 9 },
   '9:16': { width: 9, height: 16 },
   '1:1': { width: 1, height: 1 },
@@ -206,14 +208,35 @@ export const ASPECT_RATIO_VALUES: Record<AspectRatio, { width: number; height: n
 /**
  * Get resolution dimensions adjusted for aspect ratio
  * @param resolution - The base resolution (720p, 1080p, 4K)
- * @param aspectRatio - The target aspect ratio
+ * @param aspectRatio - The target aspect ratio ('original' keeps the source ratio)
+ * @param sourceDimensions - Native dimensions of the source video (required for 'original')
  * @returns { width, height } in pixels
  */
 export function getResolutionForAspectRatio(
   resolution: ExportResolution,
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  sourceDimensions?: { width: number; height: number }
 ): { width: number; height: number } {
   const baseRes = RESOLUTION_PRESETS[resolution];
+
+  // 'original' : conserve le ratio exact de la source. La vidéo n'est
+  // jamais agrandie : elle est réduite uniquement si elle dépasse le preset.
+  if (aspectRatio === 'original') {
+    const srcW = sourceDimensions?.width || 0;
+    const srcH = sourceDimensions?.height || 0;
+    if (srcW > 0 && srcH > 0) {
+      const scale = Math.min(baseRes.width / srcW, baseRes.height / srcH, 1);
+      let width = Math.round(srcW * scale);
+      let height = Math.round(srcH * scale);
+      // Dimensions paires (requis par la plupart des codecs vidéo)
+      width -= width % 2;
+      height -= height % 2;
+      return { width: Math.max(2, width), height: Math.max(2, height) };
+    }
+    // Dimensions source inconnues : repli sur le preset tel quel.
+    return { width: baseRes.width, height: baseRes.height };
+  }
+
   const aspect = ASPECT_RATIO_VALUES[aspectRatio];
   
   // Calculate dimensions based on aspect ratio

@@ -2915,7 +2915,7 @@ async function performFFmpegExport(
     }
   }
   
-  const resolution = getResolutionForAspectRatio(effectiveResolution, effectiveAspectRatio);
+  const resolution = getResolutionForAspectRatio(effectiveResolution, effectiveAspectRatio, settings.sourceDimensions);
   console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
   const outputFormat = settings.format;
   

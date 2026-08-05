@@ -11,9 +11,10 @@ import { getHardwareProfile } from '../utils/previewOptimizer';
 import { getLastExportFormatInfo } from '../utils/mediaBunny';
 
 // Aspect ratio options for export
-type AspectRatioOption = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+type AspectRatioOption = 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 
 const ASPECT_RATIO_OPTIONS: { value: AspectRatioOption; label: string; description: string }[] = [
+  { value: 'original', label: 'Original', description: 'Conserve le ratio de la source vidéo' },
   { value: '16:9', label: '16:9', description: 'Paysage (YouTube, TV)' },
   { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Reels)' },
   { value: '1:1', label: '1:1', description: 'Carré (Instagram)' },
@@ -295,9 +296,15 @@ export const ExportModal: React.FC = () => {
 
         // Export video with progress callback, including text overlays, transitions, and aspect ratio
         console.debug('📐 DEBUG - Exporting with aspect ratio:', selectedAspectRatio);
+        // 'original' : dimensions natives de la première vidéo source (pour
+        // préserver son ratio exact dans getResolutionForAspectRatio).
+        const firstVideo = mediaFiles.find((m) => m.type === 'video' && m.width && m.height);
+        const sourceDimensions = firstVideo && firstVideo.width && firstVideo.height
+          ? { width: firstVideo.width, height: firstVideo.height }
+          : undefined;
         const blob = await exportProject(
           clipsToExport,
-          exportSettings,
+          { ...exportSettings, sourceDimensions },
           () => {
             // L'animation côté client gère l'affichage, le backend est ignoré visuellement
           },
@@ -431,7 +438,7 @@ export const ExportModal: React.FC = () => {
                 <label id="export-aspect" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   Ratio d'aspect
                 </label>
-                <div className="grid grid-cols-5 gap-1 sm:gap-2">
+                <div className="grid grid-cols-6 gap-1 sm:gap-2">
                   {ASPECT_RATIO_OPTIONS.map((option) => (
                     <button
                       key={option.value}

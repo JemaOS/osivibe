@@ -70,6 +70,7 @@ const getChevronSize = (layoutMode: string): string => {
 
 const getAspectRatioDescription = (ratio: string): string => {
   const descriptions: Record<string, string> = {
+    'original': 'Ratio de la source vidéo',
     '16:9': 'Paysage standard',
     '4:3': 'Format classique',
     '9:16': 'Portrait (TikTok, Stories)',
@@ -472,7 +473,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
 
 
-  const aspectRatios: Array<{ value: '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; description: string }> = [
+  const aspectRatios: Array<{ value: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; description: string }> = [
+    { value: 'original', label: 'Original', description: 'Ratio de la source vidéo' },
     { value: '16:9', label: '16:9', description: 'Paysage standard' },
     { value: '4:3', label: '4:3', description: 'Format classique' },
     { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Stories)' },

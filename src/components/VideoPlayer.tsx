@@ -1227,7 +1227,8 @@ const usePreviewDimensions = (
   videoContainerRef: any,
   aspectRatio: string,
   isScrubbingRef: any,
-  setPreviewDimensions: any
+  setPreviewDimensions: any,
+  originalDims?: { width: number; height: number }
 ) => {
   useEffect(() => {
     const updateDimensions = () => {
@@ -1240,6 +1241,13 @@ const usePreviewDimensions = (
         
         let aspectWidth = 16, aspectHeight = 9;
         switch (aspectRatio) {
+          case 'original':
+            // Ratio natif de la vidéo source (repli 16/9 si inconnu)
+            if (originalDims && originalDims.width > 0 && originalDims.height > 0) {
+              aspectWidth = originalDims.width;
+              aspectHeight = originalDims.height;
+            }
+            break;
           case '16:9': aspectWidth = 16; aspectHeight = 9; break;
           case '9:16': aspectWidth = 9; aspectHeight = 16; break;
           case '1:1': aspectWidth = 1; aspectHeight = 1; break;
@@ -1275,7 +1283,7 @@ const usePreviewDimensions = (
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateDimensions);
     };
-  }, [aspectRatio, isScrubbingRef, setPreviewDimensions, videoContainerRef]);
+  }, [aspectRatio, isScrubbingRef, setPreviewDimensions, videoContainerRef, originalDims]);
 };
 
 const useKeyboardShortcuts = (
@@ -1522,8 +1530,13 @@ const useCurrentTextOverlays = (textOverlays: any[], currentTime: number) => {
 };
 
 // Helper to get aspect ratio value
-const getAspectRatioValue = (aspectRatio: string) => {
+const getAspectRatioValue = (aspectRatio: string, originalDims?: { width: number; height: number }) => {
   switch (aspectRatio) {
+    case 'original':
+      // Ratio natif de la source (repli 16/9 si dimensions inconnues)
+      return originalDims && originalDims.width > 0 && originalDims.height > 0
+        ? `${originalDims.width} / ${originalDims.height}`
+        : '16 / 9';
     case '16:9': return '16 / 9';
     case '9:16': return '9 / 16';
     case '1:1': return '1 / 1';
@@ -1828,8 +1841,14 @@ const VideoPlayer: React.FC = () => {
   useEffect(() => {
     console.log('🖼️ VideoPlayer: aspect ratio changed to', aspectRatio);
   }, [aspectRatio]);
-  
-  usePreviewDimensions(videoContainerRef, aspectRatio, isScrubbingRef, setPreviewDimensions);
+
+  // 'original' : dimensions natives de la première vidéo source (ratio du preview).
+  const originalDims = useMemo(() => {
+    const v = mediaFiles.find((m) => m.type === 'video' && m.width && m.height);
+    return v && v.width && v.height ? { width: v.width, height: v.height } : undefined;
+  }, [mediaFiles]);
+
+  usePreviewDimensions(videoContainerRef, aspectRatio, isScrubbingRef, setPreviewDimensions, originalDims);
   
   // Calculate text scale factor based on preview size vs export resolution
   const getTextScaleFactor = useCallback(() => {
@@ -2023,7 +2042,7 @@ const VideoPlayer: React.FC = () => {
   const getCropStyle = useCallback((clip: any) => computeCropStyle(clip), []);
   
   // Get aspect ratio value for inline style
-  const aspectRatioValue = getAspectRatioValue(aspectRatio);
+  const aspectRatioValue = getAspectRatioValue(aspectRatio, originalDims);
 
   // Stable ref callback with optimizations applied
   const setVideoRef = useCallback((id: string, el: HTMLVideoElement | null) => {

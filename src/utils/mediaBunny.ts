@@ -954,7 +954,7 @@ export async function exportProjectWithMediaBunny(
     lastReportedProgress = 0;
     onProgress?.(0, 'Initialisation de MediaBunny...');
     const effectiveAspectRatio = aspectRatio||settings.aspectRatio||'16:9';
-    const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio);
+    const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio, settings.sourceDimensions);
     let isWebM = settings.format==='webm';
     
     // Negotiate codec: test if the requested codec is actually supported by the browser's encoder

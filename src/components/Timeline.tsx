@@ -1212,7 +1212,7 @@ export const Timeline: React.FC = () => {
   };
 
   const handleAspectRatioClick = () => {
-    const ratios: ('16:9' | '9:16' | '1:1' | '4:3' | '21:9')[] = ['16:9', '9:16', '1:1', '4:3', '21:9'];
+    const ratios: ('original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9')[] = ['original', '16:9', '9:16', '1:1', '4:3', '21:9'];
     const currentIndex = ratios.indexOf(aspectRatio);
     const nextIndex = (currentIndex + 1) % ratios.length;
     const newRatio = ratios[nextIndex];

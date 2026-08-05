@@ -218,7 +218,7 @@ interface EditorState {
   transitions: Transition[];
   filters: { [clipId: string]: VideoFilter };
   projectDuration: number;
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+  aspectRatio: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
   
   // Player state
   player: PlayerState;
@@ -238,7 +238,7 @@ interface EditorState {
   
   // Actions
   setProjectName: (name: string) => void;
-  setAspectRatio: (ratio: '16:9' | '9:16' | '1:1' | '4:3' | '21:9') => void;
+  setAspectRatio: (ratio: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9') => void;
   createProject: () => void;
   loadProject: (id: string) => void;
   deleteProject: (id: string) => void;
@@ -327,7 +327,7 @@ interface ProjectData {
   transitions: Transition[];
   filters: { [clipId: string]: VideoFilter };
   projectDuration: number;
-  aspectRatio: '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+  aspectRatio: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 }
 
 const defaultPlayerState: PlayerState = {
