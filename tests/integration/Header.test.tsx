@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Header } from '../../src/components/Header';
+import { I18nProvider } from '../../src/i18n';
 
 // Mock the store
 vi.mock('../../src/store/editorStore', () => ({
@@ -31,7 +32,11 @@ vi.mock('../../src/hooks/use-responsive', () => ({
 
 describe('Header Component', () => {
   it('renders project name', () => {
-    render(<Header isSidebarVisible={true} onToggleSidebar={() => {}} />);
+    render(
+      <I18nProvider>
+        <Header isSidebarVisible={true} onToggleSidebar={() => {}} />
+      </I18nProvider>
+    );
     expect(screen.getByText('Test Project')).toBeInTheDocument();
   });
 });
