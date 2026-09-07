@@ -18,8 +18,10 @@ import { MediaFile, MediaType } from '../types';
 import { formatTime, formatFileSize, getFileType } from '../utils/helpers';
 import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/mediaBunny';
 import { v4 as uuidv4 } from 'uuid';
+import { useI18n } from '../i18n';
 
 export const MediaLibrary: React.FC = () => {
+  const { t } = useI18n();
   const { mediaFiles, addMediaFile, removeMediaFile, addMediaToTimeline, player } = useEditorStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -180,7 +182,7 @@ export const MediaLibrary: React.FC = () => {
     
     // Show result message
     if (failCount > 0) {
-      setErrorMessage(`${successCount} fichier(s) importé(s), ${failCount} échec(s)`);
+      setErrorMessage(t('importResult', { success: successCount, fail: failCount }));
       setTimeout(() => setErrorMessage(''), 5000);
     }
   };
@@ -241,7 +243,7 @@ export const MediaLibrary: React.FC = () => {
     <div className="glass-panel h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-2 xxs:px-3 sm:px-4 py-1.5 xxs:py-2 sm:py-3 border-b border-white/20 flex-shrink-0">
-        <h2 className="text-sm xxs:text-base sm:text-h3 font-semibold text-white">Médias</h2>
+        <h2 className="text-sm xxs:text-base sm:text-h3 font-semibold text-white">{t('mediaLibrary')}</h2>
       </div>
 
       {/* Filter Tabs */}
@@ -256,7 +258,7 @@ export const MediaLibrary: React.FC = () => {
                 : 'text-neutral-300 hover:bg-white/10'
             }`}
           >
-            {type === 'all' ? 'Tous' : type === 'video' ? 'Vidéos' : type === 'audio' ? 'Audio' : 'Images'}
+            {type === 'all' ? t('all') : type === 'video' ? t('videos') : type === 'audio' ? t('audio') : t('images')}
           </button>
         ))}
       </div>
@@ -291,10 +293,10 @@ export const MediaLibrary: React.FC = () => {
               </div>
               <div className="text-center">
                 <p className="text-sm xxs:text-base sm:text-lg font-medium text-white">
-                  {isDragging ? 'Déposez ici' : 'Glissez vos médias'}
+                  {isDragging ? t('dropHere') : t('dragYourMedia')}
                 </p>
                 <p className="text-xs xxs:text-sm sm:text-base text-neutral-400 mt-1 xxs:mt-1.5 sm:mt-2">
-                  ou cliquez pour parcourir
+                  {t('orClickToBrowse')}
                 </p>
                 <p className="text-[10px] xxs:text-xs sm:text-sm text-neutral-500 mt-1 xxs:mt-1.5 sm:mt-2">
                   MP4, WebM, MOV, MP3, WAV, PNG, JPG
@@ -332,10 +334,10 @@ export const MediaLibrary: React.FC = () => {
                 <Plus className={`w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4 ${isDragging ? 'text-white' : 'text-neutral-400'}`} />
               </div>
               <span className="text-xs xxs:text-sm sm:text-base font-medium text-white whitespace-nowrap">
-                {isDragging ? 'Déposez ici' : (
+                {isDragging ? t('dropHere') : (
                   <>
-                    <span className="hidden xxs:inline">Ajouter des médias</span>
-                    <span className="xxs:hidden">Ajouter</span>
+                    <span className="hidden xxs:inline">{t('addMedia')}</span>
+                    <span className="xxs:hidden">{t('add')}</span>
                   </>
                 )}
               </span>
@@ -357,7 +359,7 @@ export const MediaLibrary: React.FC = () => {
             <div className="glass-panel-medium p-2 xxs:p-3 sm:p-4 rounded-xl">
               <div className="flex items-center gap-1.5 xxs:gap-2 text-[10px] xxs:text-xs sm:text-small text-neutral-700 mb-1.5 xxs:mb-2">
                 <div className="w-2.5 h-2.5 xxs:w-3 xxs:h-3 sm:w-4 sm:h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                <span className="font-medium">Import...</span>
+                <span className="font-medium">{t('import')}</span>
               </div>
               
               {/* Progress bar */}
@@ -428,14 +430,14 @@ export const MediaLibrary: React.FC = () => {
                       <button
                         onClick={() => handleAddToTimeline(media)}
                         className="p-0.5 xxs:p-1 sm:p-1.5 rounded-lg hover:bg-primary-500/10 text-neutral-400 hover:text-primary-500 transition-colors"
-                        title="Ajouter"
+                        title={t('add')}
                       >
                         <Plus className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
                       </button>
                       <button
                         onClick={() => removeMediaFile(media.id)}
                         className="p-0.5 xxs:p-1 sm:p-1.5 rounded-lg hover:bg-error/10 text-neutral-400 hover:text-error transition-colors"
-                        title="Supprimer"
+                        title={t('delete')}
                       >
                         <Trash2 className="w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4" />
                       </button>

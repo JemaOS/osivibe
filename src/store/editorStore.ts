@@ -20,6 +20,7 @@ import type {
   TrackType,
 } from '../types';
 import { DEFAULT_FILTER } from '../types';
+import { t } from '../i18n';
 
 // Round time to millisecond precision to avoid float issues
 const roundTime = (time: number): number => Math.round(time * 1000) / 1000;
@@ -367,7 +368,7 @@ const initialProjectId = uuidv4();
 
 export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   // Initial state
-  projectName: 'Nouveau Projet',
+  projectName: t('newProjectDefault'),
   mediaFiles: [],
   tracks: [
     { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },
@@ -387,7 +388,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   // Project management
   projects: [{
     id: initialProjectId,
-    name: 'Nouveau Projet',
+    name: t('newProjectDefault'),
     lastModified: Date.now(),
     mediaFiles: [],
     tracks: [
@@ -443,7 +444,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     const newProjectId = uuidv4();
     const newProject: ProjectData = {
       id: newProjectId,
-      name: `Projet ${state.projects.length + 1}`,
+      name: t('newProjectName', { count: state.projects.length + 1 }),
       lastModified: Date.now(),
       mediaFiles: [],
      tracks: [
@@ -682,14 +683,14 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   addTrack: (type = 'video' as TrackType) => {
     const trackCount = get().tracks.filter((t) => t.type === type).length;
     const typeNames: Record<TrackType, string> = {
-      video: 'Vidéo',
-      audio: 'Audio',
-      image: 'Image',
-      text: 'Texte',
+      video: t('trackNameVideo', { count: trackCount + 1 }),
+      audio: t('trackNameAudio', { count: trackCount + 1 }),
+      image: t('trackNameImage', { count: trackCount + 1 }),
+      text: t('trackNameText', { count: trackCount + 1 }),
     };
     const newTrack: TimelineTrack = {
       id: uuidv4(),
-      name: `${typeNames[type]} ${trackCount + 1}`,
+      name: typeNames[type],
       type,
       clips: [],
       muted: false,
@@ -1419,7 +1420,7 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   
   resetProject: () => {
     set({
-      projectName: 'Nouveau Projet',
+      projectName: t('newProjectDefault'),
       mediaFiles: [],
       tracks: [
         { id: 'video-1', name: 'Video 1', type: 'video', clips: [], muted: false, locked: false, volume: 1 },

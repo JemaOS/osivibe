@@ -16,8 +16,10 @@ import {
 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
+import { useI18n } from '../i18n';
 
 export const Toolbar: React.FC = () => {
+  const { t } = useI18n();
   const {
     ui,
     tracks,
@@ -83,53 +85,53 @@ export const Toolbar: React.FC = () => {
     {
       id: 'split',
       icon: Split,
-      label: 'Couper',
+      label: t('cut'),
       shortLabel: 'Cut',
       onClick: handleSplit,
       disabled: !selectedClip || 
         player.currentTime <= selectedClip?.startTime ||
         player.currentTime >= (selectedClip?.startTime + (selectedClip?.duration - selectedClip.trimStart - selectedClip.trimEnd)),
-      tooltip: 'Couper le clip au curseur (S)',
+      tooltip: t('cutClipTooltip'),
       priority: 1, // Higher priority = shown first
     },
     {
       id: 'text',
       icon: Type,
-      label: 'Texte',
+      label: t('text'),
       shortLabel: 'Text',
       onClick: handleAddText,
       disabled: false,
-      tooltip: 'Ajouter du texte (T)',
+      tooltip: t('addTextTooltip'),
       priority: 2,
     },
     {
       id: 'transitions',
       icon: Wand2,
-      label: 'Transitions',
+      label: t('transitions'),
       shortLabel: 'Trans.',
       onClick: () => setActivePanel('transitions'),
       disabled: !selectedClip,
-      tooltip: 'Transitions',
+      tooltip: t('transitions'),
       priority: 3,
     },
     {
       id: 'filters',
       icon: Palette,
-      label: 'Filtres',
+      label: t('filters'),
       shortLabel: 'Filters',
       onClick: () => setActivePanel('filters'),
       disabled: !selectedClip,
-      tooltip: 'Filtres et effets',
+      tooltip: t('filtersAndEffects'),
       priority: 4,
     },
     {
       id: 'delete',
       icon: Trash2,
-      label: 'Supprimer',
+      label: t('delete'),
       shortLabel: 'Del',
       onClick: handleDelete,
       disabled: !selectedClip,
-      tooltip: 'Supprimer (Del)',
+      tooltip: t('deleteTooltip'),
       danger: true,
       priority: 5,
     },
@@ -237,7 +239,7 @@ export const Toolbar: React.FC = () => {
           <button
             onClick={() => setIsOverflowMenuOpen(!isOverflowMenuOpen)}
             className={`btn-icon ${getButtonSize()} touch-target ${isOverflowMenuOpen ? 'bg-white/10' : ''}`}
-            title="Plus d'outils"
+            title={t('moreTools')}
           >
             {isOverflowMenuOpen ? (
               <X className={getIconSize()} />

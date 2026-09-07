@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { useTimelineClipDrag, useTimelineClipResize, useTimelineTextDrag, useTimelineTextResize, useTimelineTransitionDrag, useTimelineDrop } from '../hooks/use-timeline-interactions';
 import { formatTime } from '../utils/helpers';
+import { useI18n } from '../i18n';
 import type { TimelineClip, TextOverlay, MediaFile, TrackType } from '../types';
 
 // Base scale - will be adjusted based on screen size
@@ -196,6 +197,7 @@ const TimelineClipComponent = ({
   handleResizeMouseDown,
   onCtrlClick,
 }: any) => {
+  const { t } = useI18n();
   const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
   const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
   const isSelected = ui.selectedClipId === clip.id || (ui.selectedClipIds && ui.selectedClipIds.includes(clip.id));
@@ -255,14 +257,14 @@ const TimelineClipComponent = ({
           <div
             className={`absolute left-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
             onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'start')}
-            title="Étendre le début"
+            title={t('extendStart')}
           >
             <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
           </div>
           <div
             className={`absolute right-0 top-0 bottom-0 ${isMinimal || isCompact ? 'w-4' : 'w-3'} cursor-ew-resize hover:bg-primary-500/50 z-10 group touch-target`}
             onMouseDown={(e) => handleResizeMouseDown(e, clip.id, 'end')}
-            title="Étendre la fin"
+            title={t('extendEnd')}
           >
             <div className="absolute right-0 top-0 bottom-0 w-1 bg-primary-500/80 group-hover:w-full transition-all" />
           </div>
@@ -782,6 +784,7 @@ const useTimelineCut = () => {
 };
 
 const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCopiedText }: any) => {
+  const { t } = useI18n();
   const { tracks, mediaFiles, textOverlays, addTextOverlay, removeTextOverlay, removeClip, player } = useEditorStore();
 
   const handleDetachAudio = (clipId: string) => {
@@ -857,7 +860,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
           className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
         >
           <Scissors className="w-4 h-4" />
-          <span>Couper</span>
+          <span>{t('cut')}</span>
         </button>
 
         {isVideo && (
@@ -866,7 +869,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
             className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
           >
             <Music2 className="w-4 h-4" />
-            <span>Detacher audio</span>
+            <span>{t('detachAudio')}</span>
           </button>
         )}
 
@@ -875,7 +878,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
           className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
         >
           <Copy className="w-4 h-4" />
-          <span>Dupliquer</span>
+          <span>{t('duplicate')}</span>
         </button>
 
         <div className="h-px bg-white/10 my-1" />
@@ -885,7 +888,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
           className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
         >
           <Trash2 className="w-4 h-4" />
-          <span>Supprimer</span>
+          <span>{t('delete')}</span>
         </button>
       </div>
     );
@@ -917,7 +920,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
           className="w-full px-3 py-2.5 text-sm text-white hover:bg-white/10 flex items-center gap-2 transition-colors touch-target"
         >
           <Copy className="w-4 h-4" />
-          <span>Dupliquer</span>
+          <span>{t('duplicate')}</span>
         </button>
 
         <div className="h-px bg-white/10 my-1" />
@@ -930,7 +933,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
           className="w-full px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors touch-target"
         >
           <Trash2 className="w-4 h-4" />
-          <span>Supprimer</span>
+          <span>{t('delete')}</span>
         </button>
       </div>
     );
@@ -939,6 +942,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
 };
 
 export const Timeline: React.FC = () => {
+  const { t } = useI18n();
   const {
     tracks,
     mediaFiles,
@@ -1230,13 +1234,13 @@ export const Timeline: React.FC = () => {
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
       {/* Timeline Header */}
       <div className={`px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2 flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
-        <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0`}>Timeline</h3>
+        <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0`}>{t('timeline')}</h3>
         <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
           {/* Cut Tool - coupe à la position du playhead */}
           <button
             onClick={handleCutClick}
             className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
-            title="Couper à la position du curseur (C)"
+            title={t('cutAtPlayheadTooltip')}
           >
             <Scissors className={getToolbarIconClass(isMinimal, isCompact)} />
           </button>
@@ -1249,7 +1253,7 @@ export const Timeline: React.FC = () => {
                 window.dispatchEvent(event);
               }}
               className={`btn-icon w-8 h-8 hover:bg-primary-500 hover:text-white touch-target flex-shrink-0`}
-              title="Rogner"
+              title={t('crop')}
               disabled={!ui.selectedClipId}
             >
               <Crop className="w-4 h-4" />
@@ -1258,7 +1262,7 @@ export const Timeline: React.FC = () => {
           
           <div className={`w-px ${getDividerClass(isMinimal)} bg-white/20 mx-0.5 hidden sm:block flex-shrink-0`} />
           
-          <span className="text-[9px] hidden sm:inline sm:text-caption text-neutral-400 flex-shrink-0">Zoom:</span>
+          <span className="text-[9px] hidden sm:inline sm:text-caption text-neutral-400 flex-shrink-0">{t('zoom')}</span>
           <button
             onClick={() => handleZoom(-0.2)}
             className={`btn-icon ${getZoomBtnClass(isMinimal, isCompact)} touch-target flex-shrink-0`}
@@ -1281,7 +1285,7 @@ export const Timeline: React.FC = () => {
           <button
             onClick={handleAspectRatioClick}
             className={`btn-secondary ${getRatioBtnClass(isMinimal, isCompact)} flex items-center gap-0.5 touch-target flex-shrink-0`}
-            title="Ratio"
+            title={t('ratio')}
           >
             <Monitor className={getToolbarIconClass(isMinimal, isCompact)} />
             <span className="hidden xs:inline">{aspectRatio}</span>
@@ -1327,7 +1331,7 @@ export const Timeline: React.FC = () => {
                       <button
                         onClick={() => toggleTrackMute(track.id)}
                         className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} touch-target flex-shrink-0`}
-                        title={track.muted ? 'Unmute' : 'Mute'}
+                        title={track.muted ? t('unmute') : t('mute')}
                       >
                         {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
                       </button>
@@ -1335,13 +1339,13 @@ export const Timeline: React.FC = () => {
                     <button
                       onClick={() => toggleTrackLock(track.id)}
                       className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} touch-target flex-shrink-0`}
-                      title={track.locked ? 'Unlock' : 'Lock'}
+                      title={track.locked ? t('unlock') : t('lock')}
                     >
                       {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                     {/* Volume slider - only show for video or audio tracks and when not muted */}
                     {['video', 'audio'].includes(track.type) && !track.muted && !isMinimal && (
-                      <div className="flex items-center gap-1 sm:gap-1.5 ml-1 min-w-0 flex-1" title={`Volume: ${Math.round((track.volume ?? 1) * 100)}%`}>
+                      <div className="flex items-center gap-1 sm:gap-1.5 ml-1 min-w-0 flex-1" title={t('volumePercent', { percent: Math.round((track.volume ?? 1) * 100) })}>
                         <input
                           type="range"
                           min="0"
@@ -1373,7 +1377,7 @@ export const Timeline: React.FC = () => {
               className={`btn-secondary w-full ${getAddTrackBtnClass(isMinimal, isCompact)} touch-target`}
             >
               <Plus className={getAddTrackIconClass(isMinimal, isCompact)} />
-              <span className="fold-cover:hidden fold-open:inline">Track</span>
+              <span className="fold-cover:hidden fold-open:inline">{t('track')}</span>
             </button>
           </div>
 
@@ -1392,15 +1396,15 @@ export const Timeline: React.FC = () => {
                   className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl p-6 min-w-[280px] pointer-events-auto animate-in fade-in zoom-in-95 duration-150"
                   role="dialog"
                   aria-modal="true"
-                  aria-label="Ajouter une piste"
+                  aria-label={t('addTrack')}
                 >
                   {/* Modal header */}
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-white">Ajouter une piste</h2>
+                    <h2 className="text-lg font-semibold text-white">{t('addTrack')}</h2>
                     <button
                       onClick={() => setShowAddTrackMenu(false)}
                       className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-                      aria-label="Fermer"
+                      aria-label={t('close')}
                     >
                       <X className="w-5 h-5" />
                     </button>
@@ -1412,28 +1416,28 @@ export const Timeline: React.FC = () => {
                       className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
                     >
                       <Video className="w-5 h-5 text-primary flex-shrink-0" />
-                      <span className="text-sm text-gray-200">Piste Vidéo</span>
+                      <span className="text-sm text-gray-200">{t('videoTrack')}</span>
                     </button>
                     <button
                       onClick={() => handleAddTrack('audio')}
                       className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
                     >
                       <Music className="w-5 h-5 text-primary flex-shrink-0" />
-                      <span className="text-sm text-gray-200">Piste Audio</span>
+                      <span className="text-sm text-gray-200">{t('audioTrack')}</span>
                     </button>
                     <button
                       onClick={() => handleAddTrack('image')}
                       className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
                     >
                       <Image className="w-5 h-5 text-primary flex-shrink-0" />
-                      <span className="text-sm text-gray-200">Piste Image</span>
+                      <span className="text-sm text-gray-200">{t('imageTrack')}</span>
                     </button>
                     <button
                       onClick={() => handleAddTrack('text')}
                       className="flex items-center gap-3 w-full p-3 rounded-lg hover:bg-primary/20 transition-colors"
                     >
                       <Type className="w-5 h-5 text-primary flex-shrink-0" />
-                      <span className="text-sm text-gray-200">Piste Texte</span>
+                      <span className="text-sm text-gray-200">{t('textTrack')}</span>
                     </button>
                   </div>
                 </div>
@@ -1539,14 +1543,14 @@ export const Timeline: React.FC = () => {
                         <div
                           className={`absolute left-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                           onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'start')}
-                          title="Étendre le début"
+                          title={t('extendStart')}
                         >
                           <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
                         </div>
                         <div
                           className={`absolute right-0 top-0 bottom-0 ${getResizeHandleClass(isMinimal, isCompact)} cursor-ew-resize hover:bg-purple-500/50 z-10 group touch-target`}
                           onMouseDown={(e) => handleTextResizeMouseDown(e, text.id, 'end')}
-                          title="Étendre la fin"
+                          title={t('extendEnd')}
                         >
                           <div className="absolute right-0 top-0 bottom-0 w-1 bg-purple-500/80 group-hover:w-full transition-all" />
                         </div>

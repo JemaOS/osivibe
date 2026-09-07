@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { TransitionType } from '../types';
+import { useI18n } from '../i18n';
 
 interface TransitionPreviewProps {
   type: TransitionType;
@@ -10,6 +11,7 @@ interface TransitionPreviewProps {
 }
 
 export const TransitionPreview: React.FC<TransitionPreviewProps> = ({ type, className = '' }) => {
+  const { t } = useI18n();
   const uniqueId = React.useId();
   
   const renderPreview = () => {
@@ -25,7 +27,7 @@ export const TransitionPreview: React.FC<TransitionPreviewProps> = ({ type, clas
         return (
           <svg {...baseProps}>
             <rect x="0" y="0" width="100" height="60" fill="#E8EAF0" />
-            <text x="50" y="35" textAnchor="middle" fill="#6B7280" fontSize="12" fontFamily="Inter">Aucune</text>
+            <text x="50" y="35" textAnchor="middle" fill="#6B7280" fontSize="12" fontFamily="Inter">{t('transitionNone')}</text>
           </svg>
         );
       

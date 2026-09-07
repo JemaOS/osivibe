@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
+import { useI18n } from '../i18n';
+import { LanguageSelector } from './LanguageSelector';
 
 interface HeaderProps {
   isSidebarVisible: boolean;
@@ -34,6 +36,7 @@ const ProjectMenu = ({
   isProjectMenuOpen, 
   setIsProjectMenuOpen 
 }: any) => {
+  const { t } = useI18n();
   if (!isProjectMenuOpen) return null;
   
   return (
@@ -44,7 +47,7 @@ const ProjectMenu = ({
       />
       <div className="absolute top-full left-0 mt-2 w-64 bg-[#1f1f1f] border border-white/10 rounded-lg shadow-xl z-50 py-1 max-h-[300px] overflow-y-auto">
         <div className="px-3 py-2 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-          Projets récents
+          {t('recentProjects')}
         </div>
         {projects.map((p: any) => (
           <div 
@@ -69,7 +72,7 @@ const ProjectMenu = ({
                   deleteProject(p.id); 
                 }} 
                 className="w-6 h-6 rounded flex items-center justify-center text-neutral-500 hover:text-red-500 hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-all"
-                title="Supprimer le projet"
+                title={t('deleteProject')}
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -122,6 +125,7 @@ const getExportButtonClasses = (layoutMode: string): string => {
 };
 
 export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
+  const { t } = useI18n();
   const { 
     ui,
     projectName, 
@@ -174,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
           onKeyDown={handleKeyDown}
           autoFocus
           className="bg-white/10 border border-white/20 rounded-lg h-8 text-sm px-3 w-48 text-white focus:border-primary-500 focus:outline-none"
-          placeholder="Nom du projet"
+          placeholder={t('projectName')}
         />
       );
     }
@@ -187,7 +191,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
             setIsEditingName(true);
           }}
           className="text-sm text-white font-medium hover:text-primary-400 transition-colors truncate max-w-[200px]"
-          title="Renommer le projet"
+          title={t('renameProject')}
         >
           {projectName}
         </button>
@@ -222,7 +226,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         <button
           onClick={onToggleSidebar}
           className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0 touch-target`}
-          title={isSidebarVisible ? 'Masquer le panneau' : 'Afficher le panneau'}
+          title={isSidebarVisible ? t('hidePanel') : t('showPanel')}
         >
           {isSidebarVisible ? (
             <PanelLeftClose className={getIconSize(layoutMode)} />
@@ -253,7 +257,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
           <button
             onClick={createProject}
             className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors ml-1 touch-target`}
-            title="Nouveau projet"
+            title={t('newProject')}
           >
             <Plus className={getIconSize(layoutMode)} />
           </button>
@@ -267,14 +271,14 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
           <button 
             onClick={undo}
             className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
-            title="Annuler (Ctrl+Z)"
+            title={t('undoShortcut')}
           >
             <Undo2 className={getIconSize(layoutMode)} />
           </button>
           <button 
             onClick={redo}
             className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}
-            title="Refaire (Ctrl+Y)"
+            title={t('redoShortcut')}
           >
             <Redo2 className={getIconSize(layoutMode)} />
           </button>
@@ -283,12 +287,15 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         {/* Divider - Hidden on small screens */}
         <div className="hidden fold-open:block lg:block w-px h-6 bg-white/20 mx-1" />
 
+        {/* Language selector */}
+        <LanguageSelector />
+
         {/* Export progress indicator when modal is closed */}
         {ui.isProcessing && !ui.isExportModalOpen && (
           <button
             onClick={openExportModal}
             className="flex items-center gap-2 h-9 px-3 rounded-lg bg-primary-500/20 border border-primary-500/40 text-primary-400 text-xs font-medium hover:bg-primary-500/30 transition-colors flex-shrink-0"
-            title="Cliquer pour voir l'export en cours"
+            title={t('viewExportProgress')}
           >
             <div className="w-3.5 h-3.5 rounded-full border-2 border-primary-400 border-t-transparent animate-spin" />
             <span>{ui.processingProgress}%</span>
@@ -304,7 +311,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
             <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
             {/* Hide text on minimal screens */}
             <span className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
-              Exporter
+              {t('export')}
             </span>
           </button>
         )}

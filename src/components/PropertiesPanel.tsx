@@ -29,6 +29,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from '../hooks/use-responsive';
 import { AVAILABLE_TRANSITIONS, DEFAULT_FILTER, VideoFilter, TransitionType, CropSettings } from '../types';
 import { formatTime } from '../utils/helpers';
+import { useI18n, t as translate } from '../i18n';
 import TransitionPreview from './TransitionPreview';
 
 // Add EyeDropper type definition
@@ -249,21 +250,41 @@ const useBottomSheet = () => {
   };
 };
 
-const getTransitionCategoryLabel = (category: string): string => {
-  const labels: Record<string, string> = {
-    basic: 'Basiques',
-    slide: 'Glissements',
-    wipe: 'Balayages',
-    zoom: 'Zooms',
-    rotate: 'Rotations',
-    shape: 'Formes'
-  };
-  return labels[category] || 'Effets';
+const TRANSITION_CATEGORY_KEYS: Record<string, string> = {
+  basic: 'transCategoryBasic',
+  slide: 'transCategorySlide',
+  wipe: 'transCategoryWipe',
+  zoom: 'transCategoryZoom',
+  rotate: 'transCategoryRotate',
+  shape: 'transCategoryShape',
+};
+
+const TRANSITION_NAME_KEYS: Record<string, string> = {
+  'none': 'transitionNone',
+  'fade': 'transitionFade',
+  'dissolve': 'transitionDissolve',
+  'cross-dissolve': 'transitionCrossDissolve',
+  'slide-left': 'transitionSlideLeft',
+  'slide-right': 'transitionSlideRight',
+  'slide-up': 'transitionSlideUp',
+  'slide-down': 'transitionSlideDown',
+  'slide-diagonal-tl': 'transitionSlideDiagonalTl',
+  'slide-diagonal-tr': 'transitionSlideDiagonalTr',
+  'wipe-left': 'transitionWipeLeft',
+  'wipe-right': 'transitionWipeRight',
+  'wipe-up': 'transitionWipeUp',
+  'wipe-down': 'transitionWipeDown',
+  'zoom-in': 'transitionZoomIn',
+  'zoom-out': 'transitionZoomOut',
+  'rotate-in': 'transitionRotateIn',
+  'rotate-out': 'transitionRotateOut',
+  'circle-wipe': 'transitionCircleWipe',
+  'diamond-wipe': 'transitionDiamondWipe',
 };
 
 const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor', updateTextOverlay: any) => {
   if (!window.EyeDropper) {
-    alert('Votre navigateur ne supporte pas la pipette. Utilisez Chrome ou Edge.');
+    alert(translate('eyedropperUnsupported'));
     return;
   }
 
@@ -296,13 +317,14 @@ const BottomSheetProperties = ({
   handleBottomSheetDragStart,
   renderPanelContent
 }: any) => {
+  const { t } = useI18n();
   return (
     <>
       {/* Bottom sheet trigger button */}
       <button
         onClick={() => setIsBottomSheetOpen(true)}
         className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-primary-500 text-white shadow-lg flex items-center justify-center touch-target-lg"
-        aria-label="Open properties panel"
+        aria-label={t('openPropertiesPanel')}
       >
         <Sliders className="w-5 h-5" />
       </button>
@@ -334,7 +356,7 @@ const BottomSheetProperties = ({
         
         {/* Header with close button */}
         <div className="px-4 pb-2 flex items-center justify-between border-b border-white/10">
-          <h2 className="text-base font-semibold text-white">Propriétés</h2>
+          <h2 className="text-base font-semibold text-white">{t('properties')}</h2>
           <button
             onClick={() => setIsBottomSheetOpen(false)}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 touch-target"
@@ -353,6 +375,7 @@ const BottomSheetProperties = ({
 };
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: initialTab }) => {
+  const { t } = useI18n();
   const {
     tracks,
     textOverlays,
@@ -437,10 +460,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     : null;
 
   const tabs = [
-    { id: 'clip' as TabType, label: 'Clip', icon: Film },
-    { id: 'text' as TabType, label: 'Texte', icon: Type },
-    { id: 'transitions' as TabType, label: 'Transitions', icon: Move },
-    { id: 'filters' as TabType, label: 'Filtres', icon: Sliders },
+    { id: 'clip' as TabType, label: t('clip'), icon: Film },
+    { id: 'text' as TabType, label: t('text'), icon: Type },
+    { id: 'transitions' as TabType, label: t('transitions'), icon: Move },
+    { id: 'filters' as TabType, label: t('filters'), icon: Sliders },
   ];
 
   const handleDetachAudio = () => {
@@ -473,13 +496,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
 
 
-  const aspectRatios: Array<{ value: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; description: string }> = [
-    { value: 'original', label: 'Original', description: 'Ratio de la source vidéo' },
-    { value: '16:9', label: '16:9', description: 'Paysage standard' },
-    { value: '4:3', label: '4:3', description: 'Format classique' },
-    { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Stories)' },
-    { value: '1:1', label: '1:1', description: 'Carré (Instagram)' },
-    { value: '21:9', label: '21:9', description: 'Cinéma ultra-wide' },
+  const aspectRatios: Array<{ value: 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9'; label: string; descriptionKey: string }> = [
+    { value: 'original', label: 'Original', descriptionKey: 'arOriginal' },
+    { value: '16:9', label: '16:9', descriptionKey: 'arLandscape' },
+    { value: '4:3', label: '4:3', descriptionKey: 'arClassic' },
+    { value: '9:16', label: '9:16', descriptionKey: 'arPortrait' },
+    { value: '1:1', label: '1:1', descriptionKey: 'arSquare' },
+    { value: '21:9', label: '21:9', descriptionKey: 'arCinemaWide' },
   ];
 
   const renderClipProperties = () => {
@@ -487,8 +510,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       return (
         <div className="px-4 py-8 text-center text-neutral-400">
           <Film className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p className="text-body text-white">Selectionnez un clip</p>
-          <p className="text-small mt-1 text-neutral-400">pour voir ses proprietes</p>
+          <p className="text-body text-white">{t('selectClip')}</p>
+          <p className="text-small mt-1 text-neutral-400">{t('toSeeProperties')}</p>
         </div>
       );
     }
@@ -499,33 +522,33 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       <>
         <Section 
           id="basic" 
-          title="Informations" 
+          title={t('information')} 
           isExpanded={expandedSection === 'basic'} 
           onToggle={() => setExpandedSection(expandedSection === 'basic' ? null : 'basic')}
         >
           <div className="space-y-3">
             <div>
-              <label className="text-caption text-neutral-400 block mb-1">Nom</label>
+              <label className="text-caption text-neutral-400 block mb-1">{t('name')}</label>
               <p className="text-body text-white truncate">{selectedClip.name}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-caption text-neutral-400 block mb-1">Type</label>
+                <label className="text-caption text-neutral-400 block mb-1">{t('type')}</label>
                 <p className="text-body text-white capitalize">{selectedClip.type}</p>
               </div>
               <div>
-                <label className="text-caption text-neutral-400 block mb-1">Duree</label>
+                <label className="text-caption text-neutral-400 block mb-1">{t('duration')}</label>
                 <p className="text-body text-white">{formatTime(effectiveDuration)}</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-caption text-neutral-400 block mb-1">Position</label>
+                <label className="text-caption text-neutral-400 block mb-1">{t('position')}</label>
                 <p className="text-body text-white">{formatTime(selectedClip.startTime)}</p>
               </div>
               {selectedClipMedia.width && (
                 <div>
-                  <label className="text-caption text-neutral-400 block mb-1">Resolution</label>
+                  <label className="text-caption text-neutral-400 block mb-1">{t('resolution')}</label>
                   <p className="text-body text-white">{selectedClipMedia.width}x{selectedClipMedia.height}</p>
                 </div>
               )}
@@ -538,7 +561,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                 className="w-full btn-secondary h-10 mt-2"
               >
                 <Link2Off className="w-4 h-4" />
-                Detacher l'audio
+                {t('detachAudioButton')}
               </button>
             )}
           </div>
@@ -548,7 +571,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         {(selectedClip.type === 'image' || selectedClip.type === 'video') && (
           <Section 
             id="crop" 
-            title="Rognage / Crop" 
+            title={t('cropping')} 
             isExpanded={expandedSection === 'crop'} 
             onToggle={() => setExpandedSection(expandedSection === 'crop' ? null : 'crop')}
           >
@@ -559,7 +582,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   className="w-full btn-secondary h-10"
                 >
                   <Crop className="w-4 h-4" />
-                  Activer le rognage
+                  {t('enableCrop')}
                 </button>
               )}
               
@@ -570,7 +593,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
                       onPointerDown={(e) => handleScrub(e, selectedClip.crop?.x || 0, (val) => handleUpdateCrop({ x: val }), { min: 0, max: 50, sensitivity: 0.25 })}
                     >
-                      Position X ({selectedClip.crop?.x || 0}%)
+                      {t('cropPositionX', { value: selectedClip.crop?.x || 0 })}
                     </label>
                     <input
                       type="range"
@@ -590,7 +613,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
                       onPointerDown={(e) => handleScrub(e, selectedClip.crop?.y || 0, (val) => handleUpdateCrop({ y: val }), { min: 0, max: 50, sensitivity: 0.25 })}
                     >
-                      Position Y ({selectedClip.crop?.y || 0}%)
+                      {t('cropPositionY', { value: selectedClip.crop?.y || 0 })}
                     </label>
                     <input
                       type="range"
@@ -610,7 +633,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
                       onPointerDown={(e) => handleScrub(e, selectedClip.crop?.width || 100, (val) => handleUpdateCrop({ width: val }), { min: 10, max: 100, sensitivity: 0.45 })}
                     >
-                      Largeur ({selectedClip.crop?.width || 100}%)
+                      {t('cropWidth', { value: selectedClip.crop?.width || 100 })}
                     </label>
                     <input
                       type="range"
@@ -630,7 +653,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
                       onPointerDown={(e) => handleScrub(e, selectedClip.crop?.height || 100, (val) => handleUpdateCrop({ height: val }), { min: 10, max: 100, sensitivity: 0.45 })}
                     >
-                      Hauteur ({selectedClip.crop?.height || 100}%)
+                      {t('cropHeight', { value: selectedClip.crop?.height || 100 })}
                     </label>
                     <input
                       type="range"
@@ -654,14 +677,14 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="w-4 h-4 rounded"
                     />
                     <label htmlFor="lock-aspect" className="text-small text-neutral-700">
-                      Verrouiller les proportions
+                      {t('lockAspectRatio')}
                     </label>
                   </div>
                   <button
                     onClick={handleResetCrop}
                     className="w-full btn-secondary h-10 text-error hover:bg-error/10 hover:border-error/30"
                   >
-                    Reinitialiser le crop
+                    {t('resetCrop')}
                   </button>
                 </>
               )}
@@ -671,13 +694,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         <Section 
           id="trim" 
-          title="Decoupe" 
+          title={t('trimSection')} 
           isExpanded={expandedSection === 'trim'} 
           onToggle={() => setExpandedSection(expandedSection === 'trim' ? null : 'trim')}
         >
           <div className="space-y-4">
             <div>
-              <label className="text-caption text-neutral-500 block mb-2">Debut (trim)</label>
+              <label className="text-caption text-neutral-500 block mb-2">{t('trimStart')}</label>
               <input
                 type="range"
                 min="0"
@@ -693,7 +716,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               </div>
             </div>
             <div>
-              <label className="text-caption text-neutral-500 block mb-2">Fin (trim)</label>
+              <label className="text-caption text-neutral-500 block mb-2">{t('trimEnd')}</label>
               <input
                 type="range"
                 min="0"
@@ -717,7 +740,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="w-full btn-secondary h-10 text-error hover:bg-error/10 hover:border-error/30"
           >
             <Trash2 className="w-4 h-4" />
-            Supprimer le clip
+            {t('deleteClip')}
           </button>
         </div>
       </>
@@ -769,7 +792,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="w-full btn-primary h-10"
           >
             <Plus className="w-4 h-4" />
-            Ajouter du texte
+            {t('addText')}
           </button>
         </div>
 
@@ -777,27 +800,27 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             <Section 
               id="text-content" 
-              title="Contenu" 
+              title={t('content')} 
               isExpanded={expandedSection === 'text-content'} 
               onToggle={() => setExpandedSection(expandedSection === 'text-content' ? null : 'text-content')}
             >
               <textarea
                 value={selectedText.text}
                 onChange={(e) => updateTextOverlay(selectedText.id, { text: e.target.value })}
-                placeholder="Votre texte..."
+                placeholder={t('yourTextPlaceholder')}
                 className="glass-input w-full h-24 resize-none"
               />
             </Section>
 
             <Section 
               id="text-style" 
-              title="Style" 
+              title={t('style')} 
               isExpanded={expandedSection === 'text-style'} 
               onToggle={() => setExpandedSection(expandedSection === 'text-style' ? null : 'text-style')}
             >
               <div className="space-y-4">
                 <div>
-                  <label className="text-caption text-neutral-500 block mb-2">Police</label>
+                  <label className="text-caption text-neutral-500 block mb-2">{t('font')}</label>
                   <select
                     value={selectedText.fontFamily}
                     onChange={(e) => updateTextOverlay(selectedText.id, { fontFamily: e.target.value })}
@@ -817,7 +840,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
                       onPointerDown={handleFontSizeScrub}
                     >
-                      Taille (px)
+                      {t('sizePx')}
                     </label>
                     <input
                       type="number"
@@ -848,7 +871,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
                         onPointerDown={handleScaleXScrub}
                       >
-                        Echelle X
+                        {t('scaleX')}
                       </label>
                       <span 
                         className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
@@ -874,7 +897,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                         className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
                         onPointerDown={handleScaleYScrub}
                       >
-                        Echelle Y
+                        {t('scaleY')}
                       </label>
                       <span 
                         className="text-[10px] text-neutral-400 cursor-ew-resize select-none hover:text-white transition-colors"
@@ -912,7 +935,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                 </div>
 
                 <div className="space-y-3">
-                  <label className="text-caption text-neutral-500 block">Couleur du texte</label>
+                  <label className="text-caption text-neutral-500 block">{t('textColor')}</label>
                   
                   {/* Preset Colors Grid */}
                   <div className="grid grid-cols-6 gap-2">
@@ -955,7 +978,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       <button
                         onClick={() => colorInputRef.current?.click()}
                         className="w-10 h-10 overflow-hidden rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors flex-shrink-0 flex items-center justify-center text-neutral-400 hover:text-white"
-                        title="Ouvrir le sélecteur de couleur"
+                        title={t('openColorPicker')}
                       >
                         <Palette className="w-5 h-5" />
                       </button>
@@ -973,7 +996,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <button
                       onClick={() => handleEyeDropper(selectedText.id, 'color', updateTextOverlay)}
                       className="w-10 h-10 flex items-center justify-center rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors text-neutral-400 hover:text-white flex-shrink-0"
-                      title="Pipette (Selectionner une couleur sur l'ecran)"
+                      title={t('eyedropperTooltip')}
                     >
                       <Pipette className="w-5 h-5" />
                     </button>
@@ -983,13 +1006,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                 {/* Background Color Section */}
                 <div className="space-y-3 pt-2 border-t border-white/10">
                   <div className="flex items-center justify-between">
-                    <label className="text-caption text-neutral-500">Arrière-plan</label>
+                    <label className="text-caption text-neutral-500">{t('background')}</label>
                     {selectedText.backgroundColor && (
                       <button 
                         onClick={() => updateTextOverlay(selectedText.id, { backgroundColor: undefined })}
                         className="text-xs text-error hover:underline"
                       >
-                        Supprimer
+                        {t('delete')}
                       </button>
                     )}
                   </div>
@@ -1008,13 +1031,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                           </div>
                         )}
                       </div>
-                      <input
-                        type="text"
-                        value={selectedText.backgroundColor || ''}
-                        onChange={(e) => updateTextOverlay(selectedText.id, { backgroundColor: e.target.value })}
-                        className="glass-input w-full pl-8 uppercase"
-                        placeholder="Transparent"
-                      />
+                    <input
+                      type="text"
+                      value={selectedText.backgroundColor || ''}
+                      onChange={(e) => updateTextOverlay(selectedText.id, { backgroundColor: e.target.value })}
+                      className="glass-input w-full pl-8 uppercase"
+                      placeholder={t('transparent')}
+                    />
                     </div>
                     
                     {/* Standard Color Picker Button */}
@@ -1022,7 +1045,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       <button
                         onClick={() => bgColorInputRef.current?.click()}
                         className="w-10 h-10 overflow-hidden rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors flex-shrink-0 flex items-center justify-center text-neutral-400 hover:text-white"
-                        title="Ouvrir le sélecteur de couleur"
+                        title={t('openColorPicker')}
                       >
                         <Palette className="w-5 h-5" />
                       </button>
@@ -1040,7 +1063,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                     <button
                       onClick={() => handleEyeDropper(selectedText.id, 'backgroundColor', updateTextOverlay)}
                       className="w-10 h-10 flex items-center justify-center rounded-xl glass-panel-medium hover:border-primary-500/50 transition-colors text-neutral-400 hover:text-white flex-shrink-0"
-                      title="Pipette (Selectionner une couleur sur l'ecran)"
+                      title={t('eyedropperTooltip')}
                     >
                       <Pipette className="w-5 h-5" />
                     </button>
@@ -1051,7 +1074,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
             <Section 
               id="text-position" 
-              title="Position" 
+              title={t('position')} 
               isExpanded={expandedSection === 'text-position'} 
               onToggle={() => setExpandedSection(expandedSection === 'text-position' ? null : 'text-position')}
             >
@@ -1062,7 +1085,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
                       onPointerDown={handlePositionXScrub}
                     >
-                      Position X
+                      {t('positionX')}
                     </label>
                     <input
                       type="number"
@@ -1090,7 +1113,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                       className="text-caption text-neutral-500 cursor-ew-resize select-none hover:text-white transition-colors"
                       onPointerDown={handlePositionYScrub}
                     >
-                      Position Y
+                      {t('positionY')}
                     </label>
                     <input
                       type="number"
@@ -1117,13 +1140,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
             <Section 
               id="text-timing" 
-              title="Timing" 
+              title={t('timing')} 
               isExpanded={expandedSection === 'text-timing'} 
               onToggle={() => setExpandedSection(expandedSection === 'text-timing' ? null : 'text-timing')}
             >
               <div className="space-y-4">
                 <div>
-                  <label className="text-caption text-neutral-500 block mb-2">Apparition</label>
+                  <label className="text-caption text-neutral-500 block mb-2">{t('appearance')}</label>
                   <input
                     type="number"
                     min="0"
@@ -1134,7 +1157,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                   />
                 </div>
                 <div>
-                  <label className="text-caption text-neutral-500 block mb-2">Duree (secondes)</label>
+                  <label className="text-caption text-neutral-500 block mb-2">{t('durationSeconds')}</label>
                   <input
                     type="number"
                     min="0.1"
@@ -1153,15 +1176,15 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                 className="w-full btn-secondary h-10 text-error hover:bg-error/10 hover:border-error/30"
               >
                 <Trash2 className="w-4 h-4" />
-                Supprimer le texte
+                {t('deleteText')}
               </button>
             </div>
           </div>
         ) : (
           <div className="flex-1 px-4 py-8 text-center text-neutral-500">
             <Type className="w-12 h-12 mx-auto mb-3 opacity-40" />
-            <p className="text-body">Aucun texte selectionne</p>
-            <p className="text-small mt-1">Ajoutez ou selectionnez un texte</p>
+            <p className="text-body">{t('noTextSelected')}</p>
+            <p className="text-small mt-1">{t('addOrSelectText')}</p>
           </div>
         )}
       </div>
@@ -1207,7 +1230,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     return (
       <div key={category}>
         <p className="text-caption text-neutral-500 uppercase mb-2">
-          {getTransitionCategoryLabel(category)}
+          {t(TRANSITION_CATEGORY_KEYS[category] || 'transCategoryDefault')}
         </p>
         <div className="grid grid-cols-2 gap-2">
           {categoryTransitions.map((transition) => (
@@ -1226,7 +1249,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
               <div className="h-12 mb-1 rounded overflow-hidden opacity-60 group-hover:opacity-100 transition-opacity">
                 <TransitionPreview type={transition.type} />
               </div>
-              <div className="text-center truncate">{transition.name}</div>
+              <div className="text-center truncate">{t(TRANSITION_NAME_KEYS[transition.type] || transition.name)}</div>
             </button>
           ))}
         </div>
@@ -1241,8 +1264,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       return (
         <div className="px-4 py-8 text-center text-neutral-500">
           <Move className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p className="text-body">Aucun clip selectionne</p>
-          <p className="text-small mt-1">Placez le curseur sur un clip ou selectionnez-en un</p>
+          <p className="text-body">{t('noClipSelected')}</p>
+          <p className="text-small mt-1">{t('placePlayheadOnClip')}</p>
         </div>
       );
     }
@@ -1265,8 +1288,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       return (
         <div className="px-4 py-8 text-center text-neutral-500">
           <Sliders className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p className="text-body">Selectionnez un clip</p>
-          <p className="text-small mt-1">pour appliquer des filtres</p>
+          <p className="text-body">{t('selectClip')}</p>
+          <p className="text-small mt-1">{t('toApplyFilters')}</p>
         </div>
       );
     }
@@ -1281,31 +1304,31 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
       <div className="p-4 space-y-4">
         {/* Presets */}
         <div>
-          <label className="text-caption text-neutral-500 block mb-2">Presets</label>
+          <label className="text-caption text-neutral-500 block mb-2">{t('presets')}</label>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => resetFilter(selectedClip.id)}
               className="px-3 py-1.5 rounded-lg text-small glass-panel-medium hover:border-primary-500/50"
             >
-              Normal
+              {t('filterNormal')}
             </button>
             <button
               onClick={() => updateFilter({ grayscale: true, sepia: false })}
               className="px-3 py-1.5 rounded-lg text-small glass-panel-medium hover:border-primary-500/50"
             >
-              Noir & Blanc
+              {t('filterGrayscale')}
             </button>
             <button
               onClick={() => updateFilter({ sepia: true, grayscale: false })}
               className="px-3 py-1.5 rounded-lg text-small glass-panel-medium hover:border-primary-500/50"
             >
-              Sepia
+              {t('filterSepia')}
             </button>
             <button
               onClick={() => updateFilter({ contrast: 20, saturation: 20 })}
               className="px-3 py-1.5 rounded-lg text-small glass-panel-medium hover:border-primary-500/50"
             >
-              Vivid
+              {t('filterVivid')}
             </button>
           </div>
         </div>
@@ -1316,7 +1339,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
             onPointerDown={(e) => handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
-            Luminosite ({filter.brightness})
+            {t('brightness', { value: filter.brightness })}
           </label>
           <input
             type="range"
@@ -1336,7 +1359,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
             onPointerDown={(e) => handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
-            Contraste ({filter.contrast})
+            {t('contrast', { value: filter.contrast })}
           </label>
           <input
             type="range"
@@ -1356,7 +1379,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
             onPointerDown={(e) => handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
-            Saturation ({filter.saturation})
+            {t('saturation', { value: filter.saturation })}
           </label>
           <input
             type="range"
@@ -1376,7 +1399,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
             className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
             onPointerDown={(e) => handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20, sensitivity: 0.1 })}
           >
-            Flou ({filter.blur})
+            {t('blur', { value: filter.blur })}
           </label>
           <input
             type="range"
@@ -1395,7 +1418,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
           onClick={() => resetFilter(selectedClip.id)}
           className="w-full btn-secondary h-10 mt-4"
         >
-          Reinitialiser
+          {t('reset')}
         </button>
       </div>
     );
@@ -1453,7 +1476,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     <div className={`glass-panel h-full flex flex-col overflow-hidden fold-transition ${responsive.isSpanning ? 'avoid-hinge' : ''}`}>
       {/* Header */}
       <div className={`${getHeaderPadding(layoutMode)} border-b border-white/20 flex-shrink-0`}>
-        <h2 className={`${getHeaderFontSize(layoutMode)} font-semibold text-white`}>Propriétés</h2>
+        <h2 className={`${getHeaderFontSize(layoutMode)} font-semibold text-white`}>{t('properties')}</h2>
       </div>
 
       {renderPanelContent()}

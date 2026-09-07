@@ -48,6 +48,7 @@ import {
 } from '../utils/hardwareDetection';
 import { useMediaBunnyPreview } from '../hooks/use-mediabunny-preview';
 import { useVideoPlayerText, useVideoPlayerImage, useVideoPlayerCrop, useVideoPlayerSync, useVideoPlayerAnimation } from '../hooks/use-video-player-interactions';
+import { useI18n } from '../i18n';
 
 // Calculate transition progress based on position
 const calculateTransitionProgress = (
@@ -491,6 +492,7 @@ const ImageClipComponent = ({ item, index, ui, player, transitions, cropMode, ed
 };
 
 const CropOverlay = React.memo(({ cropArea, handleCropResizeStart, handleCropMoveStart, setCropMode, handleApplyCrop, cropOverlayRef }: any) => {
+  const { t } = useI18n();
   return (
     <div className="absolute inset-0 z-[100]">
       {/* Visible crop area with shadow for outside */}
@@ -552,10 +554,10 @@ const CropOverlay = React.memo(({ cropArea, handleCropResizeStart, handleCropMov
       
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-[110]">
         <button onClick={() => setCropMode(false)} className="btn-secondary px-4 py-2">
-          Annuler
+          {t('cancel')}
         </button>
         <button onClick={handleApplyCrop} className="btn-primary px-4 py-2">
-          Appliquer
+          {t('apply')}
         </button>
       </div>
     </div>
@@ -696,6 +698,7 @@ const QualityMenu = ({
   previewSettings,
   onQualityChange
 }: any) => {
+  const { t } = useI18n();
   if (!showQualityMenu) return null;
   
   return (
@@ -713,9 +716,9 @@ const QualityMenu = ({
       }}
     >
       <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
-        <span>Qualité Preview • {currentFps} FPS</span>
+        <span>{t('previewQuality', { fps: currentFps })}</span>
         {isPerformancePoor && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>Lent</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>{t('slow')}</span>
         )}
       </div>
       
@@ -725,13 +728,13 @@ const QualityMenu = ({
             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
-            <span className="font-medium">Auto-détecté: {hardwareProfile.recommendedQuality}</span>
+            <span className="font-medium">{t('autoDetected', { quality: hardwareProfile.recommendedQuality })}</span>
           </div>
           <div className="mt-1" style={{ color: '#808080' }}>
-            {hardwareProfile.cpuCores} cœurs • Score: {hardwareProfile.performanceScore}/100
+            {t('cpuCoresScore', { cores: hardwareProfile.cpuCores, score: hardwareProfile.performanceScore })}
             {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
-            {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && ' • Mobile haut de gamme'}
-            {hardwareProfile.isLowEnd && ' • Mode économie'}
+            {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && t('highEndMobile')}
+            {hardwareProfile.isLowEnd && t('powerSavingMode')}
           </div>
           {enhancedProfile && (
             <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
@@ -768,7 +771,7 @@ const QualityMenu = ({
             <div className="text-body font-medium flex items-center gap-2">
               {option.label}
               {option.value === hardwareProfile?.recommendedQuality && option.value !== 'auto' && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>Recommandé</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>{t('recommended')}</span>
               )}
             </div>
             <div className="text-small mt-0.5" style={{
@@ -780,17 +783,17 @@ const QualityMenu = ({
       
       <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
         <div className="flex justify-between">
-          <span>Résolution max:</span>
-          <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : 'Originale'}</span>
+          <span>{t('maxResolution')}</span>
+          <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : t('qualityOriginal')}</span>
         </div>
         <div className="flex justify-between mt-1">
-          <span>FPS cible:</span>
+          <span>{t('targetFps')}</span>
           <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
         </div>
         {previewSettings.frameSkipping && (
           <div className="flex justify-between mt-1">
-            <span>Frame skip:</span>
-            <span style={{ color: '#F59E0B' }}>Activé</span>
+            <span>{t('frameSkip')}</span>
+            <span style={{ color: '#F59E0B' }}>{t('enabled')}</span>
           </div>
         )}
       </div>
@@ -845,6 +848,7 @@ const VolumeControl = ({
   isMuted,
   onVolumeChange
 }: any) => {
+  const { t } = useI18n();
   const isHidden = isMinimal || isCompact;
   if (isHidden) return null;
   
@@ -855,7 +859,7 @@ const VolumeControl = ({
       <button
         onClick={onToggleSlider}
         className="btn-icon w-9 h-9 touch-target"
-        title="Volume"
+        title={t('volume')}
       >
         {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
       </button>
@@ -891,6 +895,7 @@ const LeftControls = ({
   editingTextId,
   onTogglePlay
 }: any) => {
+  const { t } = useI18n();
   const skipBackClass = isMinimal ? 'w-7 h-7 hidden xxs:flex' : isCompact ? 'w-8 h-8' : 'w-9 h-9';
   const playButtonClass = isMinimal ? 'w-9 h-9' : isCompact ? 'w-10 h-10' : 'w-10 h-10';
   const skipIconClass = isMinimal ? 'w-3 h-3' : 'w-4 h-4';
@@ -902,14 +907,14 @@ const LeftControls = ({
       <button
         onClick={() => seek(0)}
         className={`btn-icon ${skipBackClass} touch-target flex-shrink-0`}
-        title="Debut"
+        title={t('beginning')}
       >
         <SkipBack className={skipIconClass} />
       </button>
       <button
         onClick={() => !isDisabled && onTogglePlay()}
         className={`btn-icon ${playButtonClass} bg-primary-500 text-white hover:bg-primary-600 border-primary-500 touch-target-lg flex-shrink-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        title={isPlaying ? 'Pause' : 'Lecture'}
+        title={isPlaying ? t('pause') : t('play')}
         disabled={isDisabled}
       >
         {isPlaying ? <Pause className={playIconClass} /> : <Play className={`${playIconClass} ml-0.5`} />}
@@ -917,15 +922,15 @@ const LeftControls = ({
       <button
         onClick={() => seek(projectDuration)}
         className={`btn-icon ${skipBackClass} touch-target flex-shrink-0`}
-        title="Fin"
+        title={t('end')}
       >
         <SkipForward className={skipIconClass} />
       </button>
       <div className="hidden lg:flex items-center gap-1 ml-2">
-        <button onClick={() => seek(Math.max(0, currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image precedente">
+        <button onClick={() => seek(Math.max(0, currentTime - 1/30))} className="btn-icon w-8 h-8 touch-target" title={t('previousFrame')}>
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <button onClick={() => seek(Math.min(projectDuration, currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title="Image suivante">
+        <button onClick={() => seek(Math.min(projectDuration, currentTime + 1/30))} className="btn-icon w-8 h-8 touch-target" title={t('nextFrame')}>
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
@@ -976,6 +981,7 @@ const VideoPlayerControls = ({
   qualityMenuRef,
   speedMenuRef
 }: any) => {
+  const { t } = useI18n();
   // Compute time display class
   const timeDisplayClass = isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small';
   const iconSizeClass = getIconSizeClass(isMinimal);
@@ -1028,7 +1034,7 @@ const VideoPlayerControls = ({
               ref={qualityButtonRef}
               onClick={() => setShowQualityMenu(!showQualityMenu)}
               className={`btn-icon w-9 h-9 touch-target ${isPerformancePoor ? 'text-warning' : ''}`}
-              title="Qualité"
+              title={t('qualityLabel')}
             >
               <Gauge className="w-4 h-4" />
             </button>
@@ -1056,7 +1062,7 @@ const VideoPlayerControls = ({
               ref={speedButtonRef}
               onClick={() => setShowSpeedMenu(!showSpeedMenu)}
               className="btn-icon w-9 h-9 text-caption font-mono touch-target"
-              title="Vitesse"
+              title={t('speed')}
             >
               {player.playbackRate}x
             </button>
@@ -1076,7 +1082,7 @@ const VideoPlayerControls = ({
         <button
           onClick={toggleFullscreen}
           className={`btn-icon ${fullscreenButtonClass} touch-target flex-shrink-0`}
-          title={player.isFullscreen ? 'Quitter' : 'Plein écran'}
+          title={player.isFullscreen ? t('exitFullscreen') : t('fullscreen')}
         >
           {player.isFullscreen ? <Minimize className={iconSizeClass} /> : <Maximize className={iconSizeClass} />}
         </button>
@@ -1568,6 +1574,7 @@ const computeCropStyle = (clip: any) => {
 
 // Sub-component for Empty State
 const EmptyState = ({ isMinimal, isCompact }: { isMinimal: boolean; isCompact: boolean }) => {
+  const { t } = useI18n();
   const containerSize = isMinimal ? 'w-12 h-12' : isCompact ? 'w-14 h-14' : 'w-20 h-20';
   const iconSize = isMinimal ? 'w-6 h-6' : isCompact ? 'w-7 h-7' : 'w-10 h-10';
   const titleClass = isMinimal ? 'text-xs' : isCompact ? 'text-sm' : 'text-body-lg';
@@ -1578,8 +1585,8 @@ const EmptyState = ({ isMinimal, isCompact }: { isMinimal: boolean; isCompact: b
       <div className={`${containerSize} mx-auto mb-2 fold-cover:mb-1 fold-open:mb-4 rounded-xl fold-cover:rounded-lg fold-open:rounded-2xl bg-glass-medium flex items-center justify-center`}>
         <Play className={iconSize} />
       </div>
-      <p className={`${titleClass} text-white`}>Aucune vidéo</p>
-      <p className={`${subtitleClass} mt-0.5 fold-cover:mt-0.5 fold-open:mt-1 text-neutral-400`}>Ajoutez des médias</p>
+      <p className={`${titleClass} text-white`}>{t('noVideo')}</p>
+      <p className={`${subtitleClass} mt-0.5 fold-cover:mt-0.5 fold-open:mt-1 text-neutral-400`}>{t('addMediaHint')}</p>
     </div>
   );
 };
@@ -1674,6 +1681,7 @@ const AspectRatioIndicator = ({ aspectRatio, isMinimal, isCompact }: { aspectRat
 };
 
 const VideoPlayer: React.FC = () => {
+  const { t } = useI18n();
   const {
     mediaFiles,
     tracks,
@@ -2106,11 +2114,11 @@ const VideoPlayer: React.FC = () => {
   
   // Quality options for the menu
   const qualityOptions: { value: PreviewSettings['quality']; label: string; description: string }[] = [
-    { value: 'auto', label: 'Auto', description: hardwareProfile ? `Détecté: ${hardwareProfile.recommendedQuality}` : 'Ajustement automatique' },
-    { value: 'low', label: 'Basse (360p)', description: 'Pour appareils anciens' },
-    { value: 'medium', label: 'Moyenne (480p)', description: 'Équilibré' },
-    { value: 'high', label: 'Haute (720p)', description: 'Bonne qualité' },
-    { value: 'original', label: 'Originale', description: 'Qualité maximale' },
+    { value: 'auto', label: t('qualityAuto'), description: hardwareProfile ? t('detected', { quality: hardwareProfile.recommendedQuality }) : t('autoAdjust') },
+    { value: 'low', label: t('qualityLow'), description: t('qualityLowDesc') },
+    { value: 'medium', label: t('qualityMedium'), description: t('qualityMediumDesc') },
+    { value: 'high', label: t('qualityHigh'), description: t('qualityHighDesc') },
+    { value: 'original', label: t('qualityOriginal'), description: t('qualityOriginalDesc') },
   ];
   
   // Get quality label for display

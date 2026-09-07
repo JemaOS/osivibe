@@ -9,20 +9,22 @@ import { exportProject, cancelExport, wasExportCancelled } from '../utils/ffmpeg
 import { downloadBlob } from '../utils/helpers';
 import { getHardwareProfile } from '../utils/previewOptimizer';
 import { getLastExportFormatInfo } from '../utils/mediaBunny';
+import { useI18n } from '../i18n';
 
 // Aspect ratio options for export
 type AspectRatioOption = 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 
-const ASPECT_RATIO_OPTIONS: { value: AspectRatioOption; label: string; description: string }[] = [
-  { value: 'original', label: 'Original', description: 'Conserve le ratio de la source vidéo' },
-  { value: '16:9', label: '16:9', description: 'Paysage (YouTube, TV)' },
-  { value: '9:16', label: '9:16', description: 'Portrait (TikTok, Reels)' },
-  { value: '1:1', label: '1:1', description: 'Carré (Instagram)' },
-  { value: '4:3', label: '4:3', description: 'Classique' },
-  { value: '21:9', label: '21:9', description: 'Cinéma' },
+const ASPECT_RATIO_OPTIONS: { value: AspectRatioOption; label: string; descriptionKey: string }[] = [
+  { value: 'original', label: 'Original', descriptionKey: 'arKeepSource' },
+  { value: '16:9', label: '16:9', descriptionKey: 'arLandscapeYoutube' },
+  { value: '9:16', label: '9:16', descriptionKey: 'arPortraitReels' },
+  { value: '1:1', label: '1:1', descriptionKey: 'arSquare' },
+  { value: '4:3', label: '4:3', descriptionKey: 'arClassic' },
+  { value: '21:9', label: '21:9', descriptionKey: 'arCinema' },
 ];
 
 export const ExportModal: React.FC = () => {
+  const { t } = useI18n();
   const {
     ui,
     exportSettings,
@@ -93,10 +95,10 @@ export const ExportModal: React.FC = () => {
       if (rounded > lastDisplayed) {
         lastDisplayed = rounded;
         setExportProgress(rounded);
-        setExportMessage('Export en cours...');
+        setExportMessage(t('exportInProgress'));
         // Store global throttlé
         if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 1000) {
-          setProcessing(true, rounded, 'Export en cours...');
+          setProcessing(true, rounded, t('exportInProgress'));
           lastStoreUpdateRef.current = Date.now();
         }
       }
@@ -148,8 +150,8 @@ export const ExportModal: React.FC = () => {
       exportStartTimeRef.current = Date.now();
       setIsExporting(true);
       setExportProgress(0);
-      setExportMessage('Export en cours...');
-      setProcessing(true, 0, 'Export en cours...');
+      setExportMessage(t('exportInProgress'));
+      setProcessing(true, 0, t('exportInProgress'));
 
       const trackMuteById = new Map(tracks.map((t) => [t.id, t.muted] as const));
       const trackVolumeById = new Map(tracks.map((t) => [t.id, t.volume ?? 1] as const));
@@ -173,7 +175,7 @@ export const ExportModal: React.FC = () => {
         .sort((a, b) => a.startTime - b.startTime);
 
       if (videoClips.length === 0 && imageOverlayClips.length === 0) {
-        alert('Aucun clip vidéo ou image à exporter');
+        alert(t('noClipsToExport'));
         setIsExporting(false);
         return;
       }
@@ -226,7 +228,7 @@ export const ExportModal: React.FC = () => {
       // Prepare clips with their media files and filters
       const clipsToExport = videoClips.map(clip => {
         const media = mediaFiles.find(m => m.id === clip.mediaId);
-        if (!media) throw new Error('Fichier média introuvable');
+        if (!media) throw new Error(t('mediaFileNotFound'));
 
         return {
           id: clip.id, // Include clip ID for transition matching
@@ -250,7 +252,7 @@ export const ExportModal: React.FC = () => {
       // Prepare image overlay clips (from image tracks — composited on top of video)
       const imageOverlaysToExport = imageOverlayClips.map(clip => {
         const media = mediaFiles.find(m => m.id === clip.mediaId);
-        if (!media) throw new Error('Fichier média introuvable');
+        if (!media) throw new Error(t('mediaFileNotFound'));
         return {
           id: clip.id,
           file: media.file,
@@ -268,7 +270,7 @@ export const ExportModal: React.FC = () => {
       const audioClipsToExport = audioTimelineClips
         .map((clip) => {
           const media = mediaFiles.find((m) => m.id === clip.mediaId);
-          if (!media) throw new Error('Fichier média introuvable');
+          if (!media) throw new Error(t('mediaFileNotFound'));
           return {
             id: clip.id,
             file: media.file,
@@ -286,7 +288,7 @@ export const ExportModal: React.FC = () => {
       // Set a timeout for the export (10 minutes max)
       const exportTimeout = setTimeout(() => {
         console.error('Export timeout');
-        throw new Error('L\'export a pris trop de temps. Veuillez réessayer avec une vidéo plus courte.');
+        throw new Error(t('exportTimeout'));
       }, 600000); // 10 minutes
 
       try {
@@ -320,8 +322,8 @@ export const ExportModal: React.FC = () => {
         // Marquer comme terminé — l'animation s'arrête
         exportDoneRef.current = true;
         setExportProgress(100);
-        setExportMessage('Finalisation...');
-        setProcessing(true, 100, 'Finalisation...');
+        setExportMessage(t('finalizing'));
+        setProcessing(true, 100, t('finalizing'));
 
         // Check if the format was auto-changed during export (e.g., VP9 unsupported → H.264)
         const formatInfo = getLastExportFormatInfo();
@@ -332,9 +334,9 @@ export const ExportModal: React.FC = () => {
         downloadBlob(blob, filename);
 
         if (formatInfo.formatOverridden) {
-          setExportMessage(`Export terminé ! (Format changé en ${formatInfo.actualFormat.toUpperCase()} car le codec demandé n'est pas supporté)`);
+          setExportMessage(t('exportCompleteFormatChanged', { format: formatInfo.actualFormat.toUpperCase() }));
         } else {
-          setExportMessage('Export terminé !');
+          setExportMessage(t('exportComplete'));
         }
         setTimeout(() => {
           if (cancelledRef.current) return;
@@ -351,7 +353,7 @@ export const ExportModal: React.FC = () => {
 
     } catch (error) {
       console.error('Export error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      const errorMessage = error instanceof Error ? error.message : t('unknownError');
       
       // Don't show alert if the error is due to user cancellation.
       // Use wasExportCancelled() as the primary check (set by cancelExport()),
@@ -363,7 +365,7 @@ export const ExportModal: React.FC = () => {
       if (isCancellation) {
         console.debug('Export cancelled by user');
       } else {
-        alert('Erreur lors de l\'export: ' + errorMessage);
+        alert(t('exportError', { error: errorMessage }));
       }
       
       exportDoneRef.current = true;
@@ -382,11 +384,11 @@ export const ExportModal: React.FC = () => {
       <div className="glass-panel w-full max-w-md p-0 overflow-hidden relative z-[101] max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/20 flex items-center justify-between flex-shrink-0">
-          <h2 className="text-lg sm:text-h2 font-semibold text-neutral-800">Exporter la video</h2>
+          <h2 className="text-lg sm:text-h2 font-semibold text-neutral-800">{t('exportTitle')}</h2>
           <button
             onClick={handleClose}
             className="btn-icon w-8 h-8 sm:w-9 sm:h-9"
-            title={isExporting ? 'Fermer (l\'export continue en arrière-plan)' : 'Fermer'}
+            title={isExporting ? t('closeExporting') : t('close')}
           >
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
@@ -399,7 +401,7 @@ export const ExportModal: React.FC = () => {
               {/* Filename */}
               <div>
                 <label htmlFor="export-filename" className="block text-body font-medium text-neutral-700 mb-2">
-                  Nom du fichier
+                  {t('fileName')}
                 </label>
                 <input
                   id="export-filename"
@@ -407,14 +409,14 @@ export const ExportModal: React.FC = () => {
                   value={exportSettings.filename}
                   onChange={(e) => setExportSettings({ filename: e.target.value })}
                   className="glass-input w-full"
-                  placeholder="mon-video"
+                  placeholder={t('filenamePlaceholder')}
                 />
               </div>
 
               {/* Resolution */}
               <div>
                 <label id="export-resolution" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
-                  Resolution
+                  {t('resolution')}
                 </label>
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {(['720p', '1080p', '4K'] as ExportResolution[]).map((res) => (
@@ -436,7 +438,7 @@ export const ExportModal: React.FC = () => {
               {/* Aspect Ratio */}
               <div>
                 <label id="export-aspect" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
-                  Ratio d'aspect
+                  {t('aspectRatioLabel')}
                 </label>
                 <div className="grid grid-cols-6 gap-1 sm:gap-2">
                   {ASPECT_RATIO_OPTIONS.map((option) => (
@@ -451,14 +453,14 @@ export const ExportModal: React.FC = () => {
                           ? 'bg-primary-500 text-white'
                           : 'glass-panel-medium hover:border-primary-500/50'
                       }`}
-                      title={option.description}
+                      title={t(option.descriptionKey)}
                     >
                       {option.label}
                     </button>
                   ))}
                 </div>
                 <p className="text-[10px] sm:text-xs text-neutral-500 mt-1">
-                  {ASPECT_RATIO_OPTIONS.find(o => o.value === selectedAspectRatio)?.description}
+                  {t(ASPECT_RATIO_OPTIONS.find(o => o.value === selectedAspectRatio)?.descriptionKey || '')}
                 </p>
               </div>
 
@@ -467,7 +469,7 @@ export const ExportModal: React.FC = () => {
                 {/* Format */}
                 <div>
                   <label id="export-format" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
-                    Format
+                    {t('format')}
                   </label>
                   <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                     {(['mp4', 'webm'] as ExportFormat[]).map((fmt) => (
@@ -512,7 +514,7 @@ export const ExportModal: React.FC = () => {
               {/* Quality */}
               <div>
                 <label id="export-quality" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
-                  Qualite
+                  {t('quality')}
                 </label>
                 <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {(['low', 'medium', 'high'] as ExportQuality[]).map((qual) => (
@@ -525,7 +527,7 @@ export const ExportModal: React.FC = () => {
                           : 'glass-panel-medium hover:border-primary-500/50'
                       }`}
                     >
-                      {qual === 'low' ? 'Basse' : qual === 'medium' ? 'Moyenne' : 'Haute'}
+                      {qual === 'low' ? t('exportQualityLow') : qual === 'medium' ? t('exportQualityMedium') : t('exportQualityHigh')}
                     </button>
                   ))}
                 </div>
@@ -534,7 +536,7 @@ export const ExportModal: React.FC = () => {
               {/* Info - Hidden on very small screens */}
               <div className="glass-panel-medium p-3 sm:p-4 rounded-lg sm:rounded-xl hidden xs:block">
                 <p className="text-xs sm:text-small text-neutral-600">
-                  <strong className="text-neutral-800">Note:</strong> L'export peut prendre plusieurs minutes selon la longueur et la qualite choisie.
+                  <strong className="text-neutral-800">{t('note')}</strong> {t('exportNote')}
                 </p>
               </div>
             </>
@@ -573,7 +575,7 @@ export const ExportModal: React.FC = () => {
 
               {/* Single status label */}
               <p className="text-sm text-neutral-500">
-                {exportProgress >= 100 ? 'Export terminé !' : 'Export en cours...'}
+                {exportProgress >= 100 ? t('exportComplete') : t('exportInProgress')}
               </p>
 
               {/* Cancel button */}
@@ -581,7 +583,7 @@ export const ExportModal: React.FC = () => {
                 onClick={handleCancel}
                 className="btn-secondary px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm"
               >
-                Annuler l'export
+                {t('cancelExport')}
               </button>
             </div>
           )}
@@ -594,14 +596,14 @@ export const ExportModal: React.FC = () => {
               onClick={closeExportModal}
               className="btn-secondary h-8 sm:h-10 px-3 sm:px-4 text-sm"
             >
-              Annuler
+              {t('cancel')}
             </button>
             <button
               onClick={handleExport}
               className="btn-primary h-8 sm:h-10 px-3 sm:px-4 text-sm"
             >
               <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Exporter
+              {t('export')}
             </button>
           </div>
         )}

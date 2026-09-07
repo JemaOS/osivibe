@@ -15,25 +15,29 @@ import { useEditorStore } from './store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
 import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
 import { SubscriptionGuard } from './SubscriptionGuard';
+import { useI18n } from './i18n';
 import './index.css';
 
 // Footer credit component
-const FooterCredit: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
-  <footer className={`${compact ? 'py-1' : 'py-2'} px-3 text-center bg-[#0f0f0f] border-t border-white/10 flex-shrink-0 safe-area-bottom`}>
-    <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-neutral-500`}>
-      Développé par{' '}
-      <a
-        href="https://www.jematechnology.fr/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-[#757aed] hover:text-[#8b8ff2] hover:underline font-medium transition-colors"
-      >
-        Jema Technology
-      </a>
-      {' '}© 2025 • Open Source & Libre
-    </p>
-  </footer>
-);
+const FooterCredit: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+  const { t } = useI18n();
+  return (
+    <footer className={`${compact ? 'py-1' : 'py-2'} px-3 text-center bg-[#0f0f0f] border-t border-white/10 flex-shrink-0 safe-area-bottom`}>
+      <p className={`${compact ? 'text-[10px]' : 'text-xs'} text-neutral-500`}>
+        {t('developedBy')}{' '}
+        <a
+          href="https://www.jematechnology.fr/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#757aed] hover:text-[#8b8ff2] hover:underline font-medium transition-colors"
+        >
+          Jema Technology
+        </a>
+        {' '}{t('footerSuffix')}
+      </p>
+    </footer>
+  );
+};
 
 type SidebarTab = 'media' | 'text' | 'transitions' | 'effects';
 type MobileView = 'player' | 'timeline' | 'sidebar';
@@ -61,7 +65,9 @@ const SidebarTabs = ({
   compact?: boolean;
   activeSidebarTab: SidebarTab;
   setActiveSidebarTab: (tab: SidebarTab) => void;
-}) => (
+}) => {
+  const { t } = useI18n();
+  return (
   <div className={`flex items-center ${compact ? 'gap-0.5' : 'gap-1'} ${compact ? 'px-1' : 'px-2'}`}>
     <button
       onClick={() => setActiveSidebarTab('media')}
@@ -72,7 +78,7 @@ const SidebarTabs = ({
       }`}
     >
       <Film className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">Média</span>}
+      {!compact && <span className="text-xs font-medium">{t('media')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('text')}
@@ -83,7 +89,7 @@ const SidebarTabs = ({
       }`}
     >
       <Type className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">Texte</span>}
+      {!compact && <span className="text-xs font-medium">{t('text')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('transitions')}
@@ -94,7 +100,7 @@ const SidebarTabs = ({
       }`}
     >
       <Scissors className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">Trans.</span>}
+      {!compact && <span className="text-xs font-medium">{t('transShort')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('effects')}
@@ -105,10 +111,11 @@ const SidebarTabs = ({
       }`}
     >
       <Sliders className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">Effets</span>}
+      {!compact && <span className="text-xs font-medium">{t('effects')}</span>}
     </button>
   </div>
-);
+  );
+};
 
 const MinimalLayout = ({
   isSidebarVisible,
@@ -121,7 +128,9 @@ const MinimalLayout = ({
   handleBottomSheetDrag,
   bottomSheetHeight,
   getFoldAwareStyles
-}: any) => (
+}: any) => {
+  const { t } = useI18n();
+  return (
   <div 
     className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
     style={getFoldAwareStyles()}
@@ -147,12 +156,12 @@ const MinimalLayout = ({
         {isTimelineExpanded ? (
           <>
             <ChevronDown className="w-4 h-4" />
-            <span className="text-[10px]">Réduire</span>
+            <span className="text-[10px]">{t('collapse')}</span>
           </>
         ) : (
           <>
             <ChevronUp className="w-4 h-4" />
-            <span className="text-[10px]">Timeline</span>
+            <span className="text-[10px]">{t('timeline')}</span>
           </>
         )}
       </button>
@@ -182,7 +191,7 @@ const MinimalLayout = ({
             {tab === 'text' && <Type className="w-5 h-5" />}
             {tab === 'transitions' && <Scissors className="w-5 h-5" />}
             {tab === 'effects' && <Sliders className="w-5 h-5" />}
-            <span className="text-[9px] font-medium capitalize">{tab === 'transitions' ? 'Trans.' : tab === 'media' ? 'Média' : tab === 'text' ? 'Texte' : 'Effets'}</span>
+            <span className="text-[9px] font-medium capitalize">{tab === 'transitions' ? t('transShort') : tab === 'media' ? t('media') : tab === 'text' ? t('text') : t('effects')}</span>
           </button>
         ))}
       </div>
@@ -198,10 +207,10 @@ const MinimalLayout = ({
           
           <div className="h-10 flex items-center justify-between px-3 border-b border-white/10 flex-shrink-0">
             <h2 className="text-xs font-semibold text-white">
-              {activeSidebarTab === 'media' && 'Médias'}
-              {activeSidebarTab === 'text' && 'Texte'}
-              {activeSidebarTab === 'transitions' && 'Transitions'}
-              {activeSidebarTab === 'effects' && 'Effets'}
+              {activeSidebarTab === 'media' && t('mediaLibrary')}
+              {activeSidebarTab === 'text' && t('text')}
+              {activeSidebarTab === 'transitions' && t('transitions')}
+              {activeSidebarTab === 'effects' && t('effects')}
             </h2>
             <button
               onClick={() => {
@@ -227,7 +236,8 @@ const MinimalLayout = ({
     <FooterCredit compact />
     <ExportModal />
   </div>
-);
+  );
+};
 
 const CompactLayout = ({
   isSidebarVisible,
@@ -238,7 +248,9 @@ const CompactLayout = ({
   setActiveSidebarTab,
   setMobileSidebarOpen,
   getFoldAwareStyles
-}: any) => (
+}: any) => {
+  const { t } = useI18n();
+  return (
   <div 
     className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
     style={getFoldAwareStyles()}
@@ -264,12 +276,12 @@ const CompactLayout = ({
         {isTimelineExpanded ? (
           <>
             <ChevronDown className="w-4 h-4" />
-            <span className="text-xs">Réduire</span>
+            <span className="text-xs">{t('collapse')}</span>
           </>
         ) : (
           <>
             <ChevronUp className="w-4 h-4" />
-            <span className="text-xs">Timeline</span>
+            <span className="text-xs">{t('timeline')}</span>
           </>
         )}
       </button>
@@ -299,7 +311,7 @@ const CompactLayout = ({
             {tab === 'text' && <Type className="w-5 h-5" />}
             {tab === 'transitions' && <Scissors className="w-5 h-5" />}
             {tab === 'effects' && <Sliders className="w-5 h-5" />}
-            <span className="text-[10px] font-medium capitalize">{tab === 'transitions' ? 'Trans.' : tab === 'media' ? 'Média' : tab === 'text' ? 'Texte' : 'Effets'}</span>
+            <span className="text-[10px] font-medium capitalize">{tab === 'transitions' ? t('transShort') : tab === 'media' ? t('media') : tab === 'text' ? t('text') : t('effects')}</span>
           </button>
         ))}
       </div>
@@ -308,10 +320,10 @@ const CompactLayout = ({
         <div className="absolute inset-0 z-[70] flex flex-col bg-[#1a1a1a]">
           <div className="h-12 flex items-center justify-between px-4 border-b border-white/10 flex-shrink-0">
             <h2 className="text-sm font-semibold text-white">
-              {activeSidebarTab === 'media' && 'Médias'}
-              {activeSidebarTab === 'text' && 'Texte'}
-              {activeSidebarTab === 'transitions' && 'Transitions'}
-              {activeSidebarTab === 'effects' && 'Effets'}
+              {activeSidebarTab === 'media' && t('mediaLibrary')}
+              {activeSidebarTab === 'text' && t('text')}
+              {activeSidebarTab === 'transitions' && t('transitions')}
+              {activeSidebarTab === 'effects' && t('effects')}
             </h2>
             <button
               onClick={() => {
@@ -337,7 +349,8 @@ const CompactLayout = ({
     <FooterCredit compact />
     <ExportModal />
   </div>
-);
+  );
+};
 
 const AdaptiveLayout = ({
   isSidebarVisible,
@@ -448,7 +461,9 @@ const DesktopLayout = ({
   setIsSidebarVisible,
   activeSidebarTab,
   setActiveSidebarTab
-}: any) => (
+}: any) => {
+  const { t } = useI18n();
+  return (
   <div className="h-screen flex flex-col overflow-hidden bg-[#1a1a1a]">
     <Header
       isSidebarVisible={isSidebarVisible}
@@ -465,10 +480,10 @@ const DesktopLayout = ({
                 ? 'bg-primary-500 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-white/10'
             }`}
-            title="Média"
+            title={t('media')}
           >
             <Film className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Média</span>
+            <span className="text-[10px] font-medium">{t('media')}</span>
           </button>
           <button
             onClick={() => setActiveSidebarTab('text')}
@@ -477,10 +492,10 @@ const DesktopLayout = ({
                 ? 'bg-primary-500 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-white/10'
             }`}
-            title="Texte"
+            title={t('text')}
           >
             <Type className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Texte</span>
+            <span className="text-[10px] font-medium">{t('text')}</span>
           </button>
           <button
             onClick={() => setActiveSidebarTab('transitions')}
@@ -489,10 +504,10 @@ const DesktopLayout = ({
                 ? 'bg-primary-500 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-white/10'
             }`}
-            title="Transitions"
+            title={t('transitions')}
           >
             <Scissors className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Transition</span>
+            <span className="text-[10px] font-medium">{t('transition')}</span>
           </button>
           <button
             onClick={() => setActiveSidebarTab('effects')}
@@ -501,10 +516,10 @@ const DesktopLayout = ({
                 ? 'bg-primary-500 text-white'
                 : 'text-neutral-400 hover:text-white hover:bg-white/10'
             }`}
-            title="Effets"
+            title={t('effects')}
           >
             <Sliders className="w-5 h-5" />
-            <span className="text-[10px] font-medium">Effets</span>
+            <span className="text-[10px] font-medium">{t('effects')}</span>
           </button>
         </div>
       )}
@@ -547,7 +562,8 @@ const DesktopLayout = ({
       <ExportModal />
     </Suspense>
   </div>
-);
+  );
+};
 
 function App() {
   const { setMobileSidebarOpen } = useEditorStore();

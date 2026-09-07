@@ -7,6 +7,7 @@ import { RESOLUTION_PRESETS, ExportSettings, VideoFilter, TimelineClip, MediaFil
 import type { HardwareProfile as DetectionHardwareProfile, VideoSettings } from './hardwareDetection';
 import type { HardwareProfile as PreviewHardwareProfile } from './previewOptimizer';
 import { exportProjectWithMediaBunny, cancelMediaBunnyExport } from './mediaBunny';
+import { t } from '../i18n';
 
 // Union type to handle both profile structures
 export type AnyHardwareProfile = DetectionHardwareProfile | PreviewHardwareProfile;
@@ -647,7 +648,7 @@ export async function loadFFmpeg(
     console.error('Error loading FFmpeg:', error);
     isLoaded = false;
     ffmpeg = null;
-    throw new Error('Impossible de charger FFmpeg. Vérifiez votre connexion Internet et réessayez. (Erreur: ' + (error instanceof Error ? error.message : String(error)) + ')');
+    throw new Error(t('ffmpegLoadFailed', { error: error instanceof Error ? error.message : String(error) }));
   }
 }
 
@@ -1910,7 +1911,7 @@ async function exportSingleClip(
       fileToLoad = new File([pngBlob], fileToLoad.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
     } catch (e) {
       console.error('Failed to convert SVG to PNG:', e);
-      throw new Error(`Impossible de convertir l'image SVG (${fileToLoad.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
+      throw new Error(t('svgConvertFailed', { name: fileToLoad.name }));
     }
   }
 
@@ -2023,7 +2024,7 @@ async function convertSvgToPngFile(file: File): Promise<File> {
     return new File([pngBlob], file.name.replace(/\.svg$/i, '.png'), { type: 'image/png' });
   } catch (e) {
     console.error('Failed to convert SVG to PNG:', e);
-    throw new Error(`Impossible de convertir l'image SVG (${file.name}). L'image est peut-être corrompue ou contient des éléments externes non supportés. Veuillez utiliser un format PNG ou JPEG.`);
+    throw new Error(t('svgConvertFailed', { name: file.name }));
   }
 }
 
@@ -2799,8 +2800,8 @@ async function tryMediaBunnyExport(
 }
 
 async function waitForFFmpegOperation(): Promise<void> {
-  if (isOperationInProgress && currentOperationType === 'export') {
-    throw new Error('Un export est déjà en cours. Veuillez patienter.');
+    if (isOperationInProgress && currentOperationType === 'export') {
+    throw new Error(t('exportAlreadyRunning'));
   }
 
   if (isOperationInProgress && currentOperationType && currentOperationType !== 'export') {
@@ -2942,7 +2943,7 @@ async function performFFmpegExport(
 
   if (clips.length === 0) {
     stopProgressInterpolation();
-    throw new Error('Aucun clip à exporter');
+    throw new Error(t('noClips'));
   }
 
   try {
@@ -3045,7 +3046,7 @@ export async function getVideoDuration(file: File): Promise<number> {
     
     video.onerror = () => {
       URL.revokeObjectURL(video.src);
-      reject(new Error('Impossible de lire les métadonnées de la vidéo'));
+      reject(new Error(t('videoMetadataReadFailed')));
     };
     
     video.src = URL.createObjectURL(file);
