@@ -811,7 +811,24 @@ const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boole
         bitrateMode = 'constant';
     }
     const defaultCodec = isWebM ? 'vp9' : 'avc';
-    return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height, bitrateMode } as any;
+    // Le contrôle de débit des encodeurs HARDWARE (choisis par défaut par le
+    // navigateur) est médiocre -> sortie « pixélisée » même à débit élevé. On
+    // force l'encodeur LOGICIEL (libvpx / openh264) pour les qualités élevées et
+    // la résolution originale : bien meilleure qualité à débit égal.
+    const preferSoftware =
+        settings.quality === 'lossless' ||
+        settings.quality === 'high' ||
+        settings.resolution === 'original' ||
+        settings.resolution === '4K';
+    return {
+        codec: codecOverride || defaultCodec,
+        bitrate: Math.round(bitrate),
+        width: resolution.width,
+        height: resolution.height,
+        bitrateMode,
+        latencyMode: 'quality',
+        hardwareAcceleration: preferSoftware ? 'prefer-software' : 'no-preference'
+    } as any;
 };
 
 /**
