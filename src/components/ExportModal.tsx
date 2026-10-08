@@ -43,11 +43,14 @@ export const ExportModal: React.FC = () => {
   const [isExporting, setIsExporting] = useState(ui.isProcessing);
   const [exportProgress, setExportProgress] = useState(ui.processingProgress);
   const [exportMessage, setExportMessage] = useState(ui.processingMessage);
+  const [exportEta, setExportEta] = useState<number | null>(null);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatioOption>(aspectRatio);
   const cancelledRef = useRef(false);
   const lastStoreUpdateRef = useRef<number>(0);
   const exportDoneRef = useRef(false);
   const exportStartTimeRef = useRef<number>(0);
+  const progressStartRef = useRef<number>(0);
+  const etaSmoothRef = useRef<number | null>(null);
 
   // Sync isExporting with global store (sans toucher au progress)
   useEffect(() => {
@@ -60,55 +63,45 @@ export const ExportModal: React.FC = () => {
     }
   }, [ui.isProcessing]);
 
-  // Animation de progression : 0% → 99% basée sur le temps écoulé
-  // Utilise requestAnimationFrame pour ne jamais bloquer même si le thread est occupé
-  // Quand le thread se libère, rattrape d'un coup le temps écoulé
-  useEffect(() => {
-    if (!isExporting || cancelledRef.current) return;
-    
-    const startTime = exportStartTimeRef.current || Date.now();
-    let rafId: number;
-    let lastDisplayed = 0;
-    
-    const animate = () => {
-      if (cancelledRef.current || exportDoneRef.current) return;
-      
-      const elapsed = Date.now() - startTime;
-      // Progression basée sur le temps : 
-      // 0-5s = 0-15%, 5-15s = 15-50%, 15-30s = 50-80%, 30-60s = 80-95%, 60s+ = 95-99%
-      // Formule logarithmique qui ralentit naturellement
-      let timeProgress: number;
-      if (elapsed < 5000) {
-        timeProgress = (elapsed / 5000) * 15;
-      } else if (elapsed < 15000) {
-        timeProgress = 15 + ((elapsed - 5000) / 10000) * 35;
-      } else if (elapsed < 30000) {
-        timeProgress = 50 + ((elapsed - 15000) / 15000) * 30;
-      } else if (elapsed < 60000) {
-        timeProgress = 80 + ((elapsed - 30000) / 30000) * 15;
-      } else {
-        timeProgress = 95 + Math.min(4, ((elapsed - 60000) / 30000) * 4);
-      }
-      
-      const rounded = Math.min(99, Math.round(timeProgress));
-      
-      if (rounded > lastDisplayed) {
-        lastDisplayed = rounded;
-        setExportProgress(rounded);
-        setExportMessage(t('exportInProgress'));
-        // Store global throttlé
-        if (!lastStoreUpdateRef.current || Date.now() - lastStoreUpdateRef.current > 1000) {
-          setProcessing(true, rounded, t('exportInProgress'));
-          lastStoreUpdateRef.current = Date.now();
-        }
-      }
-      
-      rafId = requestAnimationFrame(animate);
-    };
-    
-    rafId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafId);
-  }, [isExporting, setProcessing]);
+  // Vrai pourcentage : on affiche la progression RÉELLE rapportée par le moteur
+  // (durée de timeline / frames réellement traités), plus un temps restant (ETA)
+  // déduit du débit de progression observé.
+  const formatEta = (sec: number) => {
+    if (sec < 60) return `${sec} s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return s ? `${m} min ${s} s` : `${m} min`;
+  };
+
+  const handleExportProgress = useCallback((progress: number, message: string) => {
+    if (cancelledRef.current || exportDoneRef.current) return;
+
+    const p = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+    const now = Date.now();
+
+    // Progression monotone (le moteur rapporte par paliers entiers).
+    setExportProgress((prev) => (p > prev ? p : prev));
+    if (message) setExportMessage(message);
+
+    if (!progressStartRef.current && p > 0) progressStartRef.current = now;
+
+    // ETA : reste ≈ écoulé × (1 − p/100) / (p/100), lissé (moyenne mobile).
+    if (progressStartRef.current && p >= 3 && p < 100) {
+      const elapsed = now - progressStartRef.current;
+      const frac = p / 100;
+      const eta = (elapsed * (1 - frac)) / frac; // ms
+      etaSmoothRef.current = etaSmoothRef.current == null
+        ? eta
+        : etaSmoothRef.current * 0.6 + eta * 0.4;
+      setExportEta(Math.max(0, Math.round(etaSmoothRef.current / 1000)));
+    }
+
+    // Store global (throttlé pour ne pas re-render à chaque frame).
+    if (!lastStoreUpdateRef.current || now - lastStoreUpdateRef.current > 400) {
+      setProcessing(true, Math.round(p), message || t('exportInProgress'));
+      lastStoreUpdateRef.current = now;
+    }
+  }, [setProcessing, t]);
 
   const handleCancel = useCallback(() => {
     if (isExporting) {
@@ -148,8 +141,11 @@ export const ExportModal: React.FC = () => {
       cancelledRef.current = false;
       exportDoneRef.current = false;
       exportStartTimeRef.current = Date.now();
+      progressStartRef.current = 0;
+      etaSmoothRef.current = null;
       setIsExporting(true);
       setExportProgress(0);
+      setExportEta(null);
       setExportMessage(t('exportInProgress'));
       setProcessing(true, 0, t('exportInProgress'));
 
@@ -307,9 +303,7 @@ export const ExportModal: React.FC = () => {
         const blob = await exportProject(
           clipsToExport,
           { ...exportSettings, sourceDimensions },
-          () => {
-            // L'animation côté client gère l'affichage, le backend est ignoré visuellement
-          },
+          handleExportProgress,
           textOverlays,
           transitions,
           selectedAspectRatio,
@@ -573,10 +567,17 @@ export const ExportModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Single status label */}
-              <p className="text-sm text-neutral-500">
-                {exportProgress >= 100 ? t('exportComplete') : t('exportInProgress')}
+              {/* Statut réel du moteur */}
+              <p className="text-sm text-neutral-500 text-center">
+                {exportProgress >= 100 ? t('exportComplete') : (exportMessage || t('exportInProgress'))}
               </p>
+
+              {/* Temps restant estimé */}
+              {exportProgress < 100 && exportEta != null && exportEta > 1 && (
+                <p className="text-xs text-neutral-400">
+                  {t('exportEtaRemaining', { time: formatEta(exportEta) })}
+                </p>
+              )}
 
               {/* Cancel button */}
               <button
