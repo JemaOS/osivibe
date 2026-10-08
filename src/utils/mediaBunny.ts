@@ -1000,7 +1000,6 @@ async function tryLosslessPassthrough(
     if (clip.filter || clip.crop || clip.transform) return null;
     if ((settings.resolution || '1080p') !== 'original') return null;
     const ar = aspectRatio || settings.aspectRatio || '16:9';
-    if (ar !== 'original') return null;
     if ((textOverlays && textOverlays.length) ||
         (transitions && transitions.some((t: any) => t && t.type && t.type !== 'none')) ||
         (imageOverlays && imageOverlays.length) ||
@@ -1012,6 +1011,16 @@ async function tryLosslessPassthrough(
         const vTrack: any = await input.getPrimaryVideoTrack();
         if (!vTrack || !vTrack.codec) { input.dispose?.(); return null; }
         const vCodec: string = vTrack.codec;
+
+        // La copie n'est valide que si la sortie garde EXACTEMENT la taille
+        // native (aucun downscale / crop / letterbox). Le ratio peut rester
+        // « 16:9 » tant que la source est DÉJÀ dans ce ratio (dimensions égales).
+        const srcW = vTrack.displayWidth || vTrack.codedWidth || 0;
+        const srcH = vTrack.displayHeight || vTrack.codedHeight || 0;
+        if (!srcW || !srcH) { input.dispose?.(); return null; }
+        const targetDims = getResolutionForAspectRatio('original', ar, { width: srcW, height: srcH });
+        if (targetDims.width !== srcW || targetDims.height !== srcH) { input.dispose?.(); return null; }
+
         const webmContainer = /^vp0?[89]/.test(vCodec) || vCodec === 'av1';
 
         const target = new BufferTarget();
