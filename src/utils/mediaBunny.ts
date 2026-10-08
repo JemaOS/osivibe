@@ -790,12 +790,14 @@ const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boole
     if (settings.resolution==='4K') bitrate=8_000_000;
     else if (settings.resolution==='720p') bitrate=1_500_000;
     else if (settings.resolution==='original') {
-        // « Original » : débit adapté à la taille native de la source.
+        // « Originale » : débit adapté à la taille native de la source, DOUBLÉ
+        // pour privilégier la qualité (l'export « original » re-encode quand il
+        // y a du montage / que la copie de flux n'est pas applicable).
         const h = (resolution && resolution.height) || 1080;
-        if (h >= 2000) bitrate=8_000_000;
-        else if (h >= 1400) bitrate=5_000_000;
-        else if (h >= 1000) bitrate=2_500_000;
-        else bitrate=1_500_000;
+        if (h >= 2000) bitrate=16_000_000;
+        else if (h >= 1400) bitrate=10_000_000;
+        else if (h >= 1000) bitrate=5_000_000;
+        else bitrate=3_000_000;
     }
     if (settings.quality==='high') bitrate*=1.5;
     else if (settings.quality==='low') bitrate*=0.7;
