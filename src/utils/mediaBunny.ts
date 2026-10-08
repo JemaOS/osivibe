@@ -795,13 +795,17 @@ const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boole
     }
     if (settings.quality==='high') bitrate*=1.5;
     else if (settings.quality==='low') bitrate*=0.7;
-    else if (settings.quality==='lossless') {
-        // « Sans perte » : on conserve le débit de la source (jamais réduit).
+    let bitrateMode: 'constant' | 'variable' = 'variable';
+    if (settings.quality==='lossless') {
+        // « Sans perte » : on garde le débit de la source ET on le tient en CBR.
+        // En mode 'variable' (défaut) l'encodeur sous-débitait, ce qui
+        // recompressait la vidéo au lieu de préserver le débit d'origine.
         if (sourceBitrate && sourceBitrate > 0) bitrate = sourceBitrate;
         else bitrate *= 3;
+        bitrateMode = 'constant';
     }
     const defaultCodec = isWebM ? 'vp9' : 'avc';
-    return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height } as any;
+    return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height, bitrateMode } as any;
 };
 
 /**
