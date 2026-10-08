@@ -15,7 +15,8 @@ import {
     BlobSource,
     EncodedPacketSink,
     EncodedVideoPacketSource,
-    EncodedAudioPacketSource
+    EncodedAudioPacketSource,
+    EncodedPacket
 } from 'mediabunny';
 import { ExportSettings, VideoFilter, TextOverlay, Transition, AspectRatio, getResolutionForAspectRatio, CropSettings, TransformSettings } from '../types';
 
@@ -996,7 +997,13 @@ async function tryLosslessPassthrough(
     if (!clips || clips.length !== 1) return null;
     const clip = clips[0];
     if (!clip || !clip.file) return null;
-    if ((clip.trimStart || 0) > 0.001 || (clip.trimEnd || 0) > 0.001) return null;
+    // Une simple COUPE (trim) est autorisée : on copie les paquets de la plage
+    // gardée sans ré-encoder (lossless cut). Les autres retouches non.
+    const trimStart = Math.max(0, clip.trimStart || 0);
+    const trimEnd = Math.max(0, clip.trimEnd || 0);
+    const hasTrim = trimStart > 0.001 || trimEnd > 0.001;
+    const srcDuration = clip.duration || 0;
+    const keepEnd = srcDuration > 0 ? (srcDuration - trimEnd) : Number.POSITIVE_INFINITY;
     if (clip.filter || clip.crop || clip.transform) return null;
     if ((settings.resolution || '1080p') !== 'original') return null;
     const ar = aspectRatio || settings.aspectRatio || '16:9';
@@ -1044,19 +1051,35 @@ async function tryLosslessPassthrough(
 
         const vConfig = await vTrack.getDecoderConfig?.();
         const vSink = new EncodedPacketSink(vTrack);
+        // Coupe sans perte : on démarre au keyframe <= trimStart (son timestamp
+        // devient négatif après recalage -> non présenté) et on s'arrête à
+        // keepEnd. Timestamps recalés de -trimStart.
+        let vStart: any = null;
+        if (hasTrim) { try { vStart = await vSink.getKeyPacket(trimStart); } catch { /* ignore */ } }
+        if (!vStart) vStart = await vSink.getFirstPacket();
         let firstV = true;
-        for await (const packet of vSink.packets()) {
+        for await (const packet of vSink.packets(vStart || undefined)) {
             if (isExportCancelled) throw new Error('Export cancelled');
-            await vSource.add(packet, firstV && vConfig ? { decoderConfig: vConfig } : undefined);
+            if (hasTrim && packet.timestamp >= keepEnd - 1e-6) break;
+            const out = hasTrim
+                ? new EncodedPacket(packet.data, packet.type, packet.timestamp - trimStart, packet.duration, packet.sequenceNumber, packet.byteLength, packet.sideData)
+                : packet;
+            await vSource.add(out, firstV && vConfig ? { decoderConfig: vConfig } : undefined);
             firstV = false;
         }
         if (aTrack && aSource) {
             const aConfig = await aTrack.getDecoderConfig?.();
             const aSink = new EncodedPacketSink(aTrack);
+            let aStart: any = null;
+            if (hasTrim) { try { aStart = await aSink.getPacket(trimStart); } catch { /* ignore */ } }
             let firstA = true;
-            for await (const packet of aSink.packets()) {
+            for await (const packet of aSink.packets(aStart || undefined)) {
                 if (isExportCancelled) throw new Error('Export cancelled');
-                await aSource.add(packet, firstA && aConfig ? { decoderConfig: aConfig } : undefined);
+                if (hasTrim && packet.timestamp >= keepEnd - 1e-6) break;
+                const out = hasTrim
+                    ? new EncodedPacket(packet.data, packet.type, packet.timestamp - trimStart, packet.duration, packet.sequenceNumber, packet.byteLength, packet.sideData)
+                    : packet;
+                await aSource.add(out, firstA && aConfig ? { decoderConfig: aConfig } : undefined);
                 firstA = false;
             }
         }
