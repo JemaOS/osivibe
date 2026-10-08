@@ -73,7 +73,7 @@ export const ExportModal: React.FC = () => {
     return s ? `${m} min ${s} s` : `${m} min`;
   };
 
-  const handleExportProgress = useCallback((progress: number, message: string) => {
+  const handleExportProgress = useCallback((progress: number, _message: string) => {
     if (cancelledRef.current || exportDoneRef.current) return;
 
     const p = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
@@ -81,7 +81,8 @@ export const ExportModal: React.FC = () => {
 
     // Progression monotone (le moteur rapporte par paliers entiers).
     setExportProgress((prev) => (p > prev ? p : prev));
-    if (message) setExportMessage(message);
+    // Message du moteur volontairement ignoré : on affiche un libellé unique
+    // « Traitement en cours » (les compteurs « clip x/y » n'apportent rien).
 
     if (!progressStartRef.current && p > 0) progressStartRef.current = now;
 
@@ -98,7 +99,7 @@ export const ExportModal: React.FC = () => {
 
     // Store global (throttlé pour ne pas re-render à chaque frame).
     if (!lastStoreUpdateRef.current || now - lastStoreUpdateRef.current > 400) {
-      setProcessing(true, Math.round(p), message || t('exportInProgress'));
+      setProcessing(true, Math.round(p), t('exportInProgress'));
       lastStoreUpdateRef.current = now;
     }
   }, [setProcessing, t]);
@@ -567,9 +568,9 @@ export const ExportModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Statut réel du moteur */}
+              {/* Statut */}
               <p className="text-sm text-neutral-500 text-center">
-                {exportProgress >= 100 ? t('exportComplete') : (exportMessage || t('exportInProgress'))}
+                {exportProgress >= 100 ? (exportMessage || t('exportComplete')) : t('exportInProgress')}
               </p>
 
               {/* Temps restant estimé */}

@@ -191,7 +191,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     transitionDiamondWipe: 'Diamond wipe',
 
     // Export modal
-    exportInProgress: 'Exporting...',
+    exportInProgress: 'Processing…',
     noClipsToExport: 'No video or image clips to export',
     mediaFileNotFound: 'Media file not found',
     exportTimeout: 'The export took too long. Please try again with a shorter video.',
@@ -470,7 +470,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     transitionDiamondWipe: 'Balayage losange',
 
     // Export modal
-    exportInProgress: 'Export en cours...',
+    exportInProgress: 'Traitement en cours…',
     noClipsToExport: 'Aucun clip vidéo ou image à exporter',
     mediaFileNotFound: 'Fichier média introuvable',
     exportTimeout: "L'export a pris trop de temps. Veuillez réessayer avec une vidéo plus courte.",
