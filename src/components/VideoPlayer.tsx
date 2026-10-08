@@ -1864,10 +1864,14 @@ const VideoPlayer: React.FC = () => {
       return 1;
     }
     
-    // Get the export resolution
+    // Get the export resolution ('original' = dimensions natives de la source)
     const exportResolution = RESOLUTION_PRESETS[exportSettings.resolution];
-    const exportWidth = exportResolution.width;
-    const exportHeight = exportResolution.height;
+    const exportWidth = exportSettings.resolution === 'original'
+      ? (originalDims?.width || exportSettings.sourceDimensions?.width || 1920)
+      : exportResolution.width;
+    const exportHeight = exportSettings.resolution === 'original'
+      ? (originalDims?.height || exportSettings.sourceDimensions?.height || 1080)
+      : exportResolution.height;
     
     // Calculate scale factor based on the preview width vs export width
     // This ensures text appears at the same relative size in preview as in export
@@ -1880,7 +1884,7 @@ const VideoPlayer: React.FC = () => {
     });
     
     return scaleFactor;
-  }, [previewDimensions, exportSettings.resolution]);
+  }, [previewDimensions, exportSettings.resolution, exportSettings.sourceDimensions, originalDims]);
   
   // Update preview settings when quality changes
   const handleQualityChange = useCallback((quality: PreviewSettings['quality']) => {

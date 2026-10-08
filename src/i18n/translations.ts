@@ -215,6 +215,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     exportQualityMedium: 'Medium',
     exportQualityHigh: 'High',
     exportQualityLossless: 'Lossless',
+    exportResolutionOriginal: 'Original',
 
     // Video player
     previewQuality: 'Preview quality • {fps} FPS',
@@ -492,6 +493,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     exportQualityMedium: 'Moyenne',
     exportQualityHigh: 'Haute',
     exportQualityLossless: 'Sans perte',
+    exportResolutionOriginal: 'Originale',
 
     // Video player
     previewQuality: 'Qualité Preview • {fps} FPS',

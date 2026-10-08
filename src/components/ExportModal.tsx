@@ -418,8 +418,8 @@ export const ExportModal: React.FC = () => {
                 <label id="export-resolution" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   {t('resolution')}
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                  {(['720p', '1080p', '4K'] as ExportResolution[]).map((res) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
+                  {(['720p', '1080p', '4K', 'original'] as ExportResolution[]).map((res) => (
                     <button
                       key={res}
                       onClick={() => setExportSettings({ resolution: res })}
@@ -429,7 +429,7 @@ export const ExportModal: React.FC = () => {
                           : 'glass-panel-medium hover:border-primary-500/50'
                       }`}
                     >
-                      {res}
+                      {res === 'original' ? t('exportResolutionOriginal') : res}
                     </button>
                   ))}
                 </div>

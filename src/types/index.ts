@@ -130,7 +130,7 @@ export interface VideoFilter {
 }
 
 // Export Types
-export type ExportResolution = '720p' | '1080p' | '4K';
+export type ExportResolution = '720p' | '1080p' | '4K' | 'original';
 export type ExportFormat = 'mp4' | 'webm';
 export type ExportQuality = 'low' | 'medium' | 'high' | 'lossless';
 export type ExportFPS = '30' | '60' | '120';
@@ -193,6 +193,9 @@ export const RESOLUTION_PRESETS = {
   '720p': { width: 1280, height: 720 },
   '1080p': { width: 1920, height: 1080 },
   '4K': { width: 3840, height: 2160 },
+  // 'original' : sentinelle — les dimensions réelles viennent de la source
+  // (calculées dans getResolutionForAspectRatio).
+  'original': { width: 0, height: 0 },
 } as const;
 
 // Aspect ratio multipliers for calculating dimensions
@@ -217,13 +220,18 @@ export function getResolutionForAspectRatio(
   aspectRatio: AspectRatio,
   sourceDimensions?: { width: number; height: number }
 ): { width: number; height: number } {
-  const baseRes = RESOLUTION_PRESETS[resolution];
+  const srcW = sourceDimensions?.width || 0;
+  const srcH = sourceDimensions?.height || 0;
+
+  // 'original' : base = dimensions natives de la source (repli 1080p si inconnues).
+  const baseRes =
+    resolution === 'original'
+      ? (srcW > 0 && srcH > 0 ? { width: srcW, height: srcH } : RESOLUTION_PRESETS['1080p'])
+      : RESOLUTION_PRESETS[resolution];
 
   // 'original' : conserve le ratio exact de la source. La vidéo n'est
   // jamais agrandie : elle est réduite uniquement si elle dépasse le preset.
   if (aspectRatio === 'original') {
-    const srcW = sourceDimensions?.width || 0;
-    const srcH = sourceDimensions?.height || 0;
     if (srcW > 0 && srcH > 0) {
       const scale = Math.min(baseRes.width / srcW, baseRes.height / srcH, 1);
       let width = Math.round(srcW * scale);
