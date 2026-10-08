@@ -804,11 +804,14 @@ const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boole
     else if (settings.quality==='low') bitrate*=0.7;
     let bitrateMode: 'constant' | 'variable' = 'variable';
     if (settings.quality==='lossless') {
-        // « Sans perte » : on garde le débit de la source ET on le tient en CBR.
-        // En mode 'variable' (défaut) l'encodeur sous-débitait, ce qui
-        // recompressait la vidéo au lieu de préserver le débit d'origine.
-        if (sourceBitrate && sourceBitrate > 0) bitrate = sourceBitrate;
-        else bitrate *= 3;
+        // « Sans perte » : copie de flux quand c'est possible (voir
+        // tryLosslessPassthrough). Sinon (retouches qui imposent un ré-encodage),
+        // on encode au MAXIMUM de la qualité : débit >= source (et généreux selon
+        // la résolution) tenu en CBR, + encodeur logiciel (voir plus bas) =>
+        // qualité visuellement sans perte.
+        const h = (resolution && resolution.height) || 1080;
+        const highFallback = h >= 2000 ? 40_000_000 : h >= 1400 ? 30_000_000 : h >= 1000 ? 20_000_000 : 12_000_000;
+        bitrate = Math.max((sourceBitrate || 0) * 1.5, highFallback);
         bitrateMode = 'constant';
     }
     const defaultCodec = isWebM ? 'vp9' : 'avc';
