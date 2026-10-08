@@ -11,7 +11,11 @@ import {
     WebMOutputFormat,
     BufferTarget,
     VideoSample,
-    AudioSample
+    AudioSample,
+    BlobSource,
+    EncodedPacketSink,
+    EncodedVideoPacketSource,
+    EncodedAudioPacketSource
 } from 'mediabunny';
 import { ExportSettings, VideoFilter, TextOverlay, Transition, AspectRatio, getResolutionForAspectRatio, CropSettings, TransformSettings } from '../types';
 
@@ -954,6 +958,96 @@ async function feedMixedAudioToSource(
     }
 }
 
+/**
+ * « Sans perte » : quand la timeline est la vidéo d'origine telle quelle
+ * (un seul clip, aucun trim/filtre/crop/transform/texte/transition/overlay/audio
+ * ajouté, résolution et ratio « original »), on COPIE les paquets encodés de la
+ * source vers la sortie au lieu de ré-encoder : débit et qualité strictement
+ * identiques à l'original. Renvoie null si non applicable (-> ré-encodage).
+ */
+async function tryLosslessPassthrough(
+    clips: any[],
+    settings: ExportSettings,
+    textOverlays?: TextOverlay[],
+    transitions?: Transition[],
+    imageOverlays?: any[],
+    audioClips?: any[],
+    aspectRatio?: AspectRatio
+): Promise<Blob | null> {
+    if (!clips || clips.length !== 1) return null;
+    const clip = clips[0];
+    if (!clip || !clip.file) return null;
+    if ((clip.trimStart || 0) > 0.001 || (clip.trimEnd || 0) > 0.001) return null;
+    if (clip.filter || clip.crop || clip.transform) return null;
+    if ((settings.resolution || '1080p') !== 'original') return null;
+    const ar = aspectRatio || settings.aspectRatio || '16:9';
+    if (ar !== 'original') return null;
+    if ((textOverlays && textOverlays.length) ||
+        (transitions && transitions.some((t: any) => t && t.type && t.type !== 'none')) ||
+        (imageOverlays && imageOverlays.length) ||
+        (audioClips && audioClips.length)) return null;
+
+    let input: any = null;
+    try {
+        input = new Input({ source: new BlobSource(clip.file), formats: ALL_FORMATS });
+        const vTrack: any = await input.getPrimaryVideoTrack();
+        if (!vTrack || !vTrack.codec) { input.dispose?.(); return null; }
+        const vCodec: string = vTrack.codec;
+        const webmContainer = /^vp0?[89]/.test(vCodec) || vCodec === 'av1';
+
+        const target = new BufferTarget();
+        const output = new Output({ format: (webmContainer ? new WebMOutputFormat() : new Mp4OutputFormat()) as any, target });
+        const vSource: any = new EncodedVideoPacketSource(vCodec as any);
+        output.addVideoTrack(vSource);
+
+        const aTrack: any = await input.getPrimaryAudioTrack();
+        let aSource: any = null;
+        if (aTrack && aTrack.codec) {
+            const aCodec: string = aTrack.codec;
+            const audioOk = webmContainer
+                ? (aCodec === 'opus' || aCodec === 'vorbis')
+                : (aCodec === 'aac' || aCodec === 'mp3' || aCodec === 'opus');
+            if (!audioOk) { input.dispose?.(); return null; }
+            aSource = new EncodedAudioPacketSource(aCodec as any);
+            output.addAudioTrack(aSource);
+        }
+
+        await output.start();
+
+        const vConfig = await vTrack.getDecoderConfig?.();
+        const vSink = new EncodedPacketSink(vTrack);
+        let firstV = true;
+        for await (const packet of vSink.packets()) {
+            if (isExportCancelled) throw new Error('Export cancelled');
+            await vSource.add(packet, firstV && vConfig ? { decoderConfig: vConfig } : undefined);
+            firstV = false;
+        }
+        if (aTrack && aSource) {
+            const aConfig = await aTrack.getDecoderConfig?.();
+            const aSink = new EncodedPacketSink(aTrack);
+            let firstA = true;
+            for await (const packet of aSink.packets()) {
+                if (isExportCancelled) throw new Error('Export cancelled');
+                await aSource.add(packet, firstA && aConfig ? { decoderConfig: aConfig } : undefined);
+                firstA = false;
+            }
+        }
+        await output.finalize();
+        input.dispose?.();
+
+        lastExportActualFormat = webmContainer ? 'webm' : 'mp4';
+        lastExportFormatOverridden = settings.format !== lastExportActualFormat;
+        if (target.buffer) {
+            return new Blob([target.buffer], { type: webmContainer ? 'video/webm' : 'video/mp4' });
+        }
+        return null;
+    } catch (e) {
+        console.warn('⚠️ Lossless passthrough non disponible, ré-encodage :', e);
+        try { input?.dispose?.(); } catch { /* ignore */ }
+        return null;
+    }
+}
+
 export async function exportProjectWithMediaBunny(
     clips: {file:File;startTime:number;duration:number;trimStart:number;trimEnd:number;filter?:VideoFilter;id?:string;audioMuted?:boolean;crop?:CropSettings;transform?:TransformSettings}[],
     settings: ExportSettings,
@@ -970,6 +1064,17 @@ export async function exportProjectWithMediaBunny(
     cancelRejectFn = null;
     lastReportedProgress = 0;
     onProgress?.(0, 'Initialisation de MediaBunny...');
+
+    // « Sans perte » SANS montage : on copie directement le flux encodé
+    // (aucune recompression -> fichier identique à la source, même débit).
+    if (settings.quality === 'lossless') {
+        const past = await tryLosslessPassthrough(clips, settings, textOverlays, transitions, imageOverlays, audioClips, aspectRatio);
+        if (past) {
+            onProgress?.(100, 'Terminé');
+            return past;
+        }
+    }
+
     const effectiveAspectRatio = aspectRatio||settings.aspectRatio||'16:9';
     const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio, settings.sourceDimensions);
     let isWebM = settings.format==='webm';
