@@ -781,12 +781,17 @@ async function isAudioCodecSupported(codec: string, sampleRate: number, numberOf
     }
 }
 
-const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boolean, codecOverride?: string) => {
+const getVideoConfig = (settings: ExportSettings, resolution: any, isWebM: boolean, codecOverride?: string, sourceBitrate?: number) => {
     let bitrate=2_500_000;
     if (settings.resolution==='4K') bitrate=8_000_000;
     else if (settings.resolution==='720p') bitrate=1_500_000;
     if (settings.quality==='high') bitrate*=1.5;
-    if (settings.quality==='low') bitrate*=0.7;
+    else if (settings.quality==='low') bitrate*=0.7;
+    else if (settings.quality==='lossless') {
+        // « Sans perte » : on conserve le débit de la source (jamais réduit).
+        if (sourceBitrate && sourceBitrate > 0) bitrate = sourceBitrate;
+        else bitrate *= 3;
+    }
     const defaultCodec = isWebM ? 'vp9' : 'avc';
     return { codec: codecOverride || defaultCodec, bitrate: Math.round(bitrate), width: resolution.width, height: resolution.height } as any;
 };
@@ -957,10 +962,16 @@ export async function exportProjectWithMediaBunny(
     const resolution = getResolutionForAspectRatio(settings.resolution, effectiveAspectRatio, settings.sourceDimensions);
     let isWebM = settings.format==='webm';
     
+    // « Sans perte » : débit estimé de la vidéo source (bits/s) à conserver tel quel.
+    const primaryClip = clips && clips[0];
+    const sourceBitrate = (settings.quality === 'lossless' && primaryClip && primaryClip.file && primaryClip.duration > 0)
+        ? Math.round((primaryClip.file.size * 8) / primaryClip.duration)
+        : 0;
+
     // Negotiate codec: test if the requested codec is actually supported by the browser's encoder
     let codecOverride: string | undefined;
     let formatOverridden = false;
-    const initialVideoConfig = getVideoConfig(settings, resolution, isWebM);
+    const initialVideoConfig = getVideoConfig(settings, resolution, isWebM, undefined, sourceBitrate);
     const requestedCodec = isWebM ? 'vp9' : 'avc';
     const codecSupported = await isCodecSupported(requestedCodec, resolution.width, resolution.height, initialVideoConfig.bitrate);
     
@@ -1062,7 +1073,7 @@ export async function exportProjectWithMediaBunny(
     const outputFormat = isWebM ? new WebMOutputFormat() : new Mp4OutputFormat();
     const target = new BufferTarget();
     const output = new Output({ format: outputFormat, target });
-    const videoConfig = getVideoConfig(settings, resolution, isWebM, codecOverride);
+    const videoConfig = getVideoConfig(settings, resolution, isWebM, codecOverride, sourceBitrate);
     const videoSource = new VideoSampleSource(videoConfig);
     output.addVideoTrack(videoSource);
     const audioConfig = await getAudioConfig(clips, isWebM, audioClips, audioCodecOverride);

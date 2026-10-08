@@ -74,13 +74,14 @@ export interface EncodingSettings {
 function applyGpuTierSettings(settings: EncodingSettings, gpuTier: string, quality: string) {
   // Helper to get CRF value based on quality
   const getCrf = (high: string, mid: string, low: string) => {
+    if (quality === 'lossless') return '0'; // sans perte
     if (quality === 'high') return high;
     if (quality === 'medium') return mid;
     return low;
   };
 
   // Helper to get preset value based on quality
-  const getPreset = (high: string, low: string) => quality === 'high' ? high : low;
+  const getPreset = (high: string, low: string) => (quality === 'high' || quality === 'lossless') ? high : low;
 
   // Reset additional flags for this tier
   settings.additionalFlags = settings.additionalFlags.filter(f => f !== '-tune' && f !== '-g' && f !== '-max_muxing_queue_size');
@@ -183,7 +184,7 @@ function applyHardwareSpecificSettings(
   }
   
   if (isAppleSilicon) {
-    settings.preset = quality === 'high' ? 'medium' : 'fast';
+    settings.preset = (quality === 'high' || quality === 'lossless') ? 'medium' : 'fast';
     settings.threads = '0';
   }
   
@@ -220,7 +221,7 @@ function applyHardwareSpecificSettings(
 export function getOptimalEncodingSettings(
   hardwareProfile: AnyHardwareProfile | null,
   format: 'mp4' | 'webm' = 'mp4',
-  quality: 'high' | 'medium' | 'low' = 'medium',
+  quality: 'high' | 'medium' | 'low' | 'lossless' = 'medium',
   safeMode: boolean = false
 ): EncodingSettings {
   const availableCores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
@@ -228,7 +229,7 @@ export function getOptimalEncodingSettings(
   const defaultSettings: EncodingSettings = {
     videoCodec: format === 'webm' ? 'libvpx-vp9' : 'libx264',
     preset: safeMode ? 'ultrafast' : 'fast',
-    crf: quality === 'high' ? '20' : quality === 'medium' ? '25' : '30',
+    crf: quality === 'lossless' ? '0' : quality === 'high' ? '20' : quality === 'medium' ? '25' : '30',
     pixelFormat: 'yuv420p',
     threads: safeMode ? String(Math.min(4, availableCores)) : String(Math.min(8, availableCores)),
     additionalFlags: [],

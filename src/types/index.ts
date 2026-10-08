@@ -132,7 +132,7 @@ export interface VideoFilter {
 // Export Types
 export type ExportResolution = '720p' | '1080p' | '4K';
 export type ExportFormat = 'mp4' | 'webm';
-export type ExportQuality = 'low' | 'medium' | 'high';
+export type ExportQuality = 'low' | 'medium' | 'high' | 'lossless';
 export type ExportFPS = '30' | '60' | '120';
 export type AspectRatio = 'original' | '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
 

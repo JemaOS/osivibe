@@ -516,8 +516,8 @@ export const ExportModal: React.FC = () => {
                 <label id="export-quality" className="block text-sm sm:text-body font-medium text-neutral-700 mb-1.5 sm:mb-2">
                   {t('quality')}
                 </label>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                  {(['low', 'medium', 'high'] as ExportQuality[]).map((qual) => (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
+                  {(['low', 'medium', 'high', 'lossless'] as ExportQuality[]).map((qual) => (
                     <button
                       key={qual}
                       onClick={() => setExportSettings({ quality: qual })}
@@ -527,7 +527,7 @@ export const ExportModal: React.FC = () => {
                           : 'glass-panel-medium hover:border-primary-500/50'
                       }`}
                     >
-                      {qual === 'low' ? t('exportQualityLow') : qual === 'medium' ? t('exportQualityMedium') : t('exportQualityHigh')}
+                      {qual === 'low' ? t('exportQualityLow') : qual === 'medium' ? t('exportQualityMedium') : qual === 'high' ? t('exportQualityHigh') : t('exportQualityLossless')}
                     </button>
                   ))}
                 </div>
