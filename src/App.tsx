@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useEffect, useState, Suspense, lazy } from 'react';
+import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
 import Header from './components/Header';
 import MediaLibrary from './components/MediaLibrary';
 import VideoPlayer from './components/VideoPlayer';
@@ -13,7 +13,7 @@ import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 const ExportModal = lazy(() => import('./components/ExportModal').then(module => ({ default: module.ExportModal })));
 import { useEditorStore } from './store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
-import { Film, Type, Scissors, Sliders, X, ChevronUp, ChevronDown, GripHorizontal } from 'lucide-react';
+import { Film, Type, Scissors, Sliders, X, Music, Crop, Wand2 } from 'lucide-react';
 import { SubscriptionGuard } from './SubscriptionGuard';
 import { useI18n } from './i18n';
 import './index.css';
@@ -117,238 +117,230 @@ const SidebarTabs = ({
   );
 };
 
-const MinimalLayout = ({
+type MobilePanelId = 'media' | 'audio' | 'clip' | 'text' | 'effects' | 'transitions';
+
+/**
+ * Unified phone layout, modelled on mobile editors (CapCut-style):
+ *  - compact header (safe-area aware)
+ *  - large preview, always visible
+ *  - timeline anchored above the tool rail
+ *  - scrollable tool rail at the very bottom
+ *  - panels open as a draggable BOTTOM SHEET that never hides the preview
+ *
+ * Replaces the previous MinimalLayout/CompactLayout duplication.
+ */
+const MobileLayout = ({
   isSidebarVisible,
   setIsSidebarVisible,
-  isTimelineExpanded,
-  setIsTimelineExpanded,
-  activeSidebarTab,
-  setActiveSidebarTab,
-  setMobileSidebarOpen,
-  handleBottomSheetDrag,
-  bottomSheetHeight,
-  getFoldAwareStyles
-}: any) => {
-  const { t } = useI18n();
-  return (
-  <div 
-    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
-    style={getFoldAwareStyles()}
-  >
-    <Header
-      isSidebarVisible={isSidebarVisible}
-      onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
-    />
-
-    <div className="flex-1 flex flex-col overflow-hidden relative">
-      <div className={`transition-all duration-300 ease-in-out ${
-        isTimelineExpanded ? 'h-20' : 'flex-1'
-      } overflow-hidden bg-[#252525] min-h-0`}>
-        <div className="h-full p-0.5">
-          <VideoPlayer />
-        </div>
-      </div>
-
-      <button
-        onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
-        className="w-full h-10 bg-[#1a1a1a] border-t border-white/10 flex items-center justify-center gap-1 text-neutral-400 hover:text-white transition-colors touch-target"
-      >
-        {isTimelineExpanded ? (
-          <>
-            <ChevronDown className="w-4 h-4" />
-            <span className="text-[10px]">{t('collapse')}</span>
-          </>
-        ) : (
-          <>
-            <ChevronUp className="w-4 h-4" />
-            <span className="text-[10px]">{t('timeline')}</span>
-          </>
-        )}
-      </button>
-
-      <div className={`transition-all duration-300 ease-in-out ${
-        isTimelineExpanded ? 'flex-1' : 'h-24'
-      } border-t border-white/10 overflow-hidden min-h-0`}>
-        <Timeline />
-      </div>
-
-      <div className="h-14 bg-[#0f0f0f] border-t border-white/10 flex items-center justify-around px-1 safe-area-bottom flex-shrink-0">
-        {['media', 'text', 'transitions', 'effects'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setActiveSidebarTab(tab as SidebarTab);
-              setIsSidebarVisible(true);
-              setMobileSidebarOpen(true);
-            }}
-            className={`flex-1 h-12 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all touch-target ${
-              isSidebarVisible && activeSidebarTab === tab
-                ? 'bg-primary-500 text-white'
-                : 'text-neutral-400 active:bg-white/10'
-            }`}
-          >
-            {tab === 'media' && <Film className="w-5 h-5" />}
-            {tab === 'text' && <Type className="w-5 h-5" />}
-            {tab === 'transitions' && <Scissors className="w-5 h-5" />}
-            {tab === 'effects' && <Sliders className="w-5 h-5" />}
-            <span className="text-[9px] font-medium capitalize">{tab === 'transitions' ? t('transShort') : tab === 'media' ? t('media') : tab === 'text' ? t('text') : t('effects')}</span>
-          </button>
-        ))}
-      </div>
-
-      {isSidebarVisible && (
-        <div className="absolute inset-0 z-[70] flex flex-col bg-[#1a1a1a]">
-          <div 
-            className="h-8 flex items-center justify-center cursor-grab active:cursor-grabbing touch-target"
-            onClick={handleBottomSheetDrag}
-          >
-            <GripHorizontal className="w-6 h-6 text-neutral-500" />
-          </div>
-          
-          <div className="h-10 flex items-center justify-between px-3 border-b border-white/10 flex-shrink-0">
-            <h2 className="text-xs font-semibold text-white">
-              {activeSidebarTab === 'media' && t('mediaLibrary')}
-              {activeSidebarTab === 'text' && t('text')}
-              {activeSidebarTab === 'transitions' && t('transitions')}
-              {activeSidebarTab === 'effects' && t('effects')}
-            </h2>
-            <button
-              onClick={() => {
-                setIsSidebarVisible(false);
-                setMobileSidebarOpen(false);
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 text-white touch-target"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          
-          <div className="flex-1 overflow-auto min-h-0">
-            {activeSidebarTab === 'media' && <MediaLibrary />}
-            {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
-            {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
-            {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
-          </div>
-        </div>
-      )}
-    </div>
-
-    <FooterCredit compact />
-    <ExportModal />
-  </div>
-  );
-};
-
-const CompactLayout = ({
-  isSidebarVisible,
-  setIsSidebarVisible,
-  isTimelineExpanded,
-  setIsTimelineExpanded,
-  activeSidebarTab,
   setActiveSidebarTab,
   setMobileSidebarOpen,
   getFoldAwareStyles
 }: any) => {
   const { t } = useI18n();
-  return (
-  <div 
-    className="h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#1a1a1a] fold-transition touch-none"
-    style={getFoldAwareStyles()}
-  >
-    <Header
-      isSidebarVisible={isSidebarVisible}
-      onToggleSidebar={() => setIsSidebarVisible(!isSidebarVisible)}
-    />
+  const selectedClipId = useEditorStore((s) => s.ui.selectedClipId);
+  const responsive = useResponsive();
+  const isLandscape = responsive.orientation === 'landscape';
 
-    <div className="flex-1 flex flex-col overflow-hidden relative">
-      <div className={`transition-all duration-300 ease-in-out ${
-        isTimelineExpanded ? 'h-28' : 'flex-1'
-      } overflow-hidden bg-[#252525] min-h-0`}>
-        <div className="h-full p-1">
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [panel, setPanel] = useState<MobilePanelId>('media');
+  const [sheetVh, setSheetVh] = useState(46);
+  const dragRef = useRef<{ startY: number; startVh: number } | null>(null);
+
+  const SHEET_DEFAULT = isLandscape ? 70 : 46;
+  const SHEET_MIN = 26;
+  const SHEET_MAX = 80;
+  const RAIL_H = isLandscape ? '3.5rem' : '4rem';
+
+  const railItems: { id: MobilePanelId; icon: typeof Film; label: string }[] = [
+    { id: 'media', icon: Film, label: t('media') },
+    { id: 'audio', icon: Music, label: t('audio') },
+    { id: 'clip', icon: Crop, label: t('clip') },
+    { id: 'text', icon: Type, label: t('text') },
+    { id: 'effects', icon: Wand2, label: t('effects') },
+    { id: 'transitions', icon: Scissors, label: t('transShort') },
+  ];
+
+  const railLabels: Record<MobilePanelId, string> = {
+    media: t('media'),
+    audio: t('audio'),
+    clip: t('clip'),
+    text: t('text'),
+    effects: t('effects'),
+    transitions: t('transitions'),
+  };
+
+  const syncSidebarTab = (id: MobilePanelId) => {
+    const mapping: Partial<Record<MobilePanelId, SidebarTab>> = {
+      media: 'media',
+      audio: 'media',
+      clip: 'media',
+      text: 'text',
+      effects: 'effects',
+      transitions: 'transitions',
+    };
+    const tab = mapping[id];
+    if (tab) setActiveSidebarTab(tab);
+  };
+
+  const closeSheet = () => {
+    setIsSheetOpen(false);
+    setIsSidebarVisible(false);
+    setMobileSidebarOpen(false);
+  };
+
+  const openPanel = (id: MobilePanelId) => {
+    // Tapping the active tool again closes the sheet, like most mobile editors.
+    if (isSheetOpen && panel === id) {
+      closeSheet();
+      return;
+    }
+    setPanel(id);
+    setSheetVh(SHEET_DEFAULT);
+    setIsSheetOpen(true);
+    setIsSidebarVisible(true);
+    setMobileSidebarOpen(true);
+    syncSidebarTab(id);
+  };
+
+  const onHandlePointerDown = (e: React.PointerEvent) => {
+    dragRef.current = { startY: e.clientY, startVh: sheetVh };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const onHandlePointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const deltaVh = ((dragRef.current.startY - e.clientY) / globalThis.innerHeight) * 100;
+    const next = dragRef.current.startVh + deltaVh;
+    setSheetVh(Math.max(SHEET_MIN - 10, Math.min(SHEET_MAX, next)));
+  };
+
+  const onHandlePointerUp = () => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    // Dragged far enough down: dismiss.
+    if (sheetVh < SHEET_MIN) closeSheet();
+  };
+
+  // If something else flips the sidebar flag closed, close the sheet too.
+  useEffect(() => {
+    if (!isSidebarVisible && isSheetOpen) {
+      setIsSheetOpen(false);
+      setMobileSidebarOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSidebarVisible]);
+
+  const renderPanelContent = () => {
+    switch (panel) {
+      case 'media':
+        return <MediaLibrary initialFilter="all" />;
+      case 'audio':
+        return <MediaLibrary initialFilter="audio" />;
+      case 'clip':
+        return <PropertiesPanel activeTab="clip" />;
+      case 'text':
+        return <PropertiesPanel activeTab="text" />;
+      case 'effects':
+        return <PropertiesPanel activeTab="filters" />;
+      case 'transitions':
+        return <PropertiesPanel activeTab="transitions" />;
+      default:
+        return <MediaLibrary />;
+    }
+  };
+
+  return (
+    <div
+      className="relative h-screen h-[100dvh] flex flex-col overflow-hidden bg-[#141414] fold-transition touch-none safe-area-top"
+      style={getFoldAwareStyles()}
+    >
+      <Header
+        isSidebarVisible={isSheetOpen}
+        onToggleSidebar={() => (isSheetOpen ? closeSheet() : openPanel('media'))}
+      />
+
+      {/* Preview — keeps the lion's share of the screen */}
+      <div className="flex-1 min-h-0 overflow-hidden bg-black">
+        <div className="h-full">
           <VideoPlayer />
         </div>
       </div>
 
-      <button
-        onClick={() => setIsTimelineExpanded(!isTimelineExpanded)}
-        className="w-full h-8 bg-[#1a1a1a] border-t border-white/10 flex items-center justify-center gap-2 text-neutral-400 hover:text-white transition-colors touch-target"
-      >
-        {isTimelineExpanded ? (
-          <>
-            <ChevronDown className="w-4 h-4" />
-            <span className="text-xs">{t('collapse')}</span>
-          </>
-        ) : (
-          <>
-            <ChevronUp className="w-4 h-4" />
-            <span className="text-xs">{t('timeline')}</span>
-          </>
-        )}
-      </button>
-
-      <div className={`transition-all duration-300 ease-in-out ${
-        isTimelineExpanded ? 'flex-1' : 'h-32'
-      } border-t border-white/10 overflow-hidden min-h-0`}>
+      {/* Timeline */}
+      <div className={`${isLandscape ? 'h-[112px]' : 'h-[150px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
         <Timeline />
       </div>
 
-      <div className="h-14 bg-[#0f0f0f] border-t border-white/10 flex items-center justify-around px-2 safe-area-bottom flex-shrink-0">
-        {['media', 'text', 'transitions', 'effects'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setActiveSidebarTab(tab as SidebarTab);
-              setIsSidebarVisible(true);
-              setMobileSidebarOpen(true);
-            }}
-            className={`flex-1 h-12 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all touch-target ${
-              isSidebarVisible && activeSidebarTab === tab
-                ? 'bg-primary-500 text-white'
-                : 'text-neutral-400 active:bg-white/10'
-            }`}
-          >
-            {tab === 'media' && <Film className="w-5 h-5" />}
-            {tab === 'text' && <Type className="w-5 h-5" />}
-            {tab === 'transitions' && <Scissors className="w-5 h-5" />}
-            {tab === 'effects' && <Sliders className="w-5 h-5" />}
-            <span className="text-[10px] font-medium capitalize">{tab === 'transitions' ? t('transShort') : tab === 'media' ? t('media') : tab === 'text' ? t('text') : t('effects')}</span>
-          </button>
-        ))}
+      {/* Bottom tool rail */}
+      <div
+        className="flex-shrink-0 bg-[#0f0f0f] border-t border-white/10"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <nav
+          className={`${isLandscape ? 'h-14' : 'h-16'} flex items-stretch gap-0.5 px-1 overflow-x-auto scrollbar-none`}
+        >
+          {railItems.map((item) => {
+            const isActive = isSheetOpen && panel === item.id;
+            const isClipMissing = item.id === 'clip' && !selectedClipId;
+            return (
+              <button
+                key={item.id}
+                onClick={() => openPanel(item.id)}
+                aria-pressed={isActive}
+                className={`relative flex-shrink-0 min-w-[62px] flex flex-col items-center justify-center gap-0.5 rounded-xl transition-colors touch-target ${
+                  isActive ? 'bg-primary-500/15 text-white' : 'text-neutral-400 active:bg-white/10'
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-6 rounded-full bg-primary-500" />
+                )}
+                <item.icon className="w-5 h-5" />
+                <span className="text-[10px] font-medium leading-none">{item.label}</span>
+                {isClipMissing && (
+                  <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-white/25" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {isSidebarVisible && (
-        <div className="absolute inset-0 z-[70] flex flex-col bg-[#1a1a1a]">
-          <div className="h-12 flex items-center justify-between px-4 border-b border-white/10 flex-shrink-0">
-            <h2 className="text-sm font-semibold text-white">
-              {activeSidebarTab === 'media' && t('mediaLibrary')}
-              {activeSidebarTab === 'text' && t('text')}
-              {activeSidebarTab === 'transitions' && t('transitions')}
-              {activeSidebarTab === 'effects' && t('effects')}
-            </h2>
+      {/* Draggable bottom sheet — overlays the timeline, never the preview */}
+      {isSheetOpen && (
+        <section
+          role="dialog"
+          aria-label={railLabels[panel]}
+          className="absolute inset-x-0 z-[80] flex flex-col rounded-t-2xl bg-[#1b1b1b] border-t border-white/10 shadow-[0_-10px_34px_rgba(0,0,0,0.55)] overflow-hidden fold-transition"
+          style={{
+            bottom: `calc(${RAIL_H} + env(safe-area-inset-bottom, 0px))`,
+            height: `${sheetVh}dvh`,
+          }}
+        >
+          <div
+            className="relative h-10 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
+            onPointerDown={onHandlePointerDown}
+            onPointerMove={onHandlePointerMove}
+            onPointerUp={onHandlePointerUp}
+            onPointerCancel={onHandlePointerUp}
+          >
+            <div className="w-10 h-1 rounded-full bg-white/30" />
             <button
-              onClick={() => {
-                setIsSidebarVisible(false);
-                setMobileSidebarOpen(false);
-              }}
-              className="w-9 h-9 flex items-center justify-center rounded-lg bg-white/10 text-white touch-target"
+              onClick={closeSheet}
+              aria-label={t('close')}
+              className="absolute right-2 top-1 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white touch-target"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
-          
-          <div className="flex-1 overflow-auto min-h-0">
-            {activeSidebarTab === 'media' && <MediaLibrary />}
-            {activeSidebarTab === 'text' && <PropertiesPanel activeTab="text" />}
-            {activeSidebarTab === 'transitions' && <PropertiesPanel activeTab="transitions" />}
-            {activeSidebarTab === 'effects' && <PropertiesPanel activeTab="filters" />}
-          </div>
-        </div>
-      )}
-    </div>
 
-    <FooterCredit compact />
-    <ExportModal />
-  </div>
+          <div key={panel} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+            {renderPanelContent()}
+          </div>
+        </section>
+      )}
+
+      <ExportModal />
+    </div>
   );
 };
 
@@ -570,8 +562,6 @@ function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('media');
   const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [mobileView, setMobileView] = useState<MobileView>('player');
-  const [isTimelineExpanded, setIsTimelineExpanded] = useState(false);
-  const [bottomSheetHeight, setBottomSheetHeight] = useState<'collapsed' | 'half' | 'full'>('collapsed');
 
   // Use the new responsive hook for foldable-aware layout
   const responsive = useResponsive();
@@ -589,6 +579,11 @@ function App() {
   const isMobile = isMinimal || isCompact;
   const isTablet = isAdaptive || isExpanded;
 
+  // Landscape phones have a "desktop-ish" width but a phone-sized height:
+  // keep the phone UI there too instead of the sidebar/tablet layout.
+  const isPhoneLandscape =
+    responsive.hasTouch && responsive.orientation === 'landscape' && responsive.height <= 500;
+
   // Update sidebar visibility based on layout mode
   useEffect(() => {
     if (isMinimal || isCompact) {
@@ -597,18 +592,6 @@ function App() {
       setIsSidebarVisible(true);
     }
   }, [layoutMode, isMinimal, isCompact]);
-
-  // Handle fold state changes for smooth transitions
-  useEffect(() => {
-    if (responsive.foldState === 'folded') {
-      // On fold cover, use minimal UI
-      setIsTimelineExpanded(false);
-      setBottomSheetHeight('collapsed');
-    } else if (responsive.foldState === 'unfolded') {
-      // On unfolded, can show more UI
-      setBottomSheetHeight('half');
-    }
-  }, [responsive.foldState]);
 
   // Get dynamic styles based on fold state
   const getFoldAwareStyles = (): React.CSSProperties => {
@@ -624,44 +607,14 @@ function App() {
     } as React.CSSProperties;
   };
 
-  // Bottom sheet drag handler for mobile
-  const handleBottomSheetDrag = () => {
-    // Simple toggle between states for now
-    if (bottomSheetHeight === 'collapsed') {
-      setBottomSheetHeight('half');
-    } else if (bottomSheetHeight === 'half') {
-      setBottomSheetHeight('full');
-    } else {
-      setBottomSheetHeight('collapsed');
-    }
-  };
-
   // Render the appropriate layout based on layout mode
   const renderLayout = () => {
-    if (isMinimal) {
+    // Phones AND foldable covers share one unified mobile layout.
+    if (isMinimal || isCompact || isPhoneLandscape) {
       return (
-        <MinimalLayout
+        <MobileLayout
           isSidebarVisible={isSidebarVisible}
           setIsSidebarVisible={setIsSidebarVisible}
-          isTimelineExpanded={isTimelineExpanded}
-          setIsTimelineExpanded={setIsTimelineExpanded}
-          activeSidebarTab={activeSidebarTab}
-          setActiveSidebarTab={setActiveSidebarTab}
-          setMobileSidebarOpen={setMobileSidebarOpen}
-          handleBottomSheetDrag={handleBottomSheetDrag}
-          bottomSheetHeight={bottomSheetHeight}
-          getFoldAwareStyles={getFoldAwareStyles}
-        />
-      );
-    }
-
-    if (isCompact) {
-      return (
-        <CompactLayout
-          isSidebarVisible={isSidebarVisible}
-          setIsSidebarVisible={setIsSidebarVisible}
-          isTimelineExpanded={isTimelineExpanded}
-          setIsTimelineExpanded={setIsTimelineExpanded}
           activeSidebarTab={activeSidebarTab}
           setActiveSidebarTab={setActiveSidebarTab}
           setMobileSidebarOpen={setMobileSidebarOpen}

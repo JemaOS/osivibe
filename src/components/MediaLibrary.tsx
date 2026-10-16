@@ -20,13 +20,13 @@ import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/
 import { v4 as uuidv4 } from 'uuid';
 import { useI18n } from '../i18n';
 
-export const MediaLibrary: React.FC = () => {
+export const MediaLibrary: React.FC<{ initialFilter?: MediaType | 'all' }> = ({ initialFilter = 'all' }) => {
   const { t } = useI18n();
   const { mediaFiles, addMediaFile, removeMediaFile, addMediaToTimeline, player } = useEditorStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0, fileName: '' });
-  const [filter, setFilter] = useState<MediaType | 'all'>('all');
+  const [filter, setFilter] = useState<MediaType | 'all'>(initialFilter);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
