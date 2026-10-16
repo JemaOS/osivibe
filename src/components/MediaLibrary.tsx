@@ -445,14 +445,14 @@ export const MediaLibrary: React.FC<{ initialFilter?: MediaType | 'all' }> = ({ 
                     <div className="flex items-center gap-0 xxs:gap-0.5 sm:gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <button
                         onClick={() => handleAddToTimeline(media)}
-                        className={`${isPhone ? 'w-11 h-11 min-w-0 min-h-0 flex items-center justify-center -my-0.5' : 'p-0.5 xxs:p-1 sm:p-1.5'} rounded-lg hover:bg-primary-500/10 text-neutral-400 hover:text-primary-500 transition-colors`}
+                        className={`${isPhone ? 'w-11 h-10 min-w-0 min-h-0 flex items-center justify-center' : 'p-0.5 xxs:p-1 sm:p-1.5'} rounded-lg hover:bg-primary-500/10 text-neutral-400 hover:text-primary-500 transition-colors`}
                         title={t('add')}
                       >
                         <Plus className={`${isPhone ? 'w-4 h-4' : 'w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4'}`} />
                       </button>
                       <button
                         onClick={() => removeMediaFile(media.id)}
-                        className={`${isPhone ? 'w-11 h-11 min-w-0 min-h-0 flex items-center justify-center -my-0.5' : 'p-0.5 xxs:p-1 sm:p-1.5'} rounded-lg hover:bg-error/10 text-neutral-400 hover:text-error transition-colors`}
+                        className={`${isPhone ? 'w-11 h-10 min-w-0 min-h-0 flex items-center justify-center' : 'p-0.5 xxs:p-1 sm:p-1.5'} rounded-lg hover:bg-error/10 text-neutral-400 hover:text-error transition-colors`}
                         title={t('delete')}
                       >
                         <Trash2 className={`${isPhone ? 'w-4 h-4' : 'w-3 h-3 xxs:w-3.5 xxs:h-3.5 sm:w-4 sm:h-4'}`} />

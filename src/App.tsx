@@ -142,6 +142,7 @@ const MobileLayout = ({
   const isLandscape = responsive.orientation === 'landscape';
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState(false);
   const [panel, setPanel] = useState<MobilePanelId>('media');
   const [sheetVh, setSheetVh] = useState(35.5);
   const dragRef = useRef<{ startY: number; startVh: number } | null>(null);
@@ -260,6 +261,8 @@ const MobileLayout = ({
       <Header
         isSidebarVisible={isSheetOpen}
         onToggleSidebar={() => (isSheetOpen ? closeSheet() : openPanel('media'))}
+        onToggleTimeline={isLandscape ? () => setIsTimelineCollapsed((v) => !v) : undefined}
+        isTimelineCollapsed={isTimelineCollapsed}
       />
 
       {/* Preview — keeps the lion's share of the screen */}
@@ -269,10 +272,12 @@ const MobileLayout = ({
         </div>
       </div>
 
-      {/* Timeline */}
-      <div className={`${isLandscape ? 'h-[182px]' : 'h-[210px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
-        <Timeline />
-      </div>
+      {/* Timeline — hidden when collapsed on landscape phones so the preview absorbs it */}
+      {!(isLandscape && isTimelineCollapsed) && (
+        <div className={`${isLandscape ? 'h-[182px]' : 'h-[210px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
+          <Timeline />
+        </div>
+      )}
 
       {/* Bottom tool rail */}
       <div

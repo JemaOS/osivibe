@@ -12,6 +12,7 @@ import {
   Settings,
   HelpCircle,
   ChevronDown,
+  ChevronUp,
   Menu,
   PanelLeftClose,
   PanelLeft,
@@ -26,6 +27,8 @@ import { LanguageSelector } from './LanguageSelector';
 interface HeaderProps {
   isSidebarVisible: boolean;
   onToggleSidebar: () => void;
+  onToggleTimeline?: () => void;
+  isTimelineCollapsed?: boolean;
 }
 
 const ProjectMenu = ({ 
@@ -125,7 +128,7 @@ const getExportButtonClasses = (layoutMode: string): string => {
   return `${baseClasses} h-9 px-4 text-xs fold-open:text-sm`;
 };
 
-export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSidebar, onToggleTimeline, isTimelineCollapsed }) => {
   const { t } = useI18n();
   const { 
     ui,
@@ -267,6 +270,18 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
 
       {/* Actions */}
       <div className="flex items-center gap-1 fold-cover:gap-0.5 fold-open:gap-1.5 sm:gap-2">
+        {/* Collapse/expand timeline — landscape phones only (props are optional) */}
+        {onToggleTimeline && (
+          <button
+            onClick={onToggleTimeline}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
+            title={t('timeline')}
+            aria-label={t('timeline')}
+          >
+            {isTimelineCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+          </button>
+        )}
+
         {/* Undo/Redo - available on phones (compact); hidden on fold cover, shown on larger screens */}
         <div className={`${layoutMode === 'compact' ? 'flex' : 'hidden'} fold-open:flex lg:flex items-center gap-0.5 fold-open:gap-1`}>
           <button 
