@@ -134,7 +134,6 @@ function isHighEndByUA(ua: string): boolean {
   
   for (const indicator of highEndIndicators) {
     if (ua.includes(indicator)) {
-      console.log('🎯 High-end device detected by UA:', indicator);
       return true;
     }
   }
@@ -165,7 +164,6 @@ function isHighEndByGPU(cores: number): boolean {
         /apple/i.test(renderer) ||
         /powervr/i.test(renderer)
       )) {
-        console.log('🎯 High-end device detected by GPU:', renderer);
         return true;
       }
     }
@@ -194,7 +192,6 @@ function detectHighEndMobile(): boolean {
   const maxDimension = Math.max(screenWidth, screenHeight);
   
   if (maxDimension >= 2400 && cores >= 6) {
-    console.log('🎯 High-end device detected by screen resolution:', maxDimension);
     return true;
   }
   
@@ -221,11 +218,11 @@ function detectDeviceType(): 'desktop' | 'mobile' | 'tablet' {
 }
 
 /**
- * Detect if running on Chrome mobile
+ * Detect if running on a mobile device (JemaOS mobile)
  */
-function isMobileChrome(): boolean {
+function isMobileJemaOS(): boolean {
   const ua = navigator.userAgent;
-  return /Chrome/i.test(ua) && /Android|iPhone|iPad|iPod/i.test(ua);
+  return /Android|iPhone|iPad|iPod/i.test(ua);
 }
 
 /**
@@ -303,14 +300,6 @@ function runQuickBenchmark(): number {
   
   const totalScore = Math.round(cpuScore + gpuScore);
   
-  console.log('🏃 Performance benchmark:', {
-    cpuTime: cpuTime.toFixed(2) + 'ms',
-    gpuTime: gpuTime.toFixed(2) + 'ms',
-    cpuScore: cpuScore.toFixed(1),
-    gpuScore: gpuScore.toFixed(1),
-    totalScore
-  });
-  
   return totalScore;
 }
 
@@ -351,7 +340,7 @@ function determineQualityFromPerformance(performanceScore: number): { quality: P
 function determineRecommendedQuality(
   isAppleSilicon: boolean,
   isHighEndMobile: boolean,
-  isChromeOnMobile: boolean,
+  isJemaOSOnMobile: boolean,
   performanceScore: number,
   cpuCores: number,
   connectionQuality: string
@@ -361,7 +350,7 @@ function determineRecommendedQuality(
     return { quality: 'original', maxSafeResolution: 2160 };
   }
 
-  const mobileResult = determineMobileQuality(isHighEndMobile, isChromeOnMobile, performanceScore);
+  const mobileResult = determineMobileQuality(isHighEndMobile, isJemaOSOnMobile, performanceScore);
   if (mobileResult) {
     return mobileResult;
   }
@@ -385,18 +374,18 @@ function determineRecommendedQuality(
 
 function determineMobileQuality(
   isHighEndMobile: boolean,
-  isChromeOnMobile: boolean,
+  isJemaOSOnMobile: boolean,
   performanceScore: number
 ): { quality: PreviewSettings['quality']; maxSafeResolution: number } | null {
-  if (!isChromeOnMobile && isHighEndMobile) {
+  if (!isJemaOSOnMobile && isHighEndMobile) {
     return { quality: 'original', maxSafeResolution: 1080 };
   }
 
-  if (isChromeOnMobile && isHighEndMobile) {
+  if (isJemaOSOnMobile && isHighEndMobile) {
     return { quality: 'high', maxSafeResolution: 720 };
   }
 
-  if (isChromeOnMobile) {
+  if (isJemaOSOnMobile) {
     if (performanceScore >= 50) {
       return { quality: 'medium', maxSafeResolution: 480 };
     }
@@ -449,7 +438,7 @@ export function detectHardware(): HardwareProfile {
   const isMobile = deviceType === 'mobile' || deviceType === 'tablet';
   const isAppleSilicon = detectAppleSilicon();
   const isHighEndMobile = isMobile && (isAppleSilicon || detectHighEndMobile());
-  const isChromeOnMobile = isMobileChrome();
+  const isJemaOSOnMobile = isMobileJemaOS();
   const limitedMemory = hasLimitedMemory();
   const connectionQuality = getConnectionQuality();
   
@@ -464,24 +453,8 @@ export function detectHardware(): HardwareProfile {
   const isLowEnd = determineIsLowEnd(isHighEndMobile, isAppleSilicon, performanceScore, cpuCores, isMobile, limitedMemory);
   
   const { quality: recommendedQuality, maxSafeResolution } = determineRecommendedQuality(
-    isAppleSilicon, isHighEndMobile, isChromeOnMobile, performanceScore, cpuCores, connectionQuality
+    isAppleSilicon, isHighEndMobile, isJemaOSOnMobile, performanceScore, cpuCores, connectionQuality
   );
-  
-  console.log('🖥️ Hardware Profile:', {
-    cpuCores,
-    deviceType,
-    isLowEnd,
-    isMobile,
-    isHighEndMobile,
-    isAppleSilicon,
-    isChromeOnMobile,
-    limitedMemory,
-    connectionQuality,
-    supportsHardwareAcceleration,
-    performanceScore,
-    recommendedQuality,
-    maxSafeResolution,
-  });
   
   return {
     cpuCores,
@@ -498,30 +471,30 @@ export function detectHardware(): HardwareProfile {
   };
 }
 
-function applyQualitySettings(settings: PreviewSettings, isChromeOnMobile: boolean, profile: HardwareProfile, videoHeight: number) {
+function applyQualitySettings(settings: PreviewSettings, isJemaOSOnMobile: boolean, profile: HardwareProfile, videoHeight: number) {
   switch (settings.quality) {
     case 'low':
       settings.maxResolution = PREVIEW_RESOLUTIONS.low;
-      settings.targetFps = isChromeOnMobile ? 20 : 24;
+      settings.targetFps = isJemaOSOnMobile ? 20 : 24;
       settings.frameSkipping = true;
       settings.bufferSize = 'small';
       break;
     case 'medium':
       settings.maxResolution = PREVIEW_RESOLUTIONS.medium;
-      settings.targetFps = isChromeOnMobile ? 24 : 30;
-      settings.frameSkipping = profile.isLowEnd || isChromeOnMobile;
+      settings.targetFps = isJemaOSOnMobile ? 24 : 30;
+      settings.frameSkipping = profile.isLowEnd || isJemaOSOnMobile;
       settings.bufferSize = 'small';
       break;
     case 'high':
       settings.maxResolution = PREVIEW_RESOLUTIONS.high;
-      settings.targetFps = isChromeOnMobile ? 25 : 30;
-      settings.frameSkipping = isChromeOnMobile;
+      settings.targetFps = isJemaOSOnMobile ? 25 : 30;
+      settings.frameSkipping = isJemaOSOnMobile;
       settings.bufferSize = 'medium';
       break;
     case 'original':
       settings.maxResolution = videoHeight;
       settings.targetFps = 30; 
-      settings.frameSkipping = isChromeOnMobile;
+      settings.frameSkipping = isJemaOSOnMobile;
       settings.useProxy = false;
       settings.bufferSize = 'large';
       break;
@@ -537,7 +510,7 @@ export function getOptimalSettings(
   hardwareProfile?: HardwareProfile
 ): PreviewSettings {
   const profile = hardwareProfile || detectHardware();
-  const isChromeOnMobile = isMobileChrome();
+  const isJemaOSOnMobile = isMobileJemaOS();
   const limitedMemory = hasLimitedMemory();
   
   const settings: PreviewSettings = { ...DEFAULT_SETTINGS };
@@ -547,8 +520,8 @@ export function getOptimalSettings(
     settings.quality = profile.recommendedQuality;
   }
   
-  // Mobile Chrome specific optimizations
-  if (isChromeOnMobile) {
+  // Mobile JemaOS specific optimizations
+  if (isJemaOSOnMobile) {
     settings.useLowLatencyMode = true;
     settings.bufferSize = limitedMemory ? 'small' : 'medium';
     
@@ -559,7 +532,7 @@ export function getOptimalSettings(
     }
   }
   
-  applyQualitySettings(settings, isChromeOnMobile, profile, videoHeight);
+  applyQualitySettings(settings, isJemaOSOnMobile, profile, videoHeight);
   
   // Determine if proxy is needed
   settings.useProxy = videoHeight > settings.maxResolution;
@@ -599,7 +572,6 @@ export async function generateCanvasProxy(
         return;
       }
       
-      console.log(`🎬 Generating proxy: ${originalWidth}x${originalHeight} -> ${targetWidth}x${targetHeight}`);
       
       // Create canvas for frame extraction
       const canvas = document.createElement('canvas');
@@ -673,16 +645,14 @@ export async function getProxyUrl(
   }
 }
 
-function applyMobileChromeOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isMobile: boolean, isChromeOnMobile: boolean) {
-  if (isChromeOnMobile || isMobile) {
+function applyMobileJemaOSOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isMobile: boolean, isJemaOSOnMobile: boolean) {
+  if (isJemaOSOnMobile || isMobile) {
     videoElement.preload = settings.bufferSize === 'large' ? 'auto' : 'metadata';
     
     if ('requestVideoFrameCallback' in videoElement) {
-      console.log('📹 requestVideoFrameCallback available');
     }
     
     if (videoElement.getVideoPlaybackQuality) {
-      console.log('📹 getVideoPlaybackQuality available');
     }
     
     if ('buffered' in videoElement && settings.bufferSize === 'small') {
@@ -704,8 +674,8 @@ function applyMobileChromeOptimizations(videoElement: HTMLVideoElement, settings
   }
 }
 
-function applyCSSOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isHighEnd: boolean, isChromeOnMobile: boolean) {
-  if (isHighEnd && !isChromeOnMobile) {
+function applyCSSOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isHighEnd: boolean, isJemaOSOnMobile: boolean) {
+  if (isHighEnd && !isJemaOSOnMobile) {
     videoElement.style.willChange = 'auto';
     videoElement.style.transform = '';
     videoElement.style.imageRendering = 'auto';
@@ -714,8 +684,7 @@ function applyCSSOptimizations(videoElement: HTMLVideoElement, settings: Preview
       videoElement.style.filter = '';
     }
     
-    console.log('🚀 High-end optimizations applied');
-  } else if (isChromeOnMobile) {
+  } else if (isJemaOSOnMobile) {
     videoElement.style.willChange = 'contents';
     videoElement.style.transform = 'translate3d(0,0,0)';
     videoElement.style.backfaceVisibility = 'hidden';
@@ -726,7 +695,6 @@ function applyCSSOptimizations(videoElement: HTMLVideoElement, settings: Preview
     
     videoElement.style.contain = 'layout paint';
     
-    console.log('📱 Chrome mobile optimizations applied');
   } else {
     videoElement.style.willChange = 'transform';
     videoElement.style.transform = 'translateZ(0)';
@@ -750,7 +718,7 @@ export function applyVideoOptimizations(
   const hwProfile = profile || hardwareProfile;
   const isHighEnd = hwProfile?.isHighEndMobile || hwProfile?.isAppleSilicon ||
                     (hwProfile?.performanceScore && hwProfile.performanceScore >= 50) || false;
-  const isChromeOnMobile = isMobileChrome();
+  const isJemaOSOnMobile = isMobileJemaOS();
   const isMobile = hwProfile?.isMobile || detectDeviceType() !== 'desktop';
   
   if ('disablePictureInPicture' in videoElement) {
@@ -761,23 +729,23 @@ export function applyVideoOptimizations(
     (videoElement as any).disableRemotePlayback = true;
   }
   
-  applyMobileChromeOptimizations(videoElement, settings, isMobile, isChromeOnMobile);
+  applyMobileJemaOSOptimizations(videoElement, settings, isMobile, isJemaOSOnMobile);
   
   videoElement.playsInline = true;
   
-  applyCSSOptimizations(videoElement, settings, isHighEnd, isChromeOnMobile);
+  applyCSSOptimizations(videoElement, settings, isHighEnd, isJemaOSOnMobile);
   
   videoElement.dataset.optimized = 'true';
 }
 
 /**
- * Optimize video playback for mobile Chrome
+ * Optimize video playback for mobile JemaOS
  * Call this when starting playback
  */
 export function optimizeMobilePlayback(videoElement: HTMLVideoElement): void {
-  const isChromeOnMobile = isMobileChrome();
+  const isJemaOSOnMobile = isMobileJemaOS();
   
-  if (!isChromeOnMobile) return;
+  if (!isJemaOSOnMobile) return;
   
   // Reduce decode priority during playback
   if ('requestVideoFrameCallback' in videoElement) {
@@ -837,14 +805,14 @@ export function optimizeMobilePlayback(videoElement: HTMLVideoElement): void {
  * Get mobile-optimized video attributes
  */
 export function getMobileVideoAttributes(): Record<string, string> {
-  const isChromeOnMobile = isMobileChrome();
+  const isJemaOSOnMobile = isMobileJemaOS();
   
   const attrs: Record<string, string> = {
     'playsinline': 'true',
     'webkit-playsinline': 'true',
   };
   
-  if (isChromeOnMobile) {
+  if (isJemaOSOnMobile) {
     attrs['x5-playsinline'] = 'true';
     attrs['x5-video-player-type'] = 'h5';
     attrs['x5-video-player-fullscreen'] = 'false';
@@ -1064,11 +1032,6 @@ const bufferManager = new VideoBufferManager();
 export function initializePreviewOptimizer(): HardwareProfile {
   hardwareProfile = detectHardware();
   currentSettings = getOptimalSettings(1920, 1080, hardwareProfile);
-  
-  console.log('🎬 Preview Optimizer initialized:', {
-    hardwareProfile,
-    settings: currentSettings,
-  });
   
   return hardwareProfile;
 }

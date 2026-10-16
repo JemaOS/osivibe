@@ -239,32 +239,17 @@ export function getOptimalEncodingSettings(
   };
 
   if (safeMode) {
-    console.log('🛡️ FFmpeg: SAFE MODE ACTIVE - Using balanced settings for stability');
     defaultSettings.additionalFlags.push('-tune', 'fastdecode');
     return defaultSettings;
   }
   
   if (!hardwareProfile) {
-    console.log('⚡ FFmpeg: No hardware profile, using speed-optimized defaults', {
-      threads: defaultSettings.threads,
-      preset: defaultSettings.preset,
-      crf: defaultSettings.crf,
-    });
     return defaultSettings;
   }
   
   const settings = { ...defaultSettings };
   
   const { gpuTier, processorCores } = applyHardwareSpecificSettings(settings, hardwareProfile, quality, format);
-  
-  console.log('⚡ FFmpeg: Speed-optimized encoding settings', {
-    gpuTier,
-    processorCores,
-    threads: settings.threads,
-    preset: settings.preset,
-    crf: settings.crf,
-    additionalFlags: settings.additionalFlags,
-  });
   
   return settings;
 }
@@ -331,18 +316,7 @@ export function setHardwareProfile(profile: AnyHardwareProfile): void {
   
   // Safe logging for different profile types
   if ('gpu' in profile && profile.gpu && 'processor' in profile && profile.processor) {
-    console.log('🎬 FFmpeg: Hardware profile set for encoding optimization', {
-      gpu: profile.gpu.vendor,
-      gpuTier: profile.gpu.tier,
-      cores: profile.processor.cores,
-      isAppleSilicon: profile.processor.isAppleSilicon,
-    });
   } else if ('cpuCores' in profile) {
-    console.log('🎬 FFmpeg: Hardware profile set for encoding optimization', {
-      cpuCores: profile.cpuCores,
-      isAppleSilicon: profile.isAppleSilicon,
-      performanceScore: profile.performanceScore,
-    });
   }
 }
 
@@ -510,11 +484,9 @@ export async function loadFFmpeg(
   currentProgressCallback = onProgress;
 
   if (ffmpeg && isLoaded) {
-    console.log('FFmpeg already loaded');
     return ffmpeg;
   }
 
-  console.log('Loading FFmpeg...');
   ffmpeg = new FFmpeg();
 
   // Track time-based progress from logs (some builds don't emit progress events reliably)
@@ -525,7 +497,6 @@ export async function loadFFmpeg(
   // Store named handlers so they can be removed with off() on cancel
   currentLogHandler = ({ message }: { message: string }) => {
     if (exportCancelled) return;
-    console.debug('[FFmpeg]', message);
 
     // Parse ffmpeg stats lines like: "time=00:00:01.23"
     if (!currentProgressCallback || currentTotalDuration <= 0) return;
@@ -569,7 +540,6 @@ export async function loadFFmpeg(
 
   currentProgressHandler = ({ progress, time }: { progress: number; time: number }) => {
     if (exportCancelled) return;
-    console.debug('[FFmpeg Progress]', progress, time);
     if (currentProgressCallback) {
       let percentage = progress * 100;
       
@@ -612,12 +582,6 @@ export async function loadFFmpeg(
     const baseURL = canUseMultiThread
       ? 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm'
       : 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-
-    console.log(`Fetching FFmpeg core files (${canUseMultiThread ? 'Multi-threaded' : 'Single-thread'})...`, {
-      safeMode,
-      crossOriginIsolated: isCrossOriginIsolated,
-      sharedArrayBuffer: hasSAB,
-    });
     
     // Add timeout for fetching files
     const timeoutPromise = new Promise((_, reject) => 
@@ -631,7 +595,6 @@ export async function loadFFmpeg(
         ? await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript')
         : undefined;
 
-      console.log('Loading FFmpeg core files...');
       await ffmpeg!.load({
         coreURL,
         wasmURL,
@@ -642,7 +605,6 @@ export async function loadFFmpeg(
     await Promise.race([loadPromise, timeoutPromise]);
 
     isLoaded = true;
-    console.log('FFmpeg loaded successfully');
     onProgress?.(100, 'FFmpeg chargé avec succès');
     return ffmpeg;
   } catch (error) {
@@ -673,12 +635,10 @@ export async function resetFFmpeg() {
   isFontLoaded = false;
   isOperationInProgress = false;
   currentOperationType = null;
-  console.log('FFmpeg instance reset');
 }
 
 async function writeFileWithTimeout(ffmpegInstance: FFmpeg, fileName: string, data: Uint8Array | string, timeoutMs: number = 30000): Promise<void> {
   const startTime = performance.now();
-  console.log(`⏳ Starting write for ${fileName} (${data instanceof Uint8Array ? data.length : data.length} bytes)...`);
   
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -690,7 +650,6 @@ async function writeFileWithTimeout(ffmpegInstance: FFmpeg, fileName: string, da
       .then(() => {
         clearTimeout(timer);
         const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-        console.log(`✅ Write completed for ${fileName} in ${elapsed}s`);
         resolve();
       })
       .catch((e) => {
@@ -704,7 +663,6 @@ async function writeFileWithTimeout(ffmpegInstance: FFmpeg, fileName: string, da
 
 async function execWithTimeout(ffmpegInstance: FFmpeg, args: string[], timeoutMs: number = 180000): Promise<void> {
   const startTime = performance.now();
-  console.log(`⏳ Starting FFmpeg exec (timeout=${timeoutMs}ms):`, args.join(' '));
 
   // Mark "we have progress" now, so stall detection works from the beginning.
   lastProgressUpdateAt = startTime;
@@ -742,7 +700,6 @@ async function execWithTimeout(ffmpegInstance: FFmpeg, args: string[], timeoutMs
           console.error(`❌ FFmpeg exec failed with code ${code} after ${elapsed}s`);
           reject(new Error(`FFmpeg exited with code ${code}`));
         } else {
-          console.log(`✅ FFmpeg exec completed in ${elapsed}s`);
           resolve();
         }
       })
@@ -763,12 +720,10 @@ async function execWithTimeout(ffmpegInstance: FFmpeg, args: string[], timeoutMs
  */
 export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> {
   if (isFontLoaded) {
-    console.log('🔤 DEBUG - Font already loaded');
     return true;
   }
 
   try {
-    console.log('🔤 DEBUG - Loading default font for text overlays...');
     
     // Font URLs - TTF format REQUIRED for FFmpeg.wasm (WOFF2 not supported)
     // Local TTF file has priority for reliability and compatibility
@@ -786,21 +741,13 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> 
     
     for (const fontUrl of fontUrls) {
       try {
-        console.log(`🔤 DEBUG - Trying to load font from: ${fontUrl}`);
         const response = await fetch(fontUrl, {
           mode: 'cors',
           credentials: 'omit'
         });
-        console.log(`🔤 DEBUG - Font fetch response for ${fontUrl}:`, {
-          ok: response.ok,
-          status: response.status,
-          statusText: response.statusText,
-          contentType: response.headers.get('content-type')
-        });
         if (response.ok) {
           fontData = new Uint8Array(await response.arrayBuffer());
           loadedFromUrl = fontUrl;
-          console.log(`🔤 DEBUG - Successfully loaded font from: ${fontUrl}, size: ${fontData.length} bytes`);
           break;
         } else {
           lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -816,17 +763,13 @@ export async function loadDefaultFont(ffmpegInstance: FFmpeg): Promise<boolean> 
       // Create fonts directory in FFmpeg virtual filesystem
       try {
         await ffmpegInstance.createDir('/fonts');
-        console.log('🔤 DEBUG - Created /fonts directory in FFmpeg VFS');
       } catch (e) {
-        console.log('🔤 DEBUG - /fonts directory already exists or error:', e);
         // Directory might already exist, ignore error
       }
       
       // Write font file to virtual filesystem
       await ffmpegInstance.writeFile(FFMPEG_FONT_PATH, fontData);
       isFontLoaded = true;
-      console.log(`🔤 DEBUG - Font loaded successfully into FFmpeg VFS at ${FFMPEG_FONT_PATH}`);
-      console.log(`🔤 DEBUG - Font source: ${loadedFromUrl}`);
       return true;
     } else {
       console.error('🔤 DEBUG - ❌ FONT LOADING FAILED - Could not load any font from sources');
@@ -855,7 +798,6 @@ export function cancelExport() {
       if (currentLogHandler) ffmpeg.off('log', currentLogHandler);
       if (currentProgressHandler) ffmpeg.off('progress', currentProgressHandler);
     } catch (e) {
-      console.debug('Error removing FFmpeg event listeners:', e);
     }
     currentLogHandler = null;
     currentProgressHandler = null;
@@ -863,7 +805,6 @@ export function cancelExport() {
     try {
       ffmpeg.terminate();
     } catch (e) {
-      console.debug('Error terminating FFmpeg:', e);
     }
     ffmpeg = null;
     isLoaded = false;
@@ -1408,7 +1349,6 @@ export async function generateThumbnail(
 
   // Check if another operation is in progress
   if (isOperationInProgress) {
-    console.log('⏳ Thumbnail generation skipped - another FFmpeg operation is in progress:', currentOperationType);
     // Return a placeholder or empty string instead of blocking
     return '';
   }
@@ -1474,10 +1414,8 @@ function checkComplexFeatures(
   return hasTextOverlays || hasTransitions || hasFilters || hasImages || hasAudioClips || hasNonDefaultVolume;
 }
 
-
 type ExportClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: VideoFilter; id: string; audioMuted?: boolean; crop?: any; transform?: any; trackIndex?: number; volume?: number };
 type ExportAudioClip = { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; id?: string; volume?: number };
-
 
 function buildVideoFilter(
   clip: ExportClip,
@@ -1614,7 +1552,6 @@ async function exportSingleClipFastPath(
 
   args = buildOptimizedArgs(args, encodingSettings);
 
-  console.log('FFmpeg command:', args.join(' '));
   await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
   
   onProgress?.(96, 'Finalisation...');
@@ -1875,7 +1812,6 @@ async function exportSingleClipComplexPath(
   ];
 
   args = buildOptimizedArgs(args, encodingSettings);
-  console.log('FFmpeg command:', args.join(' '));
   await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
   
   onProgress?.(96, 'Finalisation...');
@@ -1977,9 +1913,6 @@ async function exportSingleClip(
   await ffmpegInstance.deleteFile(outputFileName);
 
   const actualEncodingTime = (performance.now() - encodingStartTime) / 1000;
-  console.log('✅ EXPORT COMPLETE (Single Clip)');
-  console.log(`⏱️ Actual encoding time: ${formatEncodingTime(Math.ceil(actualEncodingTime))}`);
-  console.log(`📈 Speed ratio: ${(currentTotalDuration / actualEncodingTime).toFixed(2)}x realtime`);
 
   onProgress?.(98, 'Préparation du téléchargement...');
   const blob = new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
@@ -2136,7 +2069,6 @@ async function loadExternalAudioFiles(
   
   return externalAudioFileToInputIndex;
 }
-
 
 function buildGapFilter(
   gapDuration: number,
@@ -2676,7 +2608,6 @@ async function exportMultiClip(
   
   args = buildOptimizedArgs(args, encodingSettings);
 
-  console.log('FFmpeg command:', args.join(' '));
   onProgress?.(10, 'Encodage...');
   await execWithTimeout(ffmpegInstance, args, execTimeoutMs);
 
@@ -2692,10 +2623,6 @@ async function exportMultiClip(
   onProgress?.(99, 'Préparation du téléchargement...');
 
   const actualEncodingTime = (performance.now() - encodingStartTime) / 1000;
-  console.log('✅ EXPORT COMPLETE (Multi-Clip)');
-  console.log(`⏱️ Actual encoding time: ${formatEncodingTime(Math.ceil(actualEncodingTime))}`);
-  console.log(`📈 Speed ratio: ${(currentTotalDuration / actualEncodingTime).toFixed(2)}x realtime`);
-  console.log(`📊 Clips processed: ${clips.length}`);
 
   onProgress?.(100, 'Terminé !');
   return new Blob([data as any], { type: outputFormat === 'webm' ? 'video/webm' : 'video/mp4' });
@@ -2757,7 +2684,6 @@ async function tryMediaBunnyExport(
   imageOverlays?: { file: File; startTime: number; duration: number; trimStart: number; trimEnd: number; filter?: any; id?: string; crop?: any; transform?: any }[]
 ): Promise<Blob | null> {
   try {
-    console.log('🐰 Using MediaBunny for export (primary engine)');
     return await exportProjectWithMediaBunny(
       clips,
       settings,
@@ -2806,7 +2732,6 @@ async function waitForFFmpegOperation(): Promise<void> {
   }
 
   if (isOperationInProgress && currentOperationType && currentOperationType !== 'export') {
-    console.log('⏳ Waiting for FFmpeg operation to finish:', currentOperationType);
     const start = performance.now();
     const timeoutMs = 4000;
     
@@ -2918,7 +2843,6 @@ async function performFFmpegExport(
   }
   
   const resolution = getResolutionForAspectRatio(effectiveResolution, effectiveAspectRatio, settings.sourceDimensions);
-  console.log(`📐 Export resolution: ${resolution.width}x${resolution.height} (${effectiveAspectRatio})`);
   const outputFormat = settings.format;
   
   const effectiveHardwareProfile = hardwareProfile || cachedHardwareProfile;
@@ -3199,7 +3123,6 @@ export async function exportProject(
 
       // If the user cancelled, do NOT retry — propagate immediately
       if (exportCancelled) {
-        console.debug('Export was cancelled by user, not retrying.');
         throw new Error('Export cancelled');
       }
       

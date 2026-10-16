@@ -145,7 +145,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     saturation: 'Saturation ({value})',
     blur: 'Blur ({value})',
     reset: 'Reset',
-    eyedropperUnsupported: 'Your browser does not support the eyedropper. Use Chrome or Edge.',
+    eyedropperUnsupported: 'Your browser does not support the eyedropper. Use JemaOS or Edge.',
 
     // Transition categories
     transCategoryBasic: 'Basic',
@@ -424,7 +424,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     saturation: 'Saturation ({value})',
     blur: 'Flou ({value})',
     reset: 'Reinitialiser',
-    eyedropperUnsupported: 'Votre navigateur ne supporte pas la pipette. Utilisez Chrome ou Edge.',
+    eyedropperUnsupported: 'Votre navigateur ne supporte pas la pipette. Utilisez JemaOS ou Edge.',
 
     // Transition categories
     transCategoryBasic: 'Basiques',

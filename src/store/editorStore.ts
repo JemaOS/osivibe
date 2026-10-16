@@ -145,18 +145,6 @@ const performSplitClip = (
     linkedVideoClipId: undefined,
   };
 
-  console.log('✂️ Split clip:', {
-    originalId: clipId,
-    firstClipId: firstClip.id,
-    secondClipId: secondClip.id,
-    splitTime,
-    splitPoint,
-    firstClip: { startTime: firstClip.startTime, duration: firstClip.duration, trimStart: firstClip.trimStart, trimEnd: firstClip.trimEnd, visibleDuration: firstClip.duration - firstClip.trimStart - firstClip.trimEnd },
-    secondClip: { startTime: secondClip.startTime, duration: secondClip.duration, trimStart: secondClip.trimStart, trimEnd: secondClip.trimEnd, visibleDuration: secondClip.duration - secondClip.trimStart - secondClip.trimEnd },
-    firstClipAudioMuted: firstClip.audioMuted,
-    secondClipAudioMuted: secondClip.audioMuted
-  });
-
   const newClips = [...track.clips];
   newClips.splice(clipIndex, 1, firstClip, secondClip);
 
@@ -170,12 +158,6 @@ const performSplitClip = (
   // When a clip is split, end transitions should follow the second part (the new tail).
   const newTransitions = (state.transitions || []).map((t) => {
     if (t.clipId === clipId && t.position === 'end') {
-      console.log('🔀 Reassigning end transition to second clip:', {
-        transitionId: t.id,
-        transitionType: t.type,
-        fromClipId: clipId,
-        toClipId: secondClip.id,
-      });
       return { ...t, clipId: secondClip.id };
     }
     return t;
@@ -570,19 +552,12 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     
     const videoClip = state.tracks.flatMap(t => t.clips).find(c => c.id === videoClipId);
     
-    console.log('🎵 detachAudioFromVideo called:', {
-      videoClipId,
-      videoClip: videoClip ? { id: videoClip.id, type: videoClip.type, name: videoClip.name } : null
-    });
-    
     if (!videoClip || videoClip.type !== 'video') {
-      console.log('❌ detachAudioFromVideo: Invalid clip or not a video');
       return;
     }
     
     const mediaFile = state.mediaFiles.find(m => m.id === videoClip.mediaId);
     if (!mediaFile) {
-      console.log('❌ detachAudioFromVideo: Media file not found');
       return;
     }
     
@@ -620,19 +595,8 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       linkedVideoClipId: videoClipId,
     };
     
-    console.log('🎵 Creating audio clip:', {
-      audioClipId,
-      linkedVideoClipId: videoClipId,
-      audioTrackId: audioTrack.id
-    });
-    
     const updateVideoClip = (clip: TimelineClip) => {
       if (clip.id === videoClipId) {
-        console.log('🔊 Video clip keeps audio (detached audio is a copy):', {
-          clipId: clip.id,
-          audioMuted: false,
-          detachedAudioClipId: audioClipId
-        });
         return { ...clip, audioMuted: false, detachedAudioClipId: audioClipId };
       }
       return clip;
@@ -640,7 +604,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
 
     const updateTrack = (track: TimelineTrack) => {
       if (track.id === audioTrack!.id) {
-        console.log('🎵 Adding audio clip to track:', audioTrack!.id);
         return { ...track, clips: [...track.clips, audioClip] };
       }
       return {
@@ -657,18 +620,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     const newState = get();
     const updatedVideoClip = newState.tracks.flatMap(t => t.clips).find(c => c.id === videoClipId);
     const createdAudioClip = newState.tracks.flatMap(t => t.clips).find(c => c.id === audioClipId);
-    
-    console.log('✅ detachAudioFromVideo completed:', {
-      videoClip: updatedVideoClip ? {
-        id: updatedVideoClip.id,
-        audioMuted: updatedVideoClip.audioMuted,
-        detachedAudioClipId: updatedVideoClip.detachedAudioClipId
-      } : null,
-      audioClip: createdAudioClip ? {
-        id: createdAudioClip.id,
-        linkedVideoClipId: createdAudioClip.linkedVideoClipId
-      } : null
-    });
     
     get().calculateProjectDuration();
   },
@@ -724,18 +675,9 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       }
     });
     
-    console.log('🗑️ Removing track:', {
-      trackId: id,
-      trackType: trackToRemove.type,
-      clipsCount: trackToRemove.clips.length,
-      detachedAudioClipIds,
-      linkedVideoClipIds
-    });
-    
     const filterDetachedAudio = (c: TimelineClip) => !detachedAudioClipIds.includes(c.id);
     const muteLinkedVideo = (c: TimelineClip) => {
       if (linkedVideoClipIds.includes(c.id)) {
-        console.log('🔇 Muting video clip (audio track removed):', c.id);
         return { ...c, audioMuted: true, detachedAudioClipId: undefined };
       }
       return c;
@@ -883,17 +825,8 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     // Also check if this is a video clip that has detached audio
     const detachedAudioClipId = clipToRemove.detachedAudioClipId;
     
-    console.log('🗑️ Removing clip:', {
-      clipId,
-      clipType: clipToRemove.type,
-      linkedVideoClipId,
-      detachedAudioClipId,
-      audioMuted: clipToRemove.audioMuted
-    });
-    
     const updateLinkedClip = (c: TimelineClip) => {
       if (linkedVideoClipId && c.id === linkedVideoClipId) {
-        console.log('🔇 Muting video clip after audio deletion:', linkedVideoClipId);
         return { ...c, audioMuted: true, detachedAudioClipId: undefined };
       }
       if (detachedAudioClipId && c.id === detachedAudioClipId) {
@@ -924,7 +857,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     
     // Second pass: If we removed a video clip that had detached audio, also remove that audio clip
     if (detachedAudioClipId) {
-      console.log('🗑️ Also removing detached audio clip:', detachedAudioClipId);
       const removeDetachedAudio = (track: TimelineTrack) => ({
         ...track,
         clips: track.clips.filter((c) => c.id !== detachedAudioClipId),
@@ -939,7 +871,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
     if (clipToRemove.type === 'audio') {
       const muteLinkedVideo = (c: TimelineClip) => {
         if (c.detachedAudioClipId === clipId) {
-          console.log('🔇 Muting video clip (by detachedAudioClipId):', c.id);
           return { ...c, audioMuted: true, detachedAudioClipId: undefined };
         }
         return c;
@@ -1482,8 +1413,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
   onRehydrateStorage: () => (state) => {
     if (!state) return;
 
-    console.log('🔄 Rehydrating state from IndexedDB...');
-
     // Regenerate Blob URLs for active media files
     regenerateMediaBlobUrls(state.mediaFiles);
 
@@ -1517,7 +1446,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
         text.trackId = textTrack.id;
       }
       
-      console.log(`📝 Migrated ${orphanedTexts.length} text overlay(s) to track "${textTrack.name}"`);
     };
 
     migrateTextOverlays(state.textOverlays, state.tracks);
@@ -1548,9 +1476,6 @@ export const useEditorStore = create<EditorState>()(persist((set, get) => ({
       projects: [...state.projects],
     });
 
-    console.log('✅ State rehydration complete');
   },
 }));
-
-
 

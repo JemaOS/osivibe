@@ -1220,7 +1220,6 @@ export const Timeline: React.FC = () => {
     const currentIndex = ratios.indexOf(aspectRatio);
     const nextIndex = (currentIndex + 1) % ratios.length;
     const newRatio = ratios[nextIndex];
-    console.log('📐 Aspect ratio click:', aspectRatio, '→', newRatio);
     setAspectRatio(newRatio);
   };
 

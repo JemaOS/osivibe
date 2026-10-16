@@ -32,24 +32,19 @@ export const MediaLibrary: React.FC = () => {
   
   // Debug: log mediaFiles changes
   useEffect(() => {
-    console.log('📦 mediaFiles mis à jour:', mediaFiles.length, 'fichiers', mediaFiles.map(m => m.name));
   }, [mediaFiles]);
 
   const extractVideoMetadata = async (file: File, mediaFile: MediaFile) => {
-    console.log('🎬 Extraction métadonnées vidéo...');
     try {
       const metadata = await getVideoMetadata(file);
       mediaFile.duration = metadata.duration;
       mediaFile.width = metadata.width;
       mediaFile.height = metadata.height;
-      console.log('✅ Métadonnées extraites:', metadata);
       
       // Generate thumbnail (non-blocking)
-      console.log('🖼️ Tentative génération miniature...');
       generateThumbnail(file, 0)
         .then(thumb => {
           useEditorStore.getState().updateMediaFile(mediaFile.id, { thumbnail: thumb });
-          console.log('✅ Miniature générée après coup');
         })
         .catch(thumbError => {
           console.warn('⚠️ Échec génération miniature (non bloquant):', thumbError);
@@ -76,11 +71,6 @@ export const MediaLibrary: React.FC = () => {
         img.onerror = reject;
         img.src = mediaFile.url;
       });
-      console.log('✅ Image chargée:', {
-        name: mediaFile.name,
-        dimensions: `${mediaFile.width}x${mediaFile.height}`,
-        url: mediaFile.url
-      });
     } catch (imgError) {
       console.warn('Image loading failed for', file.name, imgError);
       mediaFile.width = 1280;
@@ -89,7 +79,6 @@ export const MediaLibrary: React.FC = () => {
   };
 
   const processFile = async (file: File): Promise<MediaFile | null> => {
-    console.log('🔄 Début du traitement:', file.name, 'Type:', file.type, 'Taille:', file.size);
     
     const type = getFileType(file);
     if (type === 'unknown') {
@@ -97,7 +86,6 @@ export const MediaLibrary: React.FC = () => {
       return null;
     }
     
-    console.log('📁 Type détecté:', type);
 
     const mediaFile: MediaFile = {
       id: uuidv4(),
@@ -127,14 +115,6 @@ export const MediaLibrary: React.FC = () => {
       if (!mediaFile.width) mediaFile.width = 1280;
       if (!mediaFile.height) mediaFile.height = 720;
     }
-
-    console.log('✅ Fichier traité:', {
-      name: mediaFile.name,
-      type: mediaFile.type,
-      duration: mediaFile.duration,
-      dimensions: `${mediaFile.width}x${mediaFile.height}`,
-      id: mediaFile.id
-    });
     
     return mediaFile;
   };
@@ -158,13 +138,6 @@ export const MediaLibrary: React.FC = () => {
       try {
         const mediaFile = await processFile(file);
         if (mediaFile) {
-          console.log('✅ Fichier traité avec succès:', mediaFile.name, {
-            duration: mediaFile.duration,
-            type: mediaFile.type,
-            width: mediaFile.width,
-            height: mediaFile.height,
-            hasThumbnail: !!mediaFile.thumbnail
-          });
           addMediaFile(mediaFile);
           successCount++;
         } else {

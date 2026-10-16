@@ -566,19 +566,15 @@ function generateRecommendations(
  * Detect hardware capabilities and generate optimization profile
  */
 export async function detectHardware(): Promise<HardwareProfile> {
-  console.log('🔍 Starting comprehensive hardware detection...');
   
   // Get WebGL info
   const webglInfo = getWebGLInfo();
-  console.log('📊 WebGL Info:', webglInfo);
   
   // Check WebGPU support
   const webgpuSupport = await checkWebGPUSupport();
-  console.log('🎮 WebGPU Support:', webgpuSupport);
 
   // Check WebCodecs support
   const webcodecsSupport = typeof window.VideoDecoder !== 'undefined' && typeof window.VideoEncoder !== 'undefined';
-  console.log('🎥 WebCodecs Support:', webcodecsSupport);
   
   // Detect GPU
   const gpuVendor = detectGPUVendor(webglInfo.renderer, webglInfo.vendor);
@@ -598,7 +594,6 @@ export async function detectHardware(): Promise<HardwareProfile> {
     unmaskedVendor: webglInfo.vendor,
   };
   
-  console.log('🎨 GPU Profile:', gpu);
   
   // Detect processor
   const cores = navigator.hardwareConcurrency || 2;
@@ -614,7 +609,6 @@ export async function detectHardware(): Promise<HardwareProfile> {
     estimatedSpeed: benchmarkScore >= 60 ? 'fast' : benchmarkScore >= 30 ? 'medium' : 'slow',
   };
   
-  console.log('⚡ Processor Profile:', processor);
   
   // Detect memory
   const deviceMemory = (navigator as any).deviceMemory || 4; // Default to 4GB if not available
@@ -625,7 +619,6 @@ export async function detectHardware(): Promise<HardwareProfile> {
     tier: memoryTier,
   };
   
-  console.log('💾 Memory Profile:', memory);
   
   // Detect device type
   const deviceType = detectDeviceType();
@@ -669,7 +662,6 @@ export async function detectHardware(): Promise<HardwareProfile> {
     detectionTimestamp: Date.now(),
   };
   
-  console.log('🖥️ Complete Hardware Profile:', profile);
   
   return profile;
 }

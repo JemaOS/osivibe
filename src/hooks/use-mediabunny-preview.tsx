@@ -441,7 +441,6 @@ const findBestBufferMatch = (buffer: any[], clipTime: number) => {
       const fps = perfRef.current.frameCount;
       const avgRender = perfRef.current.totalRenderTime / fps;
       
-      console.log(`📊 Preview Perf: ${fps} FPS | Avg Render: ${avgRender.toFixed(2)}ms | Max Render: ${perfRef.current.maxRenderTime.toFixed(2)}ms | Fetch: ${fetchTime.toFixed(2)}ms | Cache Hits: ${perfRef.current.cacheHits}/${fps}`);
       
       perfRef.current = {
         frameCount: 0,

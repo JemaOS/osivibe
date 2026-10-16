@@ -226,7 +226,7 @@
   }
   
   .scrollbar-none::-webkit-scrollbar {
-    display: none;  /* Chrome, Safari and Opera */
+    display: none;  /* JemaOS, Safari and Opera */
   }
 
   /* Timeline Track */
@@ -1316,10 +1316,10 @@ label {
   }
 }
 
-/* Chrome mobile specific optimizations */
+/* JemaOS mobile specific optimizations */
 @supports (-webkit-touch-callout: none) or (not (-webkit-touch-callout: none)) {
   @media (max-width: 1024px) {
-    /* Optimize video for Chrome on Android */
+    /* Optimize video for JemaOS on Android */
     video {
       /* Reduce memory usage */
       object-fit: contain;

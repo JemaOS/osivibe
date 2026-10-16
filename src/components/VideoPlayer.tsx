@@ -1188,15 +1188,6 @@ const usePreviewOptimizerInit = (
     
     setAutoQualityApplied(true);
     
-    console.log('🎬 VideoPlayer: Preview optimizer initialized with AUTO quality', {
-      profile,
-      settings,
-      recommendedQuality: profile.recommendedQuality,
-      cpuCores: profile.cpuCores,
-      isLowEnd: profile.isLowEnd,
-      isMobile: profile.isMobile
-    });
-    
     return () => {
       frameRateLimiterRef.current = null;
       performanceMonitorRef.current = null;
@@ -1214,12 +1205,6 @@ const useEnhancedHardwareDetection = (setEnhancedProfile: any) => {
         const { detectHardware } = await import('../utils/hardwareDetection');
         const enhanced = await detectHardware();
         setEnhancedProfile(enhanced);
-        
-        console.log('🖥️ Enhanced hardware detection:', {
-          gpu: enhanced.gpu,
-          processor: enhanced.processor,
-          recommendations: enhanced.recommendations
-        });
       } catch (error) {
         console.warn('Enhanced hardware detection failed:', error);
       }
@@ -1813,8 +1798,6 @@ const VideoPlayer: React.FC = () => {
     handleImageRotateStart
   } = useVideoPlayerImage(videoContainerRef, player, pause, tracks, updateClip);
 
-
-
   const activeClipsData = useActiveClipsData(tracks, mediaFiles, player.currentTime);
   
   // Fonction wrapper pour compatibilité avec le code existant
@@ -1847,7 +1830,6 @@ const VideoPlayer: React.FC = () => {
   
   // Debug: Log aspect ratio changes
   useEffect(() => {
-    console.log('🖼️ VideoPlayer: aspect ratio changed to', aspectRatio);
   }, [aspectRatio]);
 
   // 'original' : dimensions natives de la première vidéo source (ratio du preview).
@@ -1876,12 +1858,6 @@ const VideoPlayer: React.FC = () => {
     // Calculate scale factor based on the preview width vs export width
     // This ensures text appears at the same relative size in preview as in export
     const scaleFactor = previewDimensions.width / exportWidth;
-    
-    console.log('📝 Text scale factor:', {
-      previewWidth: previewDimensions.width,
-      exportWidth,
-      scaleFactor
-    });
     
     return scaleFactor;
   }, [previewDimensions, exportSettings.resolution, exportSettings.sourceDimensions, originalDims]);
@@ -1932,10 +1908,8 @@ const VideoPlayer: React.FC = () => {
     }
     
     setShowQualityMenu(false);
-    console.log('🎬 Preview quality changed to:', quality, newSettings);
   }, [hardwareProfile]);
   
-
 
   const getActiveAudioClips = useActiveAudioClips(tracks, mediaFiles, player.currentTime);
 
@@ -1944,8 +1918,6 @@ const VideoPlayer: React.FC = () => {
   const getCurrentTextOverlays = useCurrentTextOverlays(textOverlays, player.currentTime);
 
   const audioMutedStates = useAudioMutedStates(tracks);
-
-
 
   const allAudioClips = useAllAudioClips(tracks, mediaFiles);
 

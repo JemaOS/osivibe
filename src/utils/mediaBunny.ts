@@ -926,7 +926,6 @@ async function premixAllAudio(
         }, 200);
         try {
             const mixedBuffer = await offlineCtx.startRendering();
-            console.log(`🔊 Audio pre-mixed: ${mixedBuffer.duration.toFixed(2)}s, ${mixedBuffer.sampleRate}Hz, ${mixedBuffer.numberOfChannels}ch`);
             return mixedBuffer;
         } finally {
             clearInterval(fakeProgressTimer);
