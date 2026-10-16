@@ -143,13 +143,16 @@ const MobileLayout = ({
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [panel, setPanel] = useState<MobilePanelId>('media');
-  const [sheetVh, setSheetVh] = useState(46);
+  const [sheetVh, setSheetVh] = useState(35.5);
   const dragRef = useRef<{ startY: number; startVh: number } | null>(null);
 
-  const SHEET_DEFAULT = isLandscape ? 70 : 46;
+  const SHEET_DEFAULT = isLandscape ? 70 : 35.5;
   const SHEET_MIN = 26;
   const SHEET_MAX = 80;
   const RAIL_H = isLandscape ? '3.5rem' : '4rem';
+  // Timeline height (px). Portrait keeps >=172px of tracks viewport (28px ruler + 3x48px);
+  // landscape sizes for the phone timeline (24px ruler + 3x40px = 144px) plus its toolbar.
+  const TIMELINE_H = isLandscape ? 182 : 210;
 
   const railItems: { id: MobilePanelId; icon: typeof Film; label: string }[] = [
     { id: 'media', icon: Film, label: t('media') },
@@ -267,7 +270,7 @@ const MobileLayout = ({
       </div>
 
       {/* Timeline */}
-      <div className={`${isLandscape ? 'h-[112px]' : 'h-[150px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
+      <div className={`${isLandscape ? 'h-[182px]' : 'h-[210px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
         <Timeline />
       </div>
 
@@ -312,12 +315,21 @@ const MobileLayout = ({
           aria-label={railLabels[panel]}
           className="absolute inset-x-0 z-[80] flex flex-col rounded-t-2xl bg-[#1b1b1b] border-t border-white/10 shadow-[0_-10px_34px_rgba(0,0,0,0.55)] overflow-hidden fold-transition"
           style={{
-            bottom: `calc(${RAIL_H} + env(safe-area-inset-bottom, 0px))`,
-            height: `${sheetVh}dvh`,
+            bottom: isLandscape
+              ? `calc(${RAIL_H} + env(safe-area-inset-bottom, 0px))`
+              : `calc(${RAIL_H} + ${TIMELINE_H}px + env(safe-area-inset-bottom, 0px))`,
+            height: isLandscape ? '70dvh' : `${sheetVh}dvh`,
+            // Landscape phones have no room above the timeline: dock the sheet directly
+            // above the tool rail (it deliberately overlays the timeline) and cap it so
+            // the header and close button stay reachable. In portrait the sheet stays
+            // anchored above the timeline as before.
+            maxHeight: isLandscape
+              ? `calc(100dvh - ${RAIL_H} - env(safe-area-inset-bottom, 0px) - 2.5rem)`
+              : `calc(100dvh - ${RAIL_H} - ${TIMELINE_H}px - env(safe-area-inset-bottom, 0px) - 3.5rem)`,
           }}
         >
           <div
-            className="relative h-10 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
+            className="relative h-8 flex-shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
             onPointerDown={onHandlePointerDown}
             onPointerMove={onHandlePointerMove}
             onPointerUp={onHandlePointerUp}
@@ -579,11 +591,6 @@ function App() {
   const isMobile = isMinimal || isCompact;
   const isTablet = isAdaptive || isExpanded;
 
-  // Landscape phones have a "desktop-ish" width but a phone-sized height:
-  // keep the phone UI there too instead of the sidebar/tablet layout.
-  const isPhoneLandscape =
-    responsive.hasTouch && responsive.orientation === 'landscape' && responsive.height <= 500;
-
   // Update sidebar visibility based on layout mode
   useEffect(() => {
     if (isMinimal || isCompact) {
@@ -610,7 +617,7 @@ function App() {
   // Render the appropriate layout based on layout mode
   const renderLayout = () => {
     // Phones AND foldable covers share one unified mobile layout.
-    if (isMinimal || isCompact || isPhoneLandscape) {
+    if (isMinimal || isCompact) {
       return (
         <MobileLayout
           isSidebarVisible={isSidebarVisible}

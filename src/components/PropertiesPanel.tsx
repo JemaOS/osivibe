@@ -1301,11 +1301,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     };
 
     return (
-      <div className="p-4 space-y-4">
+      <div className={`${isMinimal || isCompact ? 'p-3 space-y-2' : 'p-4 space-y-4'}`}>
         {/* Presets */}
         <div>
           <label className="text-caption text-neutral-500 block mb-2">{t('presets')}</label>
-          <div className="flex flex-wrap gap-2">
+          <div className={`flex flex-wrap ${isMinimal || isCompact ? 'gap-1.5' : 'gap-2'}`}>
             <button
               onClick={() => resetFilter(selectedClip.id)}
               className="px-3 py-1.5 rounded-lg text-small glass-panel-medium hover:border-primary-500/50"
@@ -1336,7 +1336,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
         {/* Sliders */}
         <div>
           <label 
-            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            className={`text-caption text-neutral-500 block ${isMinimal || isCompact ? 'mb-1' : 'mb-2'} cursor-ew-resize select-none touch-none`}
             onPointerDown={(e) => handleScrub(e, filter.brightness, (val) => updateFilter({ brightness: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             {t('brightness', { value: filter.brightness })}
@@ -1356,7 +1356,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         <div>
           <label 
-            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            className={`text-caption text-neutral-500 block ${isMinimal || isCompact ? 'mb-1' : 'mb-2'} cursor-ew-resize select-none touch-none`}
             onPointerDown={(e) => handleScrub(e, filter.contrast, (val) => updateFilter({ contrast: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             {t('contrast', { value: filter.contrast })}
@@ -1376,7 +1376,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         <div>
           <label 
-            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            className={`text-caption text-neutral-500 block ${isMinimal || isCompact ? 'mb-1' : 'mb-2'} cursor-ew-resize select-none touch-none`}
             onPointerDown={(e) => handleScrub(e, filter.saturation, (val) => updateFilter({ saturation: val }), { min: -100, max: 100, sensitivity: 1 })}
           >
             {t('saturation', { value: filter.saturation })}
@@ -1396,7 +1396,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         <div>
           <label 
-            className="text-caption text-neutral-500 block mb-2 cursor-ew-resize select-none touch-none"
+            className={`text-caption text-neutral-500 block ${isMinimal || isCompact ? 'mb-1' : 'mb-2'} cursor-ew-resize select-none touch-none`}
             onPointerDown={(e) => handleScrub(e, filter.blur, (val) => updateFilter({ blur: val }), { min: 0, max: 20, sensitivity: 0.1 })}
           >
             {t('blur', { value: filter.blur })}
@@ -1416,7 +1416,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
 
         <button
           onClick={() => resetFilter(selectedClip.id)}
-          className="w-full btn-secondary h-10 mt-4"
+          className={`w-full btn-secondary h-10 ${isMinimal || isCompact ? 'mt-2' : 'mt-4'}`}
         >
           {t('reset')}
         </button>

@@ -415,8 +415,15 @@ export function useResponsive(): ResponsiveState {
     const aspectRatioCategory = getAspectRatioCategory(aspectRatio);
     const orientation: Orientation = aspectRatio >= 1 ? 'landscape' : 'portrait';
     
-    const { layoutMode, deviceType, touchTargetSize, timelineTracks, panelVisibility } = 
-      getLayoutRecommendations(width, aspectRatio, isFoldable);
+    const recommendations = getLayoutRecommendations(width, aspectRatio, isFoldable);
+    const { deviceType, touchTargetSize, timelineTracks, panelVisibility } = recommendations;
+
+    // Touch phones in LANDSCAPE keep a desktop-ish width but a phone-sized height.
+    // Classify them as phones ("minimal") here - the single source of truth for
+    // landscape-phone detection - so every phone compaction in the app activates.
+    const isLandscapePhone =
+      inputCapabilities.hasTouch && aspectRatio >= 1 && height <= 500;
+    const layoutMode: LayoutMode = isLandscapePhone ? 'minimal' : recommendations.layoutMode;
     
     const isMobile = width < BREAKPOINTS.md;
     const isTablet = width >= BREAKPOINTS.md && width < BREAKPOINTS.lg;

@@ -119,8 +119,9 @@ const getLogoIconSize = (layoutMode: string): string => {
 
 const getExportButtonClasses = (layoutMode: string): string => {
   const baseClasses = 'bg-primary-500 hover:bg-primary-600 text-white rounded-lg flex items-center gap-1 fold-open:gap-2 font-medium transition-colors flex-shrink-0 touch-target';
-  if (layoutMode === 'minimal') return `${baseClasses} h-8 px-2 text-xs`;
-  if (layoutMode === 'compact') return `${baseClasses} h-9 px-3 text-xs`;
+  // Phones: icon-only square button (the text label is hidden below sm:)
+  if (layoutMode === 'minimal') return `${baseClasses} w-9 h-9 px-0 justify-center`;
+  if (layoutMode === 'compact') return `${baseClasses} w-9 h-9 px-0 justify-center`;
   return `${baseClasses} h-9 px-4 text-xs fold-open:text-sm`;
 };
 
@@ -310,7 +311,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
           >
             <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
             {/* Hide text on minimal screens */}
-            <span className={`${layoutMode === 'minimal' ? 'hidden' : 'hidden'} fold-cover:hidden xs:inline`}>
+            <span className={layoutMode === 'minimal' || layoutMode === 'compact' ? 'hidden' : 'hidden sm:inline'}>
               {t('export')}
             </span>
           </button>
