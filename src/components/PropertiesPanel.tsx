@@ -293,6 +293,7 @@ const handleEyeDropper = async (id: string, property: 'color' | 'backgroundColor
     const result = await eyeDropper.open();
     updateTextOverlay(id, { [property]: result.sRGBHex });
   } catch (e) {
+    /* ignore: user cancelled the eyedropper */
   }
 };
 

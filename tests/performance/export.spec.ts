@@ -116,18 +116,3 @@ test.describe('Export Performance', () => {
     expect(duration).toBeLessThan(30000); // Should be very fast for a dummy/short clip
   });
 });
-
-    // If we had a real 1min video, we'd expect < 30s on high-end.
-    expect(duration).toBeLessThan(30000); // Should be very fast for a dummy/short clip
-  });
-});
-
-
-    expect(duration).toBeLessThan(30000); // Should be very fast for a dummy/short clip
-  });
-});
-
-
-  });
-});
-

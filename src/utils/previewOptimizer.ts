@@ -357,7 +357,7 @@ function determineRecommendedQuality(
 
   // Get base quality from performance
   const perf = determineQualityFromPerformance(performanceScore);
-  let { quality: recommendedQuality, maxSafeResolution } = perf;
+  const { quality: recommendedQuality, maxSafeResolution } = perf;
 
   // Adjust based on CPU cores and network
   const adjusted = adjustQualityForHardware(
@@ -648,12 +648,6 @@ export async function getProxyUrl(
 function applyMobileJemaOSOptimizations(videoElement: HTMLVideoElement, settings: PreviewSettings, isMobile: boolean, isJemaOSOnMobile: boolean) {
   if (isJemaOSOnMobile || isMobile) {
     videoElement.preload = settings.bufferSize === 'large' ? 'auto' : 'metadata';
-    
-    if ('requestVideoFrameCallback' in videoElement) {
-    }
-    
-    if (videoElement.getVideoPlaybackQuality) {
-    }
     
     if ('buffered' in videoElement && settings.bufferSize === 'small') {
       videoElement.setAttribute('x-webkit-airplay', 'deny');

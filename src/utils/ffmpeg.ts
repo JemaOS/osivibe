@@ -313,11 +313,6 @@ export function getRecommendedCodec(
  */
 export function setHardwareProfile(profile: AnyHardwareProfile): void {
   cachedHardwareProfile = profile;
-  
-  // Safe logging for different profile types
-  if ('gpu' in profile && profile.gpu && 'processor' in profile && profile.processor) {
-  } else if ('cpuCores' in profile) {
-  }
 }
 
 /**
@@ -798,6 +793,7 @@ export function cancelExport() {
       if (currentLogHandler) ffmpeg.off('log', currentLogHandler);
       if (currentProgressHandler) ffmpeg.off('progress', currentProgressHandler);
     } catch (e) {
+      /* ignore: best-effort cleanup */
     }
     currentLogHandler = null;
     currentProgressHandler = null;
@@ -805,6 +801,7 @@ export function cancelExport() {
     try {
       ffmpeg.terminate();
     } catch (e) {
+      /* ignore: best-effort cleanup */
     }
     ffmpeg = null;
     isLoaded = false;
@@ -1585,7 +1582,7 @@ function buildSingleClipExternalAudio(
     
     // If the audio clip starts before the video clip, we need to trim the beginning
     let audioTrimStart = ac.trimStart;
-    let effectiveStart = Math.max(0, relativeStart);
+    const effectiveStart = Math.max(0, relativeStart);
     if (relativeStart < 0) {
       // Audio starts before the video — skip the non-overlapping portion
       audioTrimStart += Math.abs(relativeStart);
@@ -1637,7 +1634,7 @@ function buildSingleClipAudioFilter(
   fc: string[],
   isImage: boolean
 ) {
-  let clipAudioLabel = 'aclip';
+  const clipAudioLabel = 'aclip';
   if (isImage || clip.audioMuted) {
     fc.push(`aevalsrc=0:d=${clipDuration}:s=48000:c=stereo[${clipAudioLabel}]`);
   } else {
@@ -2197,8 +2194,8 @@ function combineTransitionFilters(startFilter: string, endFilter: string): strin
     // Remove trailing format=yuv420p from start and leading format=yuva444p from end
     // to avoid duplicate format conversions in the chain that cause FFmpeg to fail silently.
     // Combined filter should go: format=yuva444p → [start effect] → [end effect] → format=yuv420p
-    let cleanStart = startFilter.replace(/,format=yuv420p$/, '');
-    let cleanEnd = endFilter.replace(/^format=yuva444p,/, '');
+    const cleanStart = startFilter.replace(/,format=yuv420p$/, '');
+    const cleanEnd = endFilter.replace(/^format=yuva444p,/, '');
     return `${cleanStart},${cleanEnd}`;
   }
   return startFilter || endFilter || '';
@@ -2406,7 +2403,7 @@ function buildExternalAudioFilter(
     
     // If the audio clip starts before the timeline origin, trim the beginning
     let audioTrimStart = ac.trimStart;
-    let effectiveStart = Math.max(0, relativeStart);
+    const effectiveStart = Math.max(0, relativeStart);
     if (relativeStart < 0) {
       audioTrimStart += Math.abs(relativeStart);
       dur -= Math.abs(relativeStart);

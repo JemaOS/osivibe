@@ -323,8 +323,7 @@ export const ExportModal: React.FC = () => {
         errorMessage.includes('called FFmpeg.terminate()') ||
         errorMessage === 'Export cancelled';
 
-      if (isCancellation) {
-      } else {
+      if (!isCancellation) {
         alert(t('exportError', { error: errorMessage }));
       }
       
