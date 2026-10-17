@@ -283,7 +283,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
         )}
 
         {/* Undo/Redo - available on phones (compact); hidden on fold cover, shown on larger screens */}
-        <div className={`${layoutMode === 'compact' ? 'flex' : 'hidden'} fold-open:flex lg:flex items-center gap-0.5 fold-open:gap-1`}>
+        <div className={`${layoutMode === 'compact' ? 'flex' : 'hidden'} fold-open:flex lg:flex items-center gap-1 fold-open:gap-1`}>
           <button 
             onClick={undo}
             className={`${getButtonSize(layoutMode)} rounded-lg flex items-center justify-center text-neutral-400 hover:text-white hover:bg-white/10 transition-colors touch-target`}

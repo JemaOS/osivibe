@@ -979,7 +979,8 @@ const VideoPlayerControls = ({
   setPlaybackRate,
   toggleFullscreen,
   qualityMenuRef,
-  speedMenuRef
+  speedMenuRef,
+  dense
 }: any) => {
   const { t } = useI18n();
   // Compute time display class
@@ -991,9 +992,9 @@ const VideoPlayerControls = ({
   const isFullscreenDisabled = cropMode || !!editingTextId;
 
   return (
-    <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3 flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`px-1.5 fold-cover:px-1 fold-open:px-2 sm:px-4 ${dense ? 'py-0' : 'py-1.5 fold-cover:py-1 fold-open:py-2 sm:py-3'} flex items-center justify-between gap-1 fold-cover:gap-0.5 fold-open:gap-2 sm:gap-4 transition-opacity flex-shrink-0 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
       {/* Left Controls */}
-      <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1 fold-cover:gap-1 fold-open:gap-1.5 sm:gap-2 flex-shrink-0">
         <LeftControls
           isMinimal={isMinimal}
           isCompact={isCompact}
@@ -1015,7 +1016,7 @@ const VideoPlayerControls = ({
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1 fold-cover:gap-1 fold-open:gap-1.5 sm:gap-2 flex-shrink-0">
         {/* Volume */}
         <VolumeControl
           isMinimal={isMinimal}
@@ -1705,6 +1706,9 @@ const VideoPlayer: React.FC = () => {
   
   // Get touch target size based on device
   const touchTargetSize = responsive.touchTargetSize;
+  // Landscape phones only get 64px of preview height: keep the transport row
+  // inside it by dropping its vertical padding (the video strip shrinks).
+  const denseTransport = isMinimal && responsive.orientation === 'landscape';
 
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
@@ -2132,7 +2136,7 @@ const VideoPlayer: React.FC = () => {
       {/* Video Container - Fold-aware with aspect ratio handling */}
       <div
         ref={videoContainerRef}
-        className={`flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center p-1 fold-cover:p-0.5 fold-open:p-2 sm:p-4 min-h-0 ${responsive.isSpanning ? 'avoid-hinge' : ''}`}
+        className={`flex-1 relative bg-black rounded-t-xl overflow-hidden flex items-center justify-center ${denseTransport ? 'p-0.5' : 'p-1 fold-cover:p-0.5 fold-open:p-2 sm:p-4'} min-h-0 ${responsive.isSpanning ? 'avoid-hinge' : ''}`}
       >
         {/* Hidden audio elements for timeline audio playback */}
         <div style={{ display: 'none' }}>
@@ -2304,6 +2308,7 @@ const VideoPlayer: React.FC = () => {
         toggleFullscreen={toggleFullscreen}
         qualityMenuRef={qualityMenuRef}
         speedMenuRef={speedMenuRef}
+        dense={denseTransport}
       />
     </div>
   );

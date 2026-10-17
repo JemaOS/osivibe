@@ -13,6 +13,10 @@ import type { TimelineClip, TextOverlay, MediaFile, TrackType } from '../types';
 // Base scale - will be adjusted based on screen size
 const BASE_PIXELS_PER_SECOND = 50;
 
+// Touch long-press on a timeline clip opens its action menu.
+const LONG_PRESS_MS = 380;
+const LONG_PRESS_MOVE_TOLERANCE = 8;
+
 interface ContextMenu {
   id: string;
   type: 'clip' | 'text';
@@ -37,7 +41,7 @@ const getRulerHeight = (layoutMode: string): number => {
 
 const getLabelWidth = (layoutMode: string): number => {
   if (layoutMode === 'minimal') return 64;
-  if (layoutMode === 'compact') return 64;
+  if (layoutMode === 'compact') return 76;
   if (layoutMode === 'adaptive') return 140;
   return 180; // Desktop
 };
@@ -155,10 +159,10 @@ const getTrackTextClass = (isMinimal: boolean, isCompact: boolean) =>
   isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-xs';
 
 const getTrackActionBtnClass = (isMinimal: boolean, isCompact: boolean) => 
-  isMinimal ? 'w-4 h-4 !min-w-0 !min-h-0' : isCompact ? 'w-5 h-5 !min-w-0 !min-h-0' : 'w-6 h-6';
+  isMinimal ? 'w-6 h-6 !min-w-0 !min-h-0' : isCompact ? 'w-8 h-8 !min-w-0 !min-h-0' : 'w-6 h-6';
 
 const getTrackActionIconClass = (isMinimal: boolean, isCompact: boolean) => 
-  isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'sm:w-3 sm:h-3';
+  isMinimal ? 'w-3 h-3' : isCompact ? 'w-4 h-4' : 'sm:w-3 sm:h-3';
 
 const getAddTrackBtnClass = (isMinimal: boolean, isCompact: boolean) => 
   isMinimal ? 'h-5 text-[8px]' : isCompact ? 'h-6 text-[9px]' : 'h-8 text-xs';
@@ -192,12 +196,53 @@ const TimelineClipComponent = ({
   handleClipMouseDown,
   handleClipTouchStart,
   handleClipContextMenu,
+  onClipLongPress,
   handleClipDrop,
   handleTransitionMouseDown,
   handleResizeMouseDown,
   onCtrlClick,
 }: any) => {
   const { t } = useI18n();
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearClipLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  };
+
+  const handleClipTouchStartWrapper = (e: React.TouchEvent) => {
+    handleClipTouchStart(e, clip.id, track.id);
+    clearClipLongPress();
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    longPressStartRef.current = { x: touch.clientX, y: touch.clientY };
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      const start = longPressStartRef.current;
+      longPressStartRef.current = null;
+      if (start && onClipLongPress) onClipLongPress(clip.id, start.x, start.y);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleClipTouchMoveWrapper = (e: React.TouchEvent) => {
+    const start = longPressStartRef.current;
+    if (!start || !longPressTimerRef.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    if (
+      Math.abs(touch.clientX - start.x) > LONG_PRESS_MOVE_TOLERANCE ||
+      Math.abs(touch.clientY - start.y) > LONG_PRESS_MOVE_TOLERANCE
+    ) {
+      clearClipLongPress();
+    }
+  };
+
+  useEffect(() => clearClipLongPress, []);
+
   const clipWidth = (clip.duration - clip.trimStart - clip.trimEnd) * PIXELS_PER_SECOND * ui.timelineZoom;
   const clipX = clip.startTime * PIXELS_PER_SECOND * ui.timelineZoom;
   const isSelected = ui.selectedClipId === clip.id || (ui.selectedClipIds && ui.selectedClipIds.includes(clip.id));
@@ -228,7 +273,10 @@ const TimelineClipComponent = ({
         minHeight: clipHeight,
       }}
       onMouseDown={handleMouseDownWrapper}
-      onTouchStart={(e) => handleClipTouchStart(e, clip.id, track.id)}
+      onTouchStart={handleClipTouchStartWrapper}
+      onTouchMove={handleClipTouchMoveWrapper}
+      onTouchEnd={clearClipLongPress}
+      onTouchCancel={clearClipLongPress}
       onContextMenu={(e) => handleClipContextMenu(e, clip.id)}
       onDrop={(e) => handleClipDrop(e, clip.id, track.type)}
     >
@@ -598,6 +646,8 @@ const useTimelinePlayhead = (tracksContainerRef: React.RefObject<HTMLDivElement>
 const useTimelineContextMenu = () => {
   const { selectClip, selectText } = useEditorStore();
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const suppressNextClickRef = useRef(false);
 
   const calculateMenuPosition = (clientX: number, clientY: number) => {
     const menuWidth = 180;
@@ -644,17 +694,43 @@ const useTimelineContextMenu = () => {
     });
   };
 
+  const openClipMenuAt = (clipId: string, x: number, y: number) => {
+    selectClip(clipId);
+    const { x: menuX, y: menuY } = calculateMenuPosition(x, y);
+    suppressNextClickRef.current = true;
+    window.setTimeout(() => { suppressNextClickRef.current = false; }, 1500);
+    setContextMenu({ id: clipId, type: 'clip', x: menuX, y: menuY });
+  };
+
   useEffect(() => {
-    const handleClick = () => setContextMenu(null);
+    const handleClick = () => {
+      // Ignore the single click synthesized right after the opening touch gesture
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+      setContextMenu(null);
+    };
+    const handlePointerDown = (e: PointerEvent) => {
+      const el = menuRef.current;
+      if (el && e.target instanceof Node && el.contains(e.target)) return;
+      setContextMenu(null);
+    };
     window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+    };
   }, []);
 
   return {
     contextMenu,
     setContextMenu,
     handleClipContextMenu,
-    handleTextContextMenu
+    handleTextContextMenu,
+    openClipMenuAt,
+    menuRef
   };
 };
 
@@ -784,7 +860,7 @@ const useTimelineCut = () => {
   return { handleCutClick };
 };
 
-const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCopiedText }: any) => {
+const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCopiedText, menuRef, isPhone }: any) => {
   const { t } = useI18n();
   const { tracks, mediaFiles, textOverlays, addTextOverlay, removeTextOverlay, removeClip, player } = useEditorStore();
 
@@ -840,6 +916,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
   };
 
   if (!contextMenu) return null;
+  if (isPhone && contextMenu.type === 'clip') return null;
 
   if (contextMenu.type === 'clip') {
     const clip = tracks.flatMap(t => t.clips).find(c => c.id === contextMenu.id);
@@ -848,6 +925,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
 
     return (
       <div
+        ref={menuRef}
         className="fixed z-[100] bg-[#0f0f0f] border-2 border-primary-500/50 rounded-lg shadow-2xl py-1 min-w-[180px]"
         style={{
           left: `${contextMenu.x}px`,
@@ -896,6 +974,7 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
   } else if (contextMenu.type === 'text') {
     return (
       <div
+        ref={menuRef}
         className="fixed z-[100] bg-[#0f0f0f] border-2 border-primary-500/50 rounded-lg shadow-2xl py-1 min-w-[180px]"
         style={{
           left: `${contextMenu.x}px`,
@@ -940,6 +1019,92 @@ const TimelineContextMenu = ({ contextMenu, setContextMenu, setCopiedClip, setCo
     );
   }
   return null;
+};
+
+const TimelineClipActionBar = ({ contextMenu, setContextMenu, isPhone, isMinimal, menuRef }: any) => {
+  const { t } = useI18n();
+  const { tracks, mediaFiles, player, removeClip } = useEditorStore();
+
+  const findClip = (clipId: string) => tracks.flatMap((tr: any) => tr.clips).find((c: any) => c.id === clipId);
+
+  const handleDetachAudio = (clipId: string) => {
+    const clip = findClip(clipId);
+    if (!clip) return;
+    const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
+    if (!media || media.type !== 'video') return;
+    useEditorStore.getState().detachAudioFromVideo(clipId);
+    setContextMenu(null);
+  };
+
+  const handleCutClip = (clipId: string) => {
+    const clip = findClip(clipId);
+    if (!clip) return;
+    const cutTime = player.currentTime;
+    if (cutTime > clip.startTime && cutTime < clip.startTime + clip.duration - clip.trimStart - clip.trimEnd) {
+      useEditorStore.getState().splitClip(clipId, cutTime);
+    }
+    setContextMenu(null);
+  };
+
+  const handleDuplicateClip = (clipId: string) => {
+    const clip = findClip(clipId);
+    if (!clip) return;
+    const trackWithClip = tracks.find((tr: any) => tr.clips.some((c: any) => c.id === clipId));
+    if (!trackWithClip) return;
+    const media = mediaFiles.find((m: any) => m.id === clip.mediaId);
+    if (!media) return;
+    const newStartTime = clip.startTime + (clip.duration - clip.trimStart - clip.trimEnd) + 0.1;
+    useEditorStore.getState().addClipToTrack(trackWithClip.id, media, newStartTime);
+    setContextMenu(null);
+  };
+
+  const handleDeleteClip = (clipId: string) => {
+    removeClip(clipId);
+    setContextMenu(null);
+  };
+
+  if (!isPhone || !contextMenu || contextMenu.type !== 'clip') return null;
+
+  const clip = findClip(contextMenu.id);
+  const media = clip ? mediaFiles.find((m: any) => m.id === clip.mediaId) : null;
+  const isVideo = media?.type === 'video';
+  const itemClass = 'flex-1 min-w-0 min-h-[52px] flex flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-1.5 text-[11px] font-medium text-white active:bg-white/15 transition-colors touch-target';
+
+  return (
+    <div
+      ref={menuRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('clip')}
+      className="fixed inset-x-0 z-[110] flex justify-center pointer-events-none"
+      style={{ bottom: 'calc(' + (isMinimal ? '3.5rem' : '4rem') + ' + env(safe-area-inset-bottom, 0px))' }}
+    >
+      <div
+        className="pointer-events-auto mx-2 mb-2 flex items-stretch gap-1 bg-[#0f0f0f] border-2 border-primary-500/50 rounded-xl p-1"
+        style={{ boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(117, 122, 237, 0.3)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={() => handleCutClip(contextMenu.id)} className={itemClass}>
+          <Scissors className="w-5 h-5" />
+          <span className="truncate">{t('cut')}</span>
+        </button>
+        {isVideo && (
+          <button onClick={() => handleDetachAudio(contextMenu.id)} className={itemClass}>
+            <Music2 className="w-5 h-5" />
+            <span className="truncate">{t('detachAudio')}</span>
+          </button>
+        )}
+        <button onClick={() => handleDuplicateClip(contextMenu.id)} className={itemClass}>
+          <Copy className="w-5 h-5" />
+          <span className="truncate">{t('duplicate')}</span>
+        </button>
+        <button onClick={() => handleDeleteClip(contextMenu.id)} className={itemClass + ' text-red-400'}>
+          <Trash2 className="w-5 h-5" />
+          <span className="truncate">{t('delete')}</span>
+        </button>
+      </div>
+    </div>
+  );
 };
 
 export const Timeline: React.FC = () => {
@@ -989,6 +1154,7 @@ export const Timeline: React.FC = () => {
   const isAdaptive = layoutMode === 'adaptive';
   const isExpanded = layoutMode === 'expanded';
   const isDesktop = layoutMode === 'desktop';
+  const isPhone = isMinimal || isCompact;
 
   const TRACK_HEIGHT = getTrackHeight(layoutMode);
   const RULER_HEIGHT = getRulerHeight(layoutMode);
@@ -1020,7 +1186,7 @@ export const Timeline: React.FC = () => {
 
   const { copiedClip, copiedText, setCopiedClip, setCopiedText } = useTimelineKeyboardShortcuts();
   const { isDraggingPlayhead, isTouchScrubbing, setIsTouchScrubbing, handlePlayheadMouseDown, handlePlayheadTouchStart } = useTimelinePlayhead(tracksContainerRef, PIXELS_PER_SECOND);
-  const { contextMenu, setContextMenu, handleClipContextMenu, handleTextContextMenu } = useTimelineContextMenu();
+  const { contextMenu, setContextMenu, handleClipContextMenu, handleTextContextMenu, openClipMenuAt, menuRef: contextMenuRef } = useTimelineContextMenu();
   const { handleTouchStart, handleTouchMove, handleTouchEnd } = useTimelineTouch(tracksContainerRef, ui, setTimelineZoom, player, isMinimal, isCompact, setIsTouchScrubbing, setTouchStartX, setTouchStartTime);
   const { handleCutClick } = useTimelineCut();
   const { isDraggingClip, draggedClipId, handleClipMouseDown, handleClipTouchStart, hasCollision } = useTimelineClipDrag(tracksContainerRef, PIXELS_PER_SECOND, TRACK_HEIGHT, RULER_HEIGHT);
@@ -1032,6 +1198,10 @@ export const Timeline: React.FC = () => {
 
   const timelineWidth = Math.max(projectDuration * PIXELS_PER_SECOND * ui.timelineZoom, 1000);
 
+
+  const handleClipLongPress = (clipId: string, x: number, y: number) => {
+    openClipMenuAt(clipId, x, y);
+  };
 
   const handleAddTrack = (type: TrackType) => {
     addTrack(type);
@@ -1235,7 +1405,7 @@ export const Timeline: React.FC = () => {
       {/* Timeline Header */}
       <div className={`${isMinimal || isCompact ? 'px-1 py-px' : 'px-1 fold-cover:px-1 fold-open:px-2 sm:px-4 py-1 fold-cover:py-1 fold-open:py-1.5 sm:py-2'} flex items-center justify-between border-b border-white/10 flex-shrink-0 overflow-hidden`}>
         <h3 className={`${getHeaderTitleClass(isMinimal, isCompact)} sm:text-body font-semibold text-white flex-shrink-0 ${isMinimal || isCompact ? 'hidden' : ''}`}>{t('timeline')}</h3>
-        <div className="flex items-center gap-0.5 fold-cover:gap-0.5 fold-open:gap-1 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
+        <div className="flex items-center gap-1 fold-cover:gap-1 fold-open:gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none min-w-0 flex-1 justify-end">
           {/* Cut Tool - coupe à la position du playhead */}
           <button
             onClick={handleCutClick}
@@ -1321,7 +1491,7 @@ export const Timeline: React.FC = () => {
               return (
                 <div
                   key={track.id}
-                  className="border-b border-white/10 px-1 fold-cover:px-1 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
+                  className="border-b border-white/10 px-0.5 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
                   style={{ height: TRACK_HEIGHT }}
                 >
                   <div className="flex items-center gap-1">
@@ -1336,7 +1506,7 @@ export const Timeline: React.FC = () => {
                       {getTrackLabel(track.name, layoutMode)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-0 fold-cover:gap-0 fold-open:gap-0.5 sm:gap-1 overflow-hidden">
+                  <div className="flex items-center gap-1 overflow-hidden">
                     {/* Mute button - only show for video or audio tracks */}
                     {['video', 'audio'].includes(track.type) && (
                       <button
@@ -1523,6 +1693,7 @@ export const Timeline: React.FC = () => {
                     handleClipMouseDown={handleClipMouseDown}
                     handleClipTouchStart={handleClipTouchStart}
                     handleClipContextMenu={handleClipContextMenu}
+                    onClipLongPress={handleClipLongPress}
                     handleClipDrop={handleClipDrop}
                     handleTransitionMouseDown={handleTransitionMouseDown}
                     handleResizeMouseDown={handleResizeMouseDown}
@@ -1608,11 +1779,13 @@ export const Timeline: React.FC = () => {
       </div>
 
       {/* Context Menu */}
+      <TimelineClipActionBar contextMenu={contextMenu} setContextMenu={setContextMenu} isPhone={isPhone} isMinimal={isMinimal} menuRef={contextMenuRef} />
       <TimelineContextMenu 
         contextMenu={contextMenu} 
         setContextMenu={setContextMenu} 
         setCopiedClip={setCopiedClip} 
-        setCopiedText={setCopiedText} 
+        setCopiedText={setCopiedText}
+        isPhone={isPhone} 
       />
     </div>
   );

@@ -17,6 +17,7 @@ import {
   Music,
   Clock,
   Scissors,
+  Copy,
   Crop,
   Link2Off,
   Monitor,
@@ -396,6 +397,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     updateClip,
     removeClip,
     detachAudioFromVideo,
+    splitClip,
+    addClipToTrack,
     player,
     saveState,
   } = useEditorStore();
@@ -470,6 +473,23 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
     if (selectedClip && selectedClip.type === 'video') {
       detachAudioFromVideo(selectedClip.id);
     }
+  };
+
+  const handleSplitClip = () => {
+    if (!selectedClip) return;
+    const cutTime = player.currentTime;
+    const clipEnd = selectedClip.startTime + selectedClip.duration - selectedClip.trimStart - selectedClip.trimEnd;
+    if (cutTime > selectedClip.startTime && cutTime < clipEnd) {
+      splitClip(selectedClip.id, cutTime);
+    }
+  };
+
+  const handleDuplicateClip = () => {
+    if (!selectedClip || !selectedClipMedia) return;
+    const trackWithClip = tracks.find((track) => track.clips.some((c) => c.id === selectedClip.id));
+    if (!trackWithClip) return;
+    const clipDuration = selectedClip.duration - selectedClip.trimStart - selectedClip.trimEnd;
+    addClipToTrack(trackWithClip.id, selectedClipMedia, selectedClip.startTime + clipDuration + 0.1);
   };
 
   const handleUpdateCrop = (updates: Partial<CropSettings>) => {
@@ -564,6 +584,25 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({ activeTab: ini
                 {t('detachAudioButton')}
               </button>
             )}
+
+            {/* Cut / Duplicate - mirrors the timeline clip actions */}
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={handleSplitClip}
+                className="btn-secondary h-10"
+                title={t('cutAtPlayheadTooltip')}
+              >
+                <Scissors className="w-4 h-4" />
+                {t('cut')}
+              </button>
+              <button
+                onClick={handleDuplicateClip}
+                className="btn-secondary h-10"
+              >
+                <Copy className="w-4 h-4" />
+                {t('duplicate')}
+              </button>
+            </div>
           </div>
         </Section>
 

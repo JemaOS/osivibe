@@ -285,7 +285,7 @@ const MobileLayout = ({
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <nav
-          className={`${isLandscape ? 'h-14' : 'h-16'} flex items-stretch gap-0.5 px-1 overflow-x-auto scrollbar-none`}
+          className={`${isLandscape ? 'h-14' : 'h-16'} flex items-stretch gap-1 px-1 overflow-x-auto scrollbar-none`}
         >
           {railItems.map((item) => {
             const isActive = isSheetOpen && panel === item.id;
