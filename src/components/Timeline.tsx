@@ -1185,6 +1185,10 @@ export const Timeline: React.FC = () => {
   // Add Track dropdown state
   const [showAddTrackMenu, setShowAddTrackMenu] = useState(false);
 
+  // Phone-only track settings sheet
+  const [trackSettingsId, setTrackSettingsId] = useState<string | null>(null);
+  const trackSettingsTrack = trackSettingsId ? tracks.find((track) => track.id === trackSettingsId) : null;
+
   const { copiedClip, copiedText, setCopiedClip, setCopiedText } = useTimelineKeyboardShortcuts();
   const { isDraggingPlayhead, isTouchScrubbing, setIsTouchScrubbing, handlePlayheadMouseDown, handlePlayheadTouchStart } = useTimelinePlayhead(tracksContainerRef, PIXELS_PER_SECOND);
   const { contextMenu, setContextMenu, handleClipContextMenu, handleTextContextMenu, openClipMenuAt, menuRef: contextMenuRef } = useTimelineContextMenu();
@@ -1407,6 +1411,9 @@ export const Timeline: React.FC = () => {
   const clipHeight = getClipHeight(layoutMode, TRACK_HEIGHT);
   const clipTop = getClipTop(layoutMode);
 
+  const trackSettingsPercent = trackSettingsTrack ? Math.round((trackSettingsTrack.volume ?? 1) * 100) : 100;
+  const trackSettingsHasAudio = !!trackSettingsTrack && ['video', 'audio'].includes(trackSettingsTrack.type);
+
   return (
     <div className="glass-panel-medium h-full flex flex-col overflow-hidden rounded-t-xl border-t">
       {/* Timeline Header */}
@@ -1498,41 +1505,60 @@ export const Timeline: React.FC = () => {
               return (
                 <div
                   key={track.id}
-                  className="border-b border-white/10 px-0.5 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5"
+                  className={`${isPhone ? 'relative ' : ''}border-b border-white/10 px-0.5 fold-open:px-1.5 sm:px-2 flex flex-col justify-center gap-0.5`}
                   style={{ height: TRACK_HEIGHT }}
                 >
-                  <div className="flex items-center gap-1">
-                    {/* Show icon on small screens for better identification */}
-                    {(isMinimal || isCompact) && (
+                  {isPhone && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setContextMenu(null);
+                        setTrackSettingsId(track.id);
+                      }}
+                      className="absolute inset-0 z-0 opacity-0"
+                      aria-label={`${track.name} ${t('track')}`}
+                      title={t('track')}
+                    />
+                  )}
+                  {isPhone ? (
+                    <div className="relative z-10 pointer-events-none flex items-center gap-1 min-w-0 w-full flex-1 min-h-0 text-left">
                       <TrackIcon className={`${getTrackIconClass(isMinimal)} text-neutral-400 flex-shrink-0`} />
-                    )}
-                    <p
-                      className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}
-                      title={track.name} // Full name on hover
-                    >
-                      {getTrackLabel(track.name, layoutMode)}
-                    </p>
-                  </div>
+                      <span className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}>
+                        {getTrackLabel(track.name, layoutMode)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <p
+                        className={`${getTrackTextClass(isMinimal, isCompact)} font-medium text-neutral-300 truncate`}
+                        title={track.name} // Full name on hover
+                      >
+                        {getTrackLabel(track.name, layoutMode)}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex items-center gap-1 overflow-hidden">
                     {/* Mute button - only show for video or audio tracks */}
                     {['video', 'audio'].includes(track.type) && (
                       <button
                         onClick={() => toggleTrackMute(track.id)}
-                        className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} ${isMinimal || isCompact ? '' : 'touch-target'} flex-shrink-0`}
+                        className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.muted ? 'text-error' : ''} ${isMinimal || isCompact ? '' : 'touch-target'} ${isPhone ? 'relative z-10 pointer-events-auto ' : ''}flex-shrink-0`}
                         title={track.muted ? t('unmute') : t('mute')}
+                        aria-pressed={isPhone ? !!track.muted : undefined}
                       >
                         {track.muted ? <VolumeX className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Volume2 className={getTrackActionIconClass(isMinimal, isCompact)} />}
                       </button>
                     )}
                     <button
                       onClick={() => toggleTrackLock(track.id)}
-                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} ${isMinimal || isCompact ? '' : 'touch-target'} flex-shrink-0`}
+                      className={`btn-icon ${getTrackActionBtnClass(isMinimal, isCompact)} ${track.locked ? 'text-warning' : ''} ${isMinimal || isCompact ? '' : 'touch-target'} ${isPhone ? 'relative z-10 pointer-events-auto ' : ''}flex-shrink-0`}
                       title={track.locked ? t('unlock') : t('lock')}
+                      aria-pressed={isPhone ? !!track.locked : undefined}
                     >
                       {track.locked ? <Lock className={getTrackActionIconClass(isMinimal, isCompact)} /> : <Unlock className={getTrackActionIconClass(isMinimal, isCompact)} />}
                     </button>
                     {/* Volume slider - only show for video or audio tracks and when not muted */}
-                    {['video', 'audio'].includes(track.type) && !track.muted && !isMinimal && (
+                    {['video', 'audio'].includes(track.type) && !track.muted && !isPhone && (
                       <div className="flex items-center gap-1 sm:gap-1.5 ml-1 min-w-0 flex-1" title={t('volumePercent', { percent: Math.round((track.volume ?? 1) * 100) })}>
                         <input
                           type="range"
@@ -1785,6 +1811,95 @@ export const Timeline: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Phone-only track settings sheet */}
+      {isPhone && trackSettingsTrack && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-[109]"
+            onClick={() => setTrackSettingsId(null)}
+            aria-hidden="true"
+          />
+          <div
+            className="fixed inset-x-0 z-[110] flex justify-center px-2 pointer-events-none"
+            style={{ bottom: 'calc(' + (isMinimal ? '3.5rem' : '4rem') + ' + env(safe-area-inset-bottom, 0px))' }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${trackSettingsTrack.name} ${t('track')}`}
+              className="pointer-events-auto w-full max-w-md mb-2 bg-[#0f0f0f] border-2 border-primary-500/50 rounded-xl p-2"
+              style={{ boxShadow: '0 10px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(117, 122, 237, 0.3)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-2 px-1 pb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  {(() => {
+                    const SettingsTrackIcon = getTrackIconComponent(trackSettingsTrack.name, trackSettingsTrack.type);
+                    return <SettingsTrackIcon className="w-4 h-4 text-neutral-300 flex-shrink-0" />;
+                  })()}
+                  <span className="text-sm font-semibold text-white truncate">{trackSettingsTrack.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTrackSettingsId(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-400 hover:text-white active:bg-white/10 flex-shrink-0"
+                  aria-label={t('close')}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {trackSettingsHasAudio && (
+                <div className="px-1 pb-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-neutral-400">{t('volume')}</span>
+                    <span className="text-xs font-medium text-neutral-200 tabular-nums">{trackSettingsPercent}%</span>
+                  </div>
+                  <div className="flex items-center gap-2 min-h-[32px]">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={trackSettingsPercent}
+                      onChange={(e) => setTrackVolume(trackSettingsTrack.id, parseInt(e.target.value, 10) / 100)}
+                      className="timeline-track-volume-slider flex-1 min-w-0"
+                      style={{
+                        '--track-fill': `linear-gradient(to right, #757AED ${trackSettingsPercent}%, #404040 ${trackSettingsPercent}%)`,
+                      } as React.CSSProperties}
+                      aria-label={t('volumePercent', { percent: trackSettingsPercent })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-stretch gap-1 pt-0.5">
+                {trackSettingsHasAudio && (
+                  <button
+                    type="button"
+                    onClick={() => toggleTrackMute(trackSettingsTrack.id)}
+                    className={`flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-medium active:bg-white/15 transition-colors touch-target ${trackSettingsTrack.muted ? 'text-error' : 'text-white'}`}
+                    aria-pressed={!!trackSettingsTrack.muted}
+                  >
+                    {trackSettingsTrack.muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    <span className="truncate">{trackSettingsTrack.muted ? t('unmute') : t('mute')}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => toggleTrackLock(trackSettingsTrack.id)}
+                  className={`flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-lg px-2 text-[12px] font-medium active:bg-white/15 transition-colors touch-target ${trackSettingsTrack.locked ? 'text-warning' : 'text-white'}`}
+                  aria-pressed={!!trackSettingsTrack.locked}
+                >
+                  {trackSettingsTrack.locked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                  <span className="truncate">{trackSettingsTrack.locked ? t('unlock') : t('lock')}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Context Menu */}
       <TimelineClipActionBar contextMenu={contextMenu} setContextMenu={setContextMenu} isPhone={isPhone} isMinimal={isMinimal} menuRef={contextMenuRef} />

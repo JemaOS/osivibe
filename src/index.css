@@ -520,6 +520,53 @@
     border-radius: 2px;
   }
 
+  /* Phone track settings volume slider (larger touch target) */
+  .timeline-track-volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .timeline-track-volume-slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--track-fill, #404040);
+  }
+
+  .timeline-track-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    margin-top: -5px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+
+  .timeline-track-volume-slider::-moz-range-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--track-fill, #404040);
+    border: none;
+  }
+
+  .timeline-track-volume-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    border: none;
+    box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+
   /* YouTube-style Volume Slider */
   .youtube-volume-slider {
     -webkit-appearance: none;
