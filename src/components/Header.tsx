@@ -121,10 +121,12 @@ const getLogoIconSize = (layoutMode: string): string => {
 };
 
 const getExportButtonClasses = (layoutMode: string): string => {
+  // Phones: transparent 44x44 touch target wrapping a 36x36 filled square
+  // (icon-only; the text label is hidden below sm:).
+  if (layoutMode === 'minimal' || layoutMode === 'compact') {
+    return 'touch-target p-0 flex items-center justify-center flex-shrink-0';
+  }
   const baseClasses = 'bg-primary-500 hover:bg-primary-600 text-white rounded-lg flex items-center gap-1 fold-open:gap-2 font-medium transition-colors flex-shrink-0 touch-target';
-  // Phones: icon-only square button (the text label is hidden below sm:)
-  if (layoutMode === 'minimal') return `${baseClasses} w-9 h-9 px-0 justify-center`;
-  if (layoutMode === 'compact') return `${baseClasses} w-9 h-9 px-0 justify-center`;
   return `${baseClasses} h-9 px-4 text-xs fold-open:text-sm`;
 };
 
@@ -151,6 +153,7 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
   // Use responsive hook for foldable-aware sizing
   const responsive = useResponsive();
   const layoutMode = useLayoutMode();
+  const exportIconClass = layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4';
   
   // Touch target sizes based on device
   const touchTargetSize = responsive.touchTargetSize;
@@ -324,7 +327,13 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
             onClick={openExportModal}
             className={getExportButtonClasses(layoutMode)}
           >
-            <Download className={`${layoutMode === 'minimal' ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
+            {layoutMode === 'minimal' || layoutMode === 'compact' ? (
+              <span className="w-9 h-9 rounded-lg bg-primary-500 hover:bg-primary-600 text-white flex items-center justify-center transition-colors">
+                <Download className={exportIconClass} />
+              </span>
+            ) : (
+              <Download className={exportIconClass} />
+            )}
             {/* Hide text on minimal screens */}
             <span className={layoutMode === 'minimal' || layoutMode === 'compact' ? 'hidden' : 'hidden sm:inline'}>
               {t('export')}

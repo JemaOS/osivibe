@@ -14,7 +14,7 @@ import type { TimelineClip, TextOverlay, MediaFile, TrackType } from '../types';
 const BASE_PIXELS_PER_SECOND = 50;
 
 // Touch long-press on a timeline clip opens its action menu.
-const LONG_PRESS_MS = 380;
+const LONG_PRESS_MS = 600;
 const LONG_PRESS_MOVE_TOLERANCE = 8;
 
 interface ContextMenu {
@@ -197,6 +197,7 @@ const TimelineClipComponent = ({
   handleClipTouchStart,
   handleClipContextMenu,
   onClipLongPress,
+  onClipLongPressMove,
   handleClipDrop,
   handleTransitionMouseDown,
   handleResizeMouseDown,
@@ -223,14 +224,13 @@ const TimelineClipComponent = ({
     longPressTimerRef.current = setTimeout(() => {
       longPressTimerRef.current = null;
       const start = longPressStartRef.current;
-      longPressStartRef.current = null;
       if (start && onClipLongPress) onClipLongPress(clip.id, start.x, start.y);
     }, LONG_PRESS_MS);
   };
 
   const handleClipTouchMoveWrapper = (e: React.TouchEvent) => {
     const start = longPressStartRef.current;
-    if (!start || !longPressTimerRef.current) return;
+    if (!start) return;
     const touch = e.touches[0];
     if (!touch) return;
     if (
@@ -238,6 +238,7 @@ const TimelineClipComponent = ({
       Math.abs(touch.clientY - start.y) > LONG_PRESS_MOVE_TOLERANCE
     ) {
       clearClipLongPress();
+      if (onClipLongPressMove) onClipLongPressMove(clip.id);
     }
   };
 
@@ -1203,6 +1204,12 @@ export const Timeline: React.FC = () => {
     openClipMenuAt(clipId, x, y);
   };
 
+  const handleClipLongPressMove = (clipId: string) => {
+    if (contextMenu && contextMenu.type === 'clip' && contextMenu.id === clipId) {
+      setContextMenu(null);
+    }
+  };
+
   const handleAddTrack = (type: TrackType) => {
     addTrack(type);
     setShowAddTrackMenu(false);
@@ -1694,6 +1701,7 @@ export const Timeline: React.FC = () => {
                     handleClipTouchStart={handleClipTouchStart}
                     handleClipContextMenu={handleClipContextMenu}
                     onClipLongPress={handleClipLongPress}
+                    onClipLongPressMove={handleClipLongPressMove}
                     handleClipDrop={handleClipDrop}
                     handleTransitionMouseDown={handleTransitionMouseDown}
                     handleResizeMouseDown={handleResizeMouseDown}

@@ -344,7 +344,7 @@ const MobileLayout = ({
             <button
               onClick={closeSheet}
               aria-label={t('close')}
-              className="absolute right-2 top-1 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white touch-target"
+              className="absolute right-2 top-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white"
             >
               <X className="w-4 h-4" />
             </button>
