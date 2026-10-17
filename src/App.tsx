@@ -68,50 +68,58 @@ const SidebarTabs = ({
 }) => {
   const { t } = useI18n();
   return (
-  <div className={`flex items-center ${compact ? 'gap-0.5' : 'gap-1'} ${compact ? 'px-1' : 'px-2'}`}>
+  <div className={`flex items-center flex-nowrap overflow-x-auto scrollbar-none ${compact ? 'gap-1' : 'gap-1'} ${compact ? 'px-1' : 'px-2'}`}>
     <button
       onClick={() => setActiveSidebarTab('media')}
-      className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+      title={t('media')}
+      aria-label={t('media')}
+      className={`${compact ? 'flex-shrink-0 w-11 h-11' : 'flex-1 min-w-0 h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
         activeSidebarTab === 'media'
           ? 'bg-primary-500 text-white'
           : 'text-neutral-400 hover:text-white hover:bg-white/10'
       }`}
     >
       <Film className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">{t('media')}</span>}
+      {!compact && <span className="text-xs font-medium whitespace-nowrap">{t('media')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('text')}
-      className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+      title={t('text')}
+      aria-label={t('text')}
+      className={`${compact ? 'flex-shrink-0 w-11 h-11' : 'flex-1 min-w-0 h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
         activeSidebarTab === 'text'
           ? 'bg-primary-500 text-white'
           : 'text-neutral-400 hover:text-white hover:bg-white/10'
       }`}
     >
       <Type className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">{t('text')}</span>}
+      {!compact && <span className="text-xs font-medium whitespace-nowrap">{t('text')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('transitions')}
-      className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+      title={t('transitions')}
+      aria-label={t('transitions')}
+      className={`${compact ? 'flex-shrink-0 w-11 h-11' : 'flex-1 min-w-0 h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
         activeSidebarTab === 'transitions'
           ? 'bg-primary-500 text-white'
           : 'text-neutral-400 hover:text-white hover:bg-white/10'
       }`}
     >
       <Scissors className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">{t('transShort')}</span>}
+      {!compact && <span className="text-xs font-medium whitespace-nowrap">{t('transShort')}</span>}
     </button>
     <button
       onClick={() => setActiveSidebarTab('effects')}
-      className={`flex-1 ${compact ? 'h-8' : 'h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
+      title={t('effects')}
+      aria-label={t('effects')}
+      className={`${compact ? 'flex-shrink-0 w-11 h-11' : 'flex-1 min-w-0 h-9'} rounded-lg flex items-center justify-center gap-1 transition-all touch-target ${
         activeSidebarTab === 'effects'
           ? 'bg-primary-500 text-white'
           : 'text-neutral-400 hover:text-white hover:bg-white/10'
       }`}
     >
       <Sliders className={compact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
-      {!compact && <span className="text-xs font-medium">{t('effects')}</span>}
+      {!compact && <span className="text-xs font-medium whitespace-nowrap">{t('effects')}</span>}
     </button>
   </div>
   );
@@ -153,7 +161,10 @@ const MobileLayout = ({
   const RAIL_H = isLandscape ? '3.5rem' : '4rem';
   // Timeline height (px). Portrait keeps >=172px of tracks viewport (28px ruler + 3x48px);
   // landscape sizes for the phone timeline (24px ruler + 3x40px = 144px) plus its toolbar.
-  const TIMELINE_H = isLandscape ? 182 : 210;
+  // Compact foldable internals at ~781x719 are 'landscape' but not phones, so
+  // they need the full compact timeline (28px ruler + 3x48px rows + toolbar)
+  // instead of the shorter landscape-phone timeline.
+  const TIMELINE_H = isLandscape ? (responsive.layoutMode === 'minimal' ? 182 : 210) : 210;
 
   const railItems: { id: MobilePanelId; icon: typeof Film; label: string }[] = [
     { id: 'media', icon: Film, label: t('media') },
@@ -274,7 +285,7 @@ const MobileLayout = ({
 
       {/* Timeline — hidden when collapsed on landscape phones so the preview absorbs it */}
       {!(isLandscape && isTimelineCollapsed) && (
-        <div className={`${isLandscape ? 'h-[182px]' : 'h-[210px]'} flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden`}>
+        <div className="flex-shrink-0 border-t border-white/10 bg-[#171717] overflow-hidden" style={{ height: TIMELINE_H }}>
           <Timeline />
         </div>
       )}
@@ -383,7 +394,7 @@ const AdaptiveLayout = ({
         <div className={`${responsive.isSpanning ? 'w-[calc(50%-var(--hinge-width,0px)/2)]' : 'w-64'} flex flex-col bg-[#1a1a1a] border-r border-white/10 avoid-hinge`}>
           <div className="h-11 flex items-center border-b border-white/10">
             <SidebarTabs 
-              compact={responsive.width < 500} 
+              compact
               activeSidebarTab={activeSidebarTab}
               setActiveSidebarTab={setActiveSidebarTab}
             />
@@ -435,6 +446,7 @@ const ExpandedLayout = ({
         <div className="w-72 flex flex-col bg-[#1a1a1a] border-r border-white/10">
           <div className="h-12 flex items-center border-b border-white/10 px-2 gap-1">
             <SidebarTabs 
+              compact
               activeSidebarTab={activeSidebarTab}
               setActiveSidebarTab={setActiveSidebarTab}
             />

@@ -164,12 +164,6 @@ const getTrackActionBtnClass = (isMinimal: boolean, isCompact: boolean) =>
 const getTrackActionIconClass = (isMinimal: boolean, isCompact: boolean) => 
   isMinimal ? 'w-3 h-3' : isCompact ? 'w-4 h-4' : 'sm:w-3 sm:h-3';
 
-const getAddTrackBtnClass = (isMinimal: boolean, isCompact: boolean) => 
-  isMinimal ? 'h-5 text-[8px]' : isCompact ? 'h-6 text-[9px]' : 'h-8 text-xs';
-
-const getAddTrackIconClass = (isMinimal: boolean, isCompact: boolean) => 
-  isMinimal ? 'w-2 h-2' : isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3';
-
 const getRulerTickClass = (isMinimal: boolean) => 
   isMinimal ? 'h-1' : 'h-2';
 
@@ -1429,16 +1423,14 @@ export const Timeline: React.FC = () => {
             <Scissors className={getToolbarIconClass(isMinimal, isCompact)} />
           </button>
           
-          {/* Add Track (phones) */}
-          {(isMinimal || isCompact) && (
-            <button
-              onClick={() => setShowAddTrackMenu(true)}
-              className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white flex-shrink-0`}
-              title={t('track')}
-            >
-              <Plus className={getToolbarIconClass(isMinimal, isCompact)} />
-            </button>
-          )}
+          {/* Add Track (all layouts) */}
+          <button
+            onClick={() => setShowAddTrackMenu(true)}
+            className={`btn-icon ${getToolbarBtnClass(isMinimal, isCompact)} hover:bg-primary-500 hover:text-white ${isMinimal || isCompact ? '' : 'touch-target'} flex-shrink-0`}
+            title={t('track')}
+          >
+            <Plus className={getToolbarIconClass(isMinimal, isCompact)} />
+          </button>
 
           {/* Crop Tool - Hidden on minimal and compact screens */}
           {!isMinimal && !isCompact && (
@@ -1584,18 +1576,6 @@ export const Timeline: React.FC = () => {
 
           </div>
 
-          {/* Add Track Button (non-phone) */}
-          {!(isMinimal || isCompact) && (
-          <div className="p-0.5 fold-cover:p-0.5 fold-open:p-1 sm:p-2 flex-shrink-0">
-            <button
-              onClick={() => setShowAddTrackMenu(true)}
-              className={`btn-secondary w-full ${getAddTrackBtnClass(isMinimal, isCompact)} touch-target`}
-            >
-              <Plus className={getAddTrackIconClass(isMinimal, isCompact)} />
-              <span className="fold-cover:hidden fold-open:inline">{t('track')}</span>
-            </button>
-          </div>
-          )}
 
           {/* Add Track Modal */}
           {showAddTrackMenu && (

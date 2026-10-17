@@ -842,6 +842,7 @@ const SpeedMenu = ({
 const VolumeControl = ({ 
   isMinimal,
   isCompact,
+  narrow,
   showVolumeSlider,
   onToggleSlider,
   volume,
@@ -849,7 +850,7 @@ const VolumeControl = ({
   onVolumeChange
 }: any) => {
   const { t } = useI18n();
-  const isHidden = isMinimal || isCompact;
+  const isHidden = isMinimal || isCompact || narrow;
   if (isHidden) return null;
   
   const volumePercent = Math.round(volume * 100);
@@ -952,6 +953,7 @@ const VideoPlayerControls = ({
   showControls,
   isMinimal,
   isCompact,
+  narrow,
   seek,
   player,
   projectDuration,
@@ -987,8 +989,9 @@ const VideoPlayerControls = ({
   const timeDisplayClass = isMinimal ? 'text-[8px]' : isCompact ? 'text-[9px]' : 'text-small';
   const iconSizeClass = getIconSizeClass(isMinimal);
   const fullscreenButtonClass = getButtonSizeClass(isMinimal, isCompact);
-  const isQualityHidden = isMinimal || isCompact;
-  const isSpeedHidden = isMinimal || isCompact;
+  const isNarrowTransport = isMinimal || isCompact || narrow;
+  const isQualityHidden = isNarrowTransport;
+  const isSpeedHidden = isNarrowTransport;
   const isFullscreenDisabled = cropMode || !!editingTextId;
 
   return (
@@ -1009,7 +1012,7 @@ const VideoPlayerControls = ({
       </div>
 
       {/* Time Display */}
-      <div className={`font-mono ${timeDisplayClass} text-neutral-400 flex-shrink min-w-0`}>
+      <div className={`font-mono ${timeDisplayClass} text-neutral-400 flex-shrink min-w-0 whitespace-nowrap`}>
         <span className="text-white">{formatTime(player.currentTime)}</span>
         <span className="mx-0.5 text-neutral-500">/</span>
         <span>{formatTime(projectDuration)}</span>
@@ -1021,6 +1024,7 @@ const VideoPlayerControls = ({
         <VolumeControl
           isMinimal={isMinimal}
           isCompact={isCompact}
+          narrow={narrow}
           showVolumeSlider={showVolumeSlider}
           onToggleSlider={() => setShowVolumeSlider(!showVolumeSlider)}
           volume={player.volume}
@@ -1709,6 +1713,9 @@ const VideoPlayer: React.FC = () => {
   // Landscape phones only get 64px of preview height: keep the transport row
   // inside it by dropping its vertical padding (the video strip shrinks).
   const denseTransport = isMinimal && responsive.orientation === 'landscape';
+  // Foldables / narrow viewports: hide the secondary transport controls so play,
+  // time and fullscreen never collide.
+  const narrowTransport = isMinimal || isCompact || responsive.width < 900;
 
   const videoRefs = useRef<{ [key: string]: HTMLVideoElement | null }>({});
   const audioRefs = useRef<{ [key: string]: HTMLAudioElement | null }>({});
@@ -2309,6 +2316,7 @@ const VideoPlayer: React.FC = () => {
         qualityMenuRef={qualityMenuRef}
         speedMenuRef={speedMenuRef}
         dense={denseTransport}
+        narrow={narrowTransport}
       />
     </div>
   );

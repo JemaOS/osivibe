@@ -243,7 +243,8 @@ function getFoldState(width: number, aspectRatio: number, isSpanning: boolean): 
 function getLayoutRecommendations(
   width: number,
   aspectRatio: number,
-  isFoldable: boolean
+  isFoldable: boolean,
+  hasTouch: boolean
 ): {
   layoutMode: LayoutMode;
   deviceType: DeviceType;
@@ -280,6 +281,36 @@ function getLayoutRecommendations(
       deviceType: 'phone',
       touchTargetSize: 44,
       timelineTracks: 2,
+      panelVisibility: 'collapsed',
+    };
+  }
+
+  // Foldable COVER displays: portrait, very tall, touch. These narrow-but-not-
+  // phone covers (e.g. Oppo Find N 494x986, Oppo N2 432x848) must use the
+  // verified phone UI, not the tablet layout.
+  const isCoverDisplay = hasTouch && width <= 640 && aspectRatio < 0.62;
+  if (isCoverDisplay) {
+    return {
+      layoutMode: 'compact',
+      deviceType: 'foldable-folded',
+      touchTargetSize: 44,
+      timelineTracks: 2,
+      panelVisibility: 'collapsed',
+    };
+  }
+
+  // Foldable INNER displays: near-square and not too wide (<= 880px). The phone
+  // UI (bottom sheets + tool rail + compact timeline) is the verified clean
+  // layout at these sizes; the tablet layout breaks (timeline label column and
+  // sidebar tabs). Wider tablets (> 880px) keep the expanded layout.
+  const isInnerDisplay =
+    hasTouch && width <= 880 && aspectRatio >= 0.7 && aspectRatio <= 1.4;
+  if (isInnerDisplay) {
+    return {
+      layoutMode: 'compact',
+      deviceType: 'foldable-unfolded',
+      touchTargetSize: 44,
+      timelineTracks: 3,
       panelVisibility: 'collapsed',
     };
   }
@@ -415,7 +446,7 @@ export function useResponsive(): ResponsiveState {
     const aspectRatioCategory = getAspectRatioCategory(aspectRatio);
     const orientation: Orientation = aspectRatio >= 1 ? 'landscape' : 'portrait';
     
-    const recommendations = getLayoutRecommendations(width, aspectRatio, isFoldable);
+    const recommendations = getLayoutRecommendations(width, aspectRatio, isFoldable, inputCapabilities.hasTouch);
     const { deviceType, touchTargetSize, timelineTracks, panelVisibility } = recommendations;
 
     // Touch phones in LANDSCAPE keep a desktop-ish width but a phone-sized height.
