@@ -1,5 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Input, UrlSource, VideoSampleSink, ALL_FORMATS } from 'mediabunny';
+import type { Input, VideoSampleSink } from 'mediabunny';
+
+// Chargement à la demande (comme MediaLibrary) : mediabunny (~460 Ko min) reste
+// hors du bundle initial et n'est récupéré qu'au premier aperçu vidéo.
+let mediabunnyPromise: Promise<typeof import('mediabunny')> | null = null;
+const loadMediabunny = () => (mediabunnyPromise ??= import('mediabunny'));
 import { useEditorStore } from '../store/editorStore';
 import { TimelineClip, TimelineTrack } from '../types';
 import { getCSSFilter } from '../utils/helpers';
@@ -52,6 +57,7 @@ export const useMediaBunnyPreview = (
 
     const initClip = async (clip: TimelineClip, media: any, currentClips: Map<string, MediaBunnyClip>) => {
       try {
+        const { Input, UrlSource, VideoSampleSink, ALL_FORMATS } = await loadMediabunny();
         const source = new UrlSource(media.url);
         const input = new Input({
           source: source,

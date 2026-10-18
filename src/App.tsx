@@ -11,6 +11,20 @@ import Toolbar from './components/Toolbar';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 // ExportModal is lazy loaded to reduce initial bundle size
 const ExportModal = lazy(() => import('./components/ExportModal').then(module => ({ default: module.ExportModal })));
+
+/**
+ * Ne monte ExportModal (et donc ses chunks ffmpeg / mediabunny, ~570 Ko) qu'à
+ * l'ouverture réelle : rien n'est téléchargé au chargement de l'éditeur.
+ */
+const ExportModalGate = () => {
+  const isExportOpen = useEditorStore((state) => state.ui.isExportModalOpen);
+  if (!isExportOpen) return null;
+  return (
+    <Suspense fallback={null}>
+      <ExportModal />
+    </Suspense>
+  );
+};
 import { useEditorStore } from './store/editorStore';
 import { useResponsive, useLayoutMode, useIsFoldable } from './hooks/use-responsive';
 import { Film, Type, Scissors, Sliders, X, Music, Crop, Wand2 } from 'lucide-react';
@@ -367,7 +381,7 @@ const MobileLayout = ({
         </section>
       )}
 
-      <ExportModal />
+      <ExportModalGate />
     </div>
   );
 };
@@ -421,7 +435,7 @@ const AdaptiveLayout = ({
     </div>
 
     <FooterCredit />
-    <ExportModal />
+    <ExportModalGate />
   </div>
 );
 
@@ -473,7 +487,7 @@ const ExpandedLayout = ({
     </div>
 
     <FooterCredit />
-    <ExportModal />
+    <ExportModalGate />
   </div>
 );
 
@@ -579,9 +593,7 @@ const DesktopLayout = ({
 
     <FooterCredit />
 
-    <Suspense fallback={null}>
-      <ExportModal />
-    </Suspense>
+    <ExportModalGate />
   </div>
   );
 };

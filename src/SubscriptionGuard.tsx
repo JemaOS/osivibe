@@ -251,6 +251,7 @@ function loadPortalIframe(): Promise<HTMLIFrameElement | null> {
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.setAttribute('aria-hidden', 'true');
+      iframe.setAttribute('referrerpolicy', 'no-referrer');
       const timeout = setTimeout(() => resolve(null), 8000);
       iframe.onload = () => { clearTimeout(timeout); resolve(iframe); };
       iframe.onerror = () => { clearTimeout(timeout); resolve(null); };
@@ -283,7 +284,9 @@ async function requestTokensFromPortal(): Promise<{
       };
       const timeout = setTimeout(() => { cleanup(); resolve(empty); }, 2500);
       const onMessage = (event: MessageEvent) => {
+        // Double vérification : origine ET source (l'iframe du portail).
         if (event.origin !== AUTH_PORTAL_URL) return;
+        if (event.source !== frameWindow) return;
         const data = event.data;
         if (data && data.type === 'jemaos_token_response') {
           cleanup();

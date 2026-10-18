@@ -16,7 +16,9 @@ import {
 import { useEditorStore } from '../store/editorStore';
 import { MediaFile, MediaType } from '../types';
 import { formatTime, formatFileSize, getFileType } from '../utils/helpers';
-import { getVideoMetadata, getAudioDuration, generateThumbnail } from '../utils/mediaBunny';
+// mediabunny (~460 Ko min) est chargé à la demande : il ne fait plus partie du
+// bundle initial. Le premier import média le récupère dans un chunk séparé.
+const loadMediaUtils = () => import('../utils/mediaBunny');
 import { v4 as uuidv4 } from 'uuid';
 import { useI18n } from '../i18n';
 import { useLayoutMode } from '../hooks/use-responsive';
@@ -39,6 +41,7 @@ export const MediaLibrary: React.FC<{ initialFilter?: MediaType | 'all' }> = ({ 
 
   const extractVideoMetadata = async (file: File, mediaFile: MediaFile) => {
     try {
+      const { getVideoMetadata, generateThumbnail } = await loadMediaUtils();
       const metadata = await getVideoMetadata(file);
       mediaFile.duration = metadata.duration;
       mediaFile.width = metadata.width;
@@ -104,6 +107,7 @@ export const MediaLibrary: React.FC<{ initialFilter?: MediaType | 'all' }> = ({ 
         await extractVideoMetadata(file, mediaFile);
       } else if (type === 'audio') {
         try {
+          const { getAudioDuration } = await loadMediaUtils();
           mediaFile.duration = await getAudioDuration(file);
         } catch (audioError) {
           console.warn('Audio duration extraction failed for', file.name, audioError);

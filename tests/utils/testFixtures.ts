@@ -216,8 +216,11 @@ export function createMultipleVideoClips(
   trackId: string,
   startTime: number = 0
 ): TimelineClip[] {
-  return mediaFiles.map((media, index) => {
-    const clipStartTime = startTime + index * media.duration;
+  // Placement séquentiel : chaque clip démarre après le précédent.
+  let cursor = startTime;
+  return mediaFiles.map((media) => {
+    const clipStartTime = cursor;
+    cursor += media.duration;
     return createMockClip(
       media.id,
       trackId,
