@@ -45,6 +45,12 @@ export function applyTheme(resolvedTheme: ResolvedTheme): void {
   root.classList.toggle('dark', isDark);
   root.style.colorScheme = resolvedTheme;
   root.dataset.theme = resolvedTheme;
+
+  // Keep the PWA/browser chrome in sync with the active theme.
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) {
+    themeColor.setAttribute('content', isDark ? '#0f0f0f' : '#ffffff');
+  }
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
