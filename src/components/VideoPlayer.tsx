@@ -715,7 +715,7 @@ const QualityMenu = ({
         bottom: '5rem',
       }}
     >
-      <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: '#a0a0a0' }}>
+      <div className="text-small mb-3 px-1 flex items-center justify-between" style={{ color: 'var(--text-secondary)' }}>
         <span>{t('previewQuality', { fps: currentFps })}</span>
         {isPerformancePoor && (
           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ color: '#F59E0B', background: 'rgba(245, 158, 11, 0.2)' }}>{t('slow')}</span>
@@ -730,14 +730,14 @@ const QualityMenu = ({
             </svg>
             <span className="font-medium">{t('autoDetected', { quality: hardwareProfile.recommendedQuality })}</span>
           </div>
-          <div className="mt-1" style={{ color: '#808080' }}>
+          <div className="mt-1" style={{ color: 'var(--text-muted)' }}>
             {t('cpuCoresScore', { cores: hardwareProfile.cpuCores, score: hardwareProfile.performanceScore })}
             {hardwareProfile.isAppleSilicon && ' • Apple Silicon'}
             {hardwareProfile.isHighEndMobile && !hardwareProfile.isAppleSilicon && t('highEndMobile')}
             {hardwareProfile.isLowEnd && t('powerSavingMode')}
           </div>
           {enhancedProfile && (
-            <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: '#a0a0a0' }}>
+            <div className="mt-2 pt-2" style={{ borderTop: '1px solid rgba(117, 122, 237, 0.2)', color: 'var(--text-secondary)' }}>
               <div className="flex items-center gap-1">
                 <Monitor className="w-3 h-3" />
                 <span className="text-[10px]">
@@ -775,20 +775,20 @@ const QualityMenu = ({
               )}
             </div>
             <div className="text-small mt-0.5" style={{
-              color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : '#808080'
+              color: previewSettings.quality === option.value ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)'
             }}>{option.description}</div>
           </button>
         ))}
       </div>
       
-      <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: '#808080' }}>
+      <div className="mt-3 pt-3 px-1 text-small" style={{ borderTop: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
         <div className="flex justify-between">
           <span>{t('maxResolution')}</span>
-          <span style={{ color: '#ffffff' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : t('qualityOriginal')}</span>
+          <span style={{ color: 'var(--text-primary)' }}>{previewSettings.maxResolution > 0 ? `${previewSettings.maxResolution}p` : t('qualityOriginal')}</span>
         </div>
         <div className="flex justify-between mt-1">
           <span>{t('targetFps')}</span>
-          <span style={{ color: '#ffffff' }}>{previewSettings.targetFps}</span>
+          <span style={{ color: 'var(--text-primary)' }}>{previewSettings.targetFps}</span>
         </div>
         {previewSettings.frameSkipping && (
           <div className="flex justify-between mt-1">

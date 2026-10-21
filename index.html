@@ -14,6 +14,25 @@
   <meta name="description" content="Osivibe - Éditeur vidéo professionnel en ligne par Jema Technology" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="format-detection" content="telephone=no" />
+
+  <!-- Theme bootstrap: applied before CSS/JS to avoid a light/dark flash. -->
+  <script>
+    (function () {
+      try {
+        var key = 'osivibe-theme';
+        var stored = window.localStorage.getItem(key);
+        var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDark = mode === 'dark' || (mode === 'system' && prefersDark);
+        var root = document.documentElement;
+        root.classList.toggle('dark', isDark);
+        root.style.colorScheme = isDark ? 'dark' : 'light';
+        root.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      } catch (error) {
+        document.documentElement.classList.remove('dark');
+      }
+    })();
+  </script>
   
   <!-- PWA Manifest (injecté automatiquement par vite-plugin-pwa) -->
   

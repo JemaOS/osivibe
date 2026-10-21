@@ -1561,7 +1561,7 @@ export const Timeline: React.FC = () => {
                           onChange={(e) => setTrackVolume(track.id, parseInt(e.target.value, 10) / 100)}
                           className="timeline-volume-slider min-w-0 flex-1"
                           style={{
-                            background: `linear-gradient(to right, #757AED ${Math.round((track.volume ?? 1) * 100)}%, #404040 ${Math.round((track.volume ?? 1) * 100)}%)`,
+                            background: `linear-gradient(to right, #757AED ${Math.round((track.volume ?? 1) * 100)}%, var(--slider-track) ${Math.round((track.volume ?? 1) * 100)}%)`,
                           }}
                         />
                         <span className={`${isCompact ? 'text-[9px]' : 'text-[10px] sm:text-xs'} text-neutral-300 font-medium text-right flex-shrink-0 w-7`}>
@@ -1846,7 +1846,7 @@ export const Timeline: React.FC = () => {
                       onChange={(e) => setTrackVolume(trackSettingsTrack.id, parseInt(e.target.value, 10) / 100)}
                       className="timeline-track-volume-slider flex-1 min-w-0"
                       style={{
-                        '--track-fill': `linear-gradient(to right, #757AED ${trackSettingsPercent}%, #404040 ${trackSettingsPercent}%)`,
+                        '--track-fill': `linear-gradient(to right, #757AED ${trackSettingsPercent}%, var(--slider-track) ${trackSettingsPercent}%)`,
                       } as React.CSSProperties}
                       aria-label={t('volumePercent', { percent: trackSettingsPercent })}
                     />

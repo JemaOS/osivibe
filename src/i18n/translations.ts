@@ -11,6 +11,11 @@ export const LANGUAGES = {
 export const translations: Record<Lang, Record<string, string>> = {
   en: {
     language: 'Language',
+    theme: 'Theme',
+    themeToggle: 'Change theme',
+    themeSystem: 'System',
+    themeLight: 'Light',
+    themeDark: 'Dark',
 
     // Header
     recentProjects: 'Recent projects',
@@ -290,6 +295,11 @@ export const translations: Record<Lang, Record<string, string>> = {
 
   fr: {
     language: 'Langue',
+    theme: 'Thème',
+    themeToggle: 'Changer de thème',
+    themeSystem: 'Système',
+    themeLight: 'Clair',
+    themeDark: 'Sombre',
 
     // Header
     recentProjects: 'Projets récents',

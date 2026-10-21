@@ -12,16 +12,34 @@
   :root {
     --radius: 8px;
     
-    /* Dark theme colors */
-    --bg-primary: #0f0f0f;
-    --bg-secondary: #1a1a1a;
-    --bg-tertiary: #252525;
-    --bg-hover: #2a2a2a;
-    
+    /* Light theme colors (default) */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f7f7f9;
+    --bg-tertiary: #f0f0f4;
+    --bg-hover: #e9e9ef;
+
+    /* Text colors */
+    --text-primary: #17171c;
+    --text-secondary: #4b5563;
+    --text-muted: #6b7280;
+    --text-on-primary: #ffffff;
+    --icon-color: #6b7280;
+
     /* Border colors */
-    --border-color: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(255, 255, 255, 0.2);
-    
+    --border-color: rgba(17, 24, 39, 0.1);
+    --border-hover: rgba(17, 24, 39, 0.2);
+
+    /* Controls */
+    --track-bg: rgba(17, 24, 39, 0.045);
+    --range-track: rgba(17, 24, 39, 0.12);
+    --range-track-strong: rgba(17, 24, 39, 0.2);
+    --range-track-faint: rgba(17, 24, 39, 0.18);
+    --slider-thumb: #757AED;
+    --slider-progress: #757AED;
+    --slider-track: #d4d4d8;
+    --scrollbar-thumb: #c7c9d4;
+    --scrollbar-thumb-hover: #a9acbb;
+
     /* Primary color */
     --primary: #757AED;
     --primary-hover: #6366F1;
@@ -74,6 +92,34 @@
     --safe-area-right: env(safe-area-inset-right, 0px);
   }
 
+  /* Dark theme: exact historical Osivibe palette */
+  .dark {
+    color-scheme: dark;
+    --bg-primary: #0f0f0f;
+    --bg-secondary: #1a1a1a;
+    --bg-tertiary: #252525;
+    --bg-hover: #2a2a2a;
+
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --text-muted: #808080;
+    --text-on-primary: #ffffff;
+    --icon-color: #a0a0a0;
+
+    --border-color: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.2);
+
+    --track-bg: rgba(255, 255, 255, 0.05);
+    --range-track: rgba(255, 255, 255, 0.1);
+    --range-track-strong: rgba(255, 255, 255, 0.2);
+    --range-track-faint: rgba(255, 255, 255, 0.3);
+    --slider-thumb: #ffffff;
+    --slider-progress: #ffffff;
+    --slider-track: #404040;
+    --scrollbar-thumb: #404040;
+    --scrollbar-thumb-hover: #505050;
+  }
+
   * {
     box-sizing: border-box;
   }
@@ -85,10 +131,19 @@
     overflow: hidden;
   }
 
+  html {
+    background: var(--bg-primary);
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     background: var(--bg-primary);
-    color: #ffffff;
+    color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -137,7 +192,7 @@
     @apply inline-flex items-center justify-center gap-2;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
-    color: #ffffff;
+    color: var(--text-primary);
     height: 40px;
     padding: 0 16px;
     border-radius: var(--radius);
@@ -160,14 +215,14 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius);
-    color: #a0a0a0;
+    color: var(--icon-color);
     cursor: pointer;
     transition: all 150ms ease;
   }
 
   .btn-icon:hover {
     background: var(--bg-hover);
-    color: #ffffff;
+    color: var(--text-primary);
     border-color: var(--border-hover);
   }
 
@@ -186,7 +241,7 @@
     padding: 0 12px;
     font-size: 14px;
     font-weight: 400;
-    color: #ffffff;
+    color: var(--text-primary);
     transition: all 150ms ease;
     outline: none;
   }
@@ -211,12 +266,12 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #404040;
+    background: var(--scrollbar-thumb);
     border-radius: 5px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #505050;
+    background: var(--scrollbar-thumb-hover);
   }
 
   /* Hidden Scrollbar (for overflow-x-auto without visible scrollbar) */
@@ -231,7 +286,7 @@
 
   /* Timeline Track */
   .timeline-track {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--track-bg);
     border-radius: 6px;
     min-height: 48px;
   }
@@ -304,7 +359,7 @@
   }
 
   input[type="range"]::-webkit-slider-track {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--range-track);
     height: 4px;
     border-radius: 2px;
   }
@@ -321,7 +376,7 @@
   }
 
   input[type="range"]::-moz-range-track {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--range-track);
     height: 4px;
     border-radius: 2px;
   }
@@ -395,7 +450,7 @@
     appearance: none;
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--range-track-strong);
     outline: none;
     cursor: pointer;
   }
@@ -403,7 +458,7 @@
   .volume-slider-horizontal::-webkit-slider-track {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--range-track-strong);
   }
 
   .volume-slider-horizontal::-webkit-slider-thumb {
@@ -411,7 +466,7 @@
     appearance: none;
     width: 12px;
     height: 12px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     cursor: pointer;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
@@ -421,21 +476,21 @@
   }
 
   .volume-slider-horizontal::-webkit-slider-thumb:hover {
-    background: #fff;
+    background: var(--slider-thumb);
     transform: scale(1.2);
   }
 
   .volume-slider-horizontal::-moz-range-track {
     height: 4px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--range-track-strong);
     border: none;
   }
 
   .volume-slider-horizontal::-moz-range-thumb {
     width: 12px;
     height: 12px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     border: none;
     cursor: pointer;
@@ -444,13 +499,13 @@
   }
 
   .volume-slider-horizontal::-moz-range-thumb:hover {
-    background: #fff;
+    background: var(--slider-thumb);
     transform: scale(1.2);
   }
 
   /* Fill the slider based on value */
   .volume-slider-horizontal::-moz-range-progress {
-    background: #fff;
+    background: var(--slider-progress);
     height: 4px;
     border-radius: 2px;
   }
@@ -478,7 +533,7 @@
     appearance: none;
     width: 12px;
     height: 12px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     cursor: pointer;
     box-shadow: 0 0 3px rgba(0, 0, 0, 0.4);
@@ -501,7 +556,7 @@
   .timeline-volume-slider::-moz-range-thumb {
     width: 12px;
     height: 12px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     border: none;
     cursor: pointer;
@@ -535,7 +590,7 @@
   .timeline-track-volume-slider::-webkit-slider-runnable-track {
     height: 8px;
     border-radius: 4px;
-    background: var(--track-fill, #404040);
+    background: var(--track-fill, var(--slider-track));
   }
 
   .timeline-track-volume-slider::-webkit-slider-thumb {
@@ -544,7 +599,7 @@
     width: 18px;
     height: 18px;
     margin-top: -5px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
     cursor: pointer;
@@ -553,14 +608,14 @@
   .timeline-track-volume-slider::-moz-range-track {
     height: 8px;
     border-radius: 4px;
-    background: var(--track-fill, #404040);
+    background: var(--track-fill, var(--slider-track));
     border: none;
   }
 
   .timeline-track-volume-slider::-moz-range-thumb {
     width: 18px;
     height: 18px;
-    background: #fff;
+    background: var(--slider-thumb);
     border-radius: 50%;
     border: none;
     box-shadow: 0 0 3px rgba(0, 0, 0, 0.5);
@@ -579,7 +634,7 @@
   .youtube-volume-slider::-webkit-slider-runnable-track {
     width: 100px;
     height: 4px;
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--range-track-faint);
     border-radius: 2px;
   }
 
@@ -589,7 +644,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--slider-thumb);
     cursor: pointer;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
     transition: transform 0.1s ease;
@@ -602,7 +657,7 @@
   .youtube-volume-slider::-moz-range-track {
     width: 100px;
     height: 4px;
-    background: rgba(255, 255, 255, 0.3);
+    background: var(--range-track-faint);
     border-radius: 2px;
     border: none;
   }
@@ -611,7 +666,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--slider-thumb);
     cursor: pointer;
     border: none;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
@@ -624,7 +679,7 @@
 
   /* Progress fill for YouTube slider */
   .youtube-volume-slider::-moz-range-progress {
-    background: #fff;
+    background: var(--slider-progress);
     border-radius: 2px;
   }
 }
@@ -1278,24 +1333,53 @@ html {
   }
 }
 
-/* Text color overrides for dark theme */
-.text-neutral-800,
-.text-neutral-700,
-.text-neutral-600 {
+/* Text color overrides for dark theme (historical behaviour) */
+.dark .text-neutral-800,
+.dark .text-neutral-700,
+.dark .text-neutral-600 {
   color: #ffffff !important;
 }
 
-.text-neutral-500 {
+.dark .text-neutral-500 {
   color: #a0a0a0 !important;
 }
 
-.text-neutral-400 {
+.dark .text-neutral-400 {
   color: #808080 !important;
 }
 
-/* Ensure all labels are visible */
-label {
+/* Ensure all labels are visible in the dark theme */
+.dark label {
   color: #a0a0a0 !important;
+}
+
+/* Light theme readability for the neutral text scale */
+html:not(.dark) .text-neutral-100 {
+  color: #111827;
+}
+
+html:not(.dark) .text-neutral-200 {
+  color: #1f2937;
+}
+
+html:not(.dark) .text-neutral-300 {
+  color: #374151;
+}
+
+html:not(.dark) .text-neutral-400 {
+  color: #64748b;
+}
+
+html:not(.dark) .text-neutral-500 {
+  color: #6b7280;
+}
+
+html:not(.dark) .text-gray-200 {
+  color: #1f2937;
+}
+
+html:not(.dark) .text-gray-400 {
+  color: #6b7280;
 }
 
 /* Glass panel text color */
@@ -1576,23 +1660,200 @@ canvas {
   }
 }
 
+/* ============================================
+   LIGHT THEME COMPATIBILITY LAYER
+   Legacy components use dark-only Tailwind
+   utilities. These rules translate them when
+   the `dark` class is absent (light theme)
+   without touching purple buttons or badges.
+   ============================================ */
 
-
-
-/* Optimize canvas rendering (used for video effects) */
-canvas {
-  image-rendering: optimizeSpeed;
-  -webkit-image-rendering: optimizeSpeed;
+/* Neutral background scale */
+html:not(.dark) .bg-neutral-950 {
+  background-color: #ffffff;
 }
 
-/* High DPI screen optimizations */
-@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
-  video {
-    /* Prevent subpixel rendering issues */
-    transform: translateZ(0);
-  }
+html:not(.dark) .bg-neutral-900 {
+  background-color: var(--bg-secondary);
 }
 
+html:not(.dark) .bg-neutral-800 {
+  background-color: var(--bg-tertiary);
+}
 
+html:not(.dark) .bg-neutral-700 {
+  background-color: var(--bg-hover);
+}
 
+/* Historical hex surfaces */
+html:not(.dark) .bg-\[\#0f0f0f\],
+html:not(.dark) .bg-\[\#141414\] {
+  background-color: var(--bg-primary);
+}
 
+html:not(.dark) .bg-\[\#1a1a1a\],
+html:not(.dark) .bg-\[\#171717\],
+html:not(.dark) .bg-\[\#1b1b1b\],
+html:not(.dark) .bg-\[\#1f1f1f\] {
+  background-color: var(--bg-secondary);
+}
+
+html:not(.dark) .bg-\[\#252525\] {
+  background-color: var(--bg-primary);
+}
+
+html:not(.dark) .bg-\[\#2a2a2a\] {
+  background-color: var(--bg-hover);
+}
+
+/* Gray surfaces used by timeline dialogs */
+html:not(.dark) .bg-gray-800 {
+  background-color: var(--bg-primary);
+}
+
+html:not(.dark) .border-gray-700 {
+  border-color: var(--border-color);
+}
+
+/* Translucent white surfaces become translucent dark surfaces */
+html:not(.dark) .bg-white\/5 {
+  background-color: rgba(17, 24, 39, 0.035);
+}
+
+html:not(.dark) .bg-white\/10 {
+  background-color: rgba(17, 24, 39, 0.06);
+}
+
+html:not(.dark) .bg-white\/15 {
+  background-color: rgba(17, 24, 39, 0.08);
+}
+
+html:not(.dark) .bg-white\/20 {
+  background-color: rgba(17, 24, 39, 0.1);
+}
+
+html:not(.dark) .bg-white\/25 {
+  background-color: rgba(17, 24, 39, 0.12);
+}
+
+html:not(.dark) .bg-white\/30 {
+  background-color: rgba(17, 24, 39, 0.14);
+}
+
+html:not(.dark) .hover\:bg-white\/5:hover {
+  background-color: rgba(17, 24, 39, 0.05);
+}
+
+html:not(.dark) .hover\:bg-white\/10:hover {
+  background-color: rgba(17, 24, 39, 0.07);
+}
+
+html:not(.dark) .hover\:bg-white\/15:hover {
+  background-color: rgba(17, 24, 39, 0.09);
+}
+
+html:not(.dark) .active\:bg-white\/10:active {
+  background-color: rgba(17, 24, 39, 0.07);
+}
+
+html:not(.dark) .active\:bg-white\/15:active {
+  background-color: rgba(17, 24, 39, 0.09);
+}
+
+html:not(.dark) .hover\:bg-gray-700:hover {
+  background-color: var(--bg-hover);
+}
+
+/* Glass tints */
+html:not(.dark) .bg-glass-light {
+  background-color: rgba(17, 24, 39, 0.07);
+}
+
+html:not(.dark) .bg-glass-medium {
+  background-color: rgba(17, 24, 39, 0.05);
+}
+
+html:not(.dark) .bg-glass-subtle {
+  background-color: rgba(17, 24, 39, 0.03);
+}
+
+html:not(.dark) .bg-glass-dark {
+  background-color: rgba(17, 24, 39, 0.1);
+}
+
+/* Borders and separators */
+html:not(.dark) .border-white\/5 {
+  border-color: rgba(17, 24, 39, 0.06);
+}
+
+html:not(.dark) .border-white\/10 {
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+html:not(.dark) .border-white\/20 {
+  border-color: rgba(17, 24, 39, 0.16);
+}
+
+html:not(.dark) .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(17, 24, 39, 0.1);
+}
+
+html:not(.dark) .ring-offset-neutral-900 {
+  --tw-ring-offset-color: var(--bg-secondary);
+}
+
+/* White text becomes the light theme foreground, except on brand/colored fills */
+html:not(.dark) .text-white:where(:not(.bg-primary-500):not(.bg-primary-600):not(.bg-primary-700):not(.bg-primary-900):not(.bg-black\/70):not(.bg-black\/60):not(.bg-black\/50):not([class*="bg-[var(--primary)]"])) {
+  color: var(--text-primary);
+}
+
+/* Restore white text on solid brand, glass-inline and dark video overlays */
+html:not(.dark) .bg-primary-500 .text-white,
+html:not(.dark) .bg-primary-600 .text-white,
+html:not(.dark) .bg-primary-700 .text-white,
+html:not(.dark) .bg-primary-900 .text-white,
+html:not(.dark) .bg-error .text-white,
+html:not(.dark) .bg-success .text-white,
+html:not(.dark) .bg-warning .text-white,
+html:not(.dark) .bg-red-500 .text-white,
+html:not(.dark) .bg-red-600 .text-white,
+html:not(.dark) .bg-emerald-500 .text-white,
+html:not(.dark) .bg-green-500 .text-white,
+html:not(.dark) .bg-blue-500 .text-white,
+html:not(.dark) .bg-blue-600 .text-white,
+html:not(.dark) .bg-amber-500 .text-white,
+html:not(.dark) .bg-orange-500 .text-white,
+html:not(.dark) .bg-pink-500 .text-white,
+html:not(.dark) [style*="background-color"] .text-white,
+html:not(.dark) .text-white[style*="background"] {
+  color: var(--text-on-primary);
+}
+
+/* Video overlays keep their white typography on the black stage */
+html:not(.dark) [class*="bg-black"] .text-white {
+  color: #ffffff;
+}
+
+html:not(.dark) [class*="bg-black"].border-white\/20 {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Hover text */
+html:not(.dark) .hover\:text-white:hover {
+  color: var(--text-primary);
+}
+
+html:not(.dark) .hover\:bg-primary-500.hover\:text-white:hover,
+html:not(.dark) .hover\:bg-primary-600.hover\:text-white:hover {
+  color: #ffffff;
+}
+
+/* Native controls */
+html:not(.dark) {
+  accent-color: var(--primary);
+}
+
+html:not(.dark) ::selection {
+  background: rgba(117, 122, 237, 0.25);
+  color: var(--text-primary);
+}

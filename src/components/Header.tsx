@@ -23,6 +23,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useResponsive, useLayoutMode } from '../hooks/use-responsive';
 import { useI18n } from '../i18n';
 import { LanguageSelector } from './LanguageSelector';
+import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
   isSidebarVisible: boolean;
@@ -305,6 +306,9 @@ export const Header: React.FC<HeaderProps> = ({ isSidebarVisible, onToggleSideba
 
         {/* Divider - Hidden on small screens */}
         <div className="hidden fold-open:block lg:block w-px h-6 bg-white/20 mx-1" />
+
+        {/* Theme selector */}
+        <ThemeToggle />
 
         {/* Language selector */}
         <LanguageSelector />
