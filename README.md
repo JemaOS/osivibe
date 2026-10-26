@@ -17,6 +17,10 @@
 
 [Features](#-features) · [Screenshots](#-screenshots) · [Getting started](#-getting-started) · [Tech stack](#-tech-stack) · [License](#-license)
 
+<br>
+
+<sub>**Keywords:** online video editor · browser video editor · timeline editing · video transitions · video effects · text & titles · video export · MP4 · WebM · media library · hardware-accelerated encoding · MediaBunny · no install · no upload · responsive · PWA · React · TypeScript · TailwindCSS</sub>
+
 </div>
 
 ![OsiVibe — video editor](screenshots/main.png)
@@ -47,9 +51,21 @@ OsiVibe is a modern, browser-based video editor built for performance and access
 
 ## 📸 Screenshots
 
+### Interface
+
 | Light | Dark |
 | :---: | :---: |
 | <img src="screenshots/main.png" alt="OsiVibe — light" /> | <img src="screenshots/main-dark.png" alt="OsiVibe — dark" /> |
+
+### Editing tools
+
+| 🔤 Text & titles | 🔄 Transitions |
+| :---: | :---: |
+| <img src="screenshots/text.png" alt="OsiVibe — add captions and titles" /> | <img src="screenshots/transition.png" alt="OsiVibe — transitions between clips" /> |
+
+| ✨ Effects | 📤 Export |
+| :---: | :---: |
+| <img src="screenshots/effects.png" alt="OsiVibe — filters and effects" /> | <img src="screenshots/export.png" alt="OsiVibe — export dialog with presets" /> |
 
 ---
 
