@@ -1,157 +1,137 @@
-# 🎬 OsiVibe
+<div align="center">
 
-> Professional video editor in your browser — open source & libre
+<h1>🎬 OsiVibe</h1>
 
+### Professional video editing, right in your browser
+
+[![Made by Jema Technology](https://img.shields.io/badge/Made%20by-Jema%20Technology-8286ef)](https://www.jematechnology.fr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Made by Jema Technology](https://img.shields.io/badge/Made%20by-Jema%20Technology-757aed)](https://www.jematechnology.fr/)
-[![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://reactjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-6-646cff?logo=vite&logoColor=white)](https://vitejs.dev)
+[![TailwindCSS](https://img.shields.io/badge/Tailwind-3-38bdf8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![PWA](https://img.shields.io/badge/PWA-Offline%20Ready-8286ef)](#-supported-devices)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-contributing)
+
+**Timeline editing · transitions · effects · text · hardware-accelerated export** — no installation, no upload.
+
+[Features](#-features) · [Screenshots](#-screenshots) · [Getting started](#-getting-started) · [Tech stack](#-tech-stack) · [License](#-license)
+
+</div>
+
+![OsiVibe — video editor](screenshots/main.png)
 
 ---
 
 ## 🎯 About
 
-OsiVibe is a modern, browser-based video editor built with performance and accessibility in mind. Designed to work seamlessly across all devices — from foldable smartphones to desktop computers — OsiVibe brings professional video editing capabilities to everyone, everywhere.
-
-**Key Highlights:**
-- 🆓 **Open Source & Libre** — Free to use, modify, and distribute
-- 🌐 **Browser-Based** — No installation required
-- 📱 **Responsive Design** — Optimized for foldable devices, phones, tablets, and desktops
-- ⚡ **Hardware-Optimized** — GPU/CPU detection for optimal encoding performance
-- 🐇 **Media Bunny** — Delivers insane performance with instant media loading, zero-latency playback, and optimized stream handling for a butter-smooth editing experience
-
----
+OsiVibe is a modern, browser-based video editor built for performance and accessibility. It runs seamlessly from foldable phones to desktop computers, bringing professional editing to everyone, everywhere.
 
 ## ✨ Features
 
 | Feature | Description |
-|---------|-------------|
-| 🎬 **Timeline Editing** | Intuitive drag-and-drop timeline for video arrangement |
+| --- | --- |
+| 🎬 **Timeline editing** | Intuitive drag-and-drop timeline for arranging clips |
 | 🎨 **Modern UI** | Clean, dark-themed interface with smooth animations |
 | 🔄 **Transitions** | Built-in transition effects between clips |
-| 📤 **Export Options** | Multiple format and quality export settings |
-| 🖥️ **Hardware Detection** | Automatic GPU/CPU optimization for encoding |
-| 📚 **Media Library** | Organized media management system |
-| ⚙️ **Properties Panel** | Fine-tune clip properties and effects |
+| 🔤 **Text & titles** | Add captions and titles on top of your video |
+| ✨ **Effects** | Fine-tune clip properties, filters and effects |
+| 📤 **Export** | Multiple formats and quality presets |
+| 🖥️ **Hardware detection** | Automatic GPU/CPU optimization for encoding |
+| 📚 **Media library** | Organized media management (video, audio, images) |
+| ⚡ **Media Bunny engine** | Instant media loading and zero-latency playback |
+
+**Key highlights:** free & open source, browser-based (no install), fully responsive, installable as a PWA.
 
 ---
 
-## 📱 Supported Devices
+## 📸 Screenshots
 
-OsiVibe features a comprehensive responsive design system optimized for modern devices:
+<p align="center">
+  <img src="screenshots/main.png" width="900" alt="OsiVibe editor" />
+</p>
+
+---
+
+## 📱 Supported devices
+
+OsiVibe ships a comprehensive responsive system built for modern devices:
 
 | Category | Devices |
-|----------|---------|
-| **📱 Foldables** | Galaxy Z Fold 5/6, Honor Magic V3, Oppo Find N3, Pixel Fold |
-| **📱 Smartphones** | iPhone 15 Pro Max, iPhone SE, Galaxy S24, Pixel 8 |
-| **📲 Tablets** | iPad Pro, iPad Air, iPad Mini, Galaxy Tab |
-| **🖥️ Desktop** | All modern browsers (Chrome, Firefox, Safari, Edge) |
+| --- | --- |
+| **Foldables** | Galaxy Z Fold 5/6, Honor Magic V3, Oppo Find N3, Pixel Fold |
+| **Smartphones** | iPhone 15 Pro Max, iPhone SE, Galaxy S24, Pixel 8 |
+| **Tablets** | iPad Pro/Air/Mini, Galaxy Tab |
+| **Desktop** | Chrome, Firefox, Safari, Edge |
 
-### Breakpoints
+Breakpoints:
 
 ```
-fold-cover: 272px  │  xs: 375px  │  sm: 428px  │  fold-inner: 512px
-md: 768px  │  lg: 1024px  │  xl: 1280px  │  2xl: 1536px
+fold-cover: 272px │ xs: 375px │ sm: 428px │ fold-inner: 512px
+md: 768px │ lg: 1024px │ xl: 1280px │ 2xl: 1536px
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting started
 
 ### Prerequisites
 
-- Node.js 18 or higher
-- npm or pnpm
+- [Node.js](https://nodejs.org) 18+
+- npm
 
-### Installation
+### Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/jematechnology/osivibe.git
+git clone https://github.com/JemaOS/osivibe.git
 cd osivibe
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+### Build & preview
 
----
-
-## 💻 Development
-
-### Available Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
-| `npm run build:prod` | Build for production (optimized) |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run ESLint |
-
-### Project Structure
-
+```bash
+npm run build       # production build
+npm run preview     # preview locally
 ```
-osivibe/
-├── public/           # Static assets & PWA files
-├── src/
-│   ├── components/   # React components
-│   ├── hooks/        # Custom React hooks
-│   ├── lib/          # Utility libraries
-│   ├── store/        # Zustand state management
-│   ├── types/        # TypeScript type definitions
-│   └── utils/        # Helper functions
-└── ...config files
+
+### Tests
+
+```bash
+npm test            # unit tests (Vitest)
+npm run test:e2e    # end-to-end tests (Playwright)
 ```
 
 ---
 
-## 🔧 Tech Stack
+## 🔧 Tech stack
 
-| Technology | Purpose |
-|------------|---------|
-| **React 18** | UI Framework |
-| **TypeScript** | Type Safety |
-| **Vite** | Build Tool & Dev Server |
-| **Tailwind CSS** | Styling |
-| **Zustand** | State Management |
-| **shadcn/ui** | UI Components |
-| **FFmpeg.wasm** | Video Processing |
-| **Radix UI** | Accessible Primitives |
+- **React 18** + **TypeScript**
+- **Vite** build tooling
+- **TailwindCSS** styling
+- **Zustand** state management
+- **Media Bunny** + **FFmpeg WASM** for decoding/encoding
+- **Vitest** + **Playwright** for tests
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Fork, branch, and open a pull request.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+```bash
+git checkout -b feat/my-feature
+git commit -m "feat: my feature"
+git push origin feat/my-feature
+```
 
 ---
 
 ## 📄 License
 
-MIT License © 2025 [Jema Technology](https://www.jematechnology.fr/)
+Released under the **MIT License** — see [LICENSE](LICENSE).
 
-See [LICENSE](LICENSE) for more information.
-
----
-
-## 🔗 Links
-
-- **Website:** [jematechnology.fr](https://www.jematechnology.fr/)
-- **Issues:** [GitHub Issues](https://github.com/jematechnology/osivibe/issues)
-
----
-
-<p align="center">
-  Made with ❤️ by <a href="https://www.jematechnology.fr/">Jema Technology</a>
-</p>
+<div align="center">
+Made with ❤️ by <a href="https://www.jematechnology.fr">Jema Technology</a>
+</div>
