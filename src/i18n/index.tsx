@@ -14,9 +14,34 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-// French by default for JemaOS PWAs; the LanguageSelector is a
-// session-only override (never persisted).
+// Langue courante (module-level, pour le code hors React).
 let activeLang: Lang = 'fr';
+
+const LANG_STORAGE_KEY = 'jemaos_lang';
+
+// Langue initiale : choix persisté de l'utilisateur, sinon langue du
+// navigateur/système (en ou fr), sinon anglais. Les PWA suivent donc la
+// langue du système/navigateur par défaut.
+function detectInitialLang(): Lang {
+  try {
+    const saved = localStorage.getItem(LANG_STORAGE_KEY);
+    if (saved === 'en' || saved === 'fr') return saved;
+  } catch {
+    /* stockage indisponible */
+  }
+  try {
+    const candidates = navigator.languages?.length
+      ? navigator.languages
+      : [navigator.language];
+    for (const candidate of candidates) {
+      const short = (candidate || '').toLowerCase().split('-')[0];
+      if (short === 'en' || short === 'fr') return short;
+    }
+  } catch {
+    /* navigator indisponible */
+  }
+  return 'en';
+}
 
 function interpolate(template: string, params?: Record<string, string | number>): string {
   if (!params) return template;
@@ -32,7 +57,7 @@ export function t(key: string, params?: Record<string, string | number>): string
 }
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [lang, setLangState] = useState<Lang>('fr');
+  const [lang, setLangState] = useState<Lang>(detectInitialLang);
 
   useEffect(() => {
     activeLang = lang;
@@ -41,6 +66,11 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setLang = (newLang: Lang) => {
     setLangState(newLang);
+    try {
+      localStorage.setItem(LANG_STORAGE_KEY, newLang);
+    } catch {
+      /* stockage indisponible */
+    }
   };
 
   const value: I18nContextValue = {
