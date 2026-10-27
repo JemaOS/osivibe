@@ -67,6 +67,12 @@ OsiVibe is a modern, browser-based video editor built for performance and access
 | :---: | :---: |
 | <img src="screenshots/effects.png" alt="OsiVibe — filters and effects" /> | <img src="screenshots/export.png" alt="OsiVibe — export dialog with presets" /> |
 
+### 📱 Mobile
+
+| Dark | Light |
+| :---: | :---: |
+| <img src="screenshots/mobile-dark.png" alt="OsiVibe — mobile, dark" width="300" /> | <img src="screenshots/mobile-light.png" alt="OsiVibe — mobile, light" width="300" /> |
+
 ---
 
 ## 📱 Supported devices
